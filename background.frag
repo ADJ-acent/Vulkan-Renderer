@@ -1,4 +1,5 @@
 #version 450
+#define M_PI 3.1415926535897932384626433832795
 
 layout(push_constant) uniform Push {
     float time;
@@ -7,45 +8,19 @@ layout(push_constant) uniform Push {
 layout(location = 0) in vec2 position;
 layout(location = 0) out vec4 outColor;
 
-// 2D Random from the book of shaders: https://thebookofshaders.com/11/
-float random (in vec2 st) {
-    return fract(sin(dot(st.xy,
-                         vec2(12.9898,78.233)))
-                 * 43758.5453123);
-}
-
-// 2D Noise from the book of shaders: https://thebookofshaders.com/11/
-float noise (in vec2 st) {
-    vec2 i = floor(st);
-    vec2 f = fract(st);
-
-    // Four corners in 2D of a tile
-    float a = random(i);
-    float b = random(i + vec2(1.0, 0.0));
-    float c = random(i + vec2(0.0, 1.0));
-    float d = random(i + vec2(1.0, 1.0));
-
-    // Smooth Interpolation
-
-    // Cubic Hermine Curve.  Same as SmoothStep()
-    vec2 u = f*f*(3.0-2.0*f);
-
-    // Mix 4 coorners percentages
-    return mix(a, b, u.x) +
-            (c - a)* u.y * (1.0 - u.x) +
-            (d - b) * u.x * u.y;
+//constructed using equation from https://forums.ni.com/t5/LabVIEW/3D-sinc-graph/td-p/394054
+float sinc2D (in vec2 st) {
+    float dist = distance(st, vec2(0));
+    
+    return dist == 0 ? 1 : sin(M_PI * dist)/(M_PI * dist);
 }
 
 void main() {
-    float noisedValue = noise(position * 20 + sin(time ) * 20);
-    float step1 = step(0.8, noisedValue);
-    float step2 = step(0.3, noisedValue);
-    vec3 color1 = vec3(0.098, 0, 0.2784);
-    vec3 color2 = vec3(0.1255, 0.294, 0.6118);
-    vec3 color3 = vec3(0.247, 0.8745, 0.769);
+    float color1 = sinc2D((position-.5)* 20) + 0.2 + sin(time);
+    vec2 pos2 = (position+ vec2(sin(time), cos(time))-.5)* 10 ;
+    float color2 = sinc2D(pos2) + 0.3;
+    vec2 pos3 = (position + vec2(cos(time), sin(time)) - .5) * 20;
+    float color3 = sinc2D(pos3) + 0.25;
 
-    //composite the colors
-    vec3 finalColor = max(max(color3 * step1, color2 * step2), color1);
-
-    outColor = vec4(finalColor, 1.0);
+    outColor = vec4((color1*2*color2*color3) * gl_FragCoord.xy/300, 0.3, 1.0);
 }
