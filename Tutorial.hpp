@@ -1,5 +1,8 @@
 #pragma once
 
+#include "PosColVertex.hpp"
+#include "mat4.hpp"
+
 #include "RTG.hpp"
 
 struct Tutorial : RTG::Application {
@@ -38,14 +41,59 @@ struct Tutorial : RTG::Application {
 		void destroy(RTG &);
 	} background_pipeline;
 
+	struct LinesPipeline {
+		//descriptor set layouts:
+		VkDescriptorSetLayout set0_Camera = VK_NULL_HANDLE;
+
+		//types for descriptors:
+		struct Camera {
+			mat4 CLIP_FROM_WORLD;
+		};
+
+		static_assert(sizeof(Camera) == 16*4, "camera buffer structure is packed");
+
+		// no push constants
+
+		VkPipelineLayout layout = VK_NULL_HANDLE;
+
+		using Vertex = PosColVertex;
+
+		VkPipeline handle = VK_NULL_HANDLE;
+
+		void create(RTG &, VkRenderPass render_pass, uint32_t subpass);
+		void destroy(RTG &);
+	} lines_pipeline;
+
+	struct ObjectsPipeline {
+		//descriptor set layouts:
+		VkDescriptorSetLayout set0_Camera = VK_NULL_HANDLE;
+
+		//types for descriptors:
+		using Camera = LinesPipeline::Camera;
+
+		//no push constants
+
+		
+	};
+
 	//pools from which per-workspace things are allocated:
 	VkCommandPool command_pool = VK_NULL_HANDLE;
 	
-	//STEPX: Add descriptor pool here.
+	//descriptor pool
+	VkDescriptorPool descriptor_pool = VK_NULL_HANDLE;
 
 	//workspaces hold per-render resources:
 	struct Workspace {
 		VkCommandBuffer command_buffer = VK_NULL_HANDLE; //from the command pool above; reset at the start of every render.
+		
+		//location for lines data: (streamed to GPU per-frame)
+		Helpers::AllocatedBuffer lines_vertices_src; //host coherent; mapped
+		Helpers::AllocatedBuffer lines_vertices; //device-local
+
+		//location for LinesPipeline::Camera data: (streamed to GPU per-frame)
+		Helpers::AllocatedBuffer Camera_src; //host coherent; mapped
+		Helpers::AllocatedBuffer Camera; //device-local
+		VkDescriptorSet Camera_descriptors; //references Camera
 
 	};
 	std::vector< Workspace > workspaces;
@@ -71,6 +119,10 @@ struct Tutorial : RTG::Application {
 	virtual void on_input(InputEvent const &) override;
 
 	float time = 0.0f;
+
+	mat4 CLIP_FROM_WORLD;
+
+	std::vector<LinesPipeline::Vertex> lines_vertices;
 
 	//--------------------------------------------------------------------
 	//Rendering function, uses all the resources above to queue work to draw a frame:
