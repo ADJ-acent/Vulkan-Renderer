@@ -64,7 +64,52 @@ void Helpers::destroy_image(AllocatedImage &&image) {
 //----------------------------
 
 void Helpers::transfer_to_buffer(void *data, size_t size, AllocatedBuffer &target) {
-	refsol::Helpers_transfer_to_buffer(rtg, data, size, &target);
+	//NOTE: could let this stick around and use it for all uploads, but this function isn't for performant transfers:
+	AllocatedBuffer transfer_src = create_buffer(
+		size,
+		VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+		VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+		Mapped
+	);
+	//copy data to transfer buffer
+	std::memcpy(transfer_src.allocation.data(), data, size);
+
+
+	{ //record command buffer that does CPU->GPU transfer:
+		VK(vkResetCommandBuffer(transfer_command_buffer, 0));
+
+		VkCommandBufferBeginInfo begin_info{
+			.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+			.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT, //will record again every submit
+		};
+
+		VK(vkBeginCommandBuffer(transfer_command_buffer, &begin_info));
+
+		VkBufferCopy copy_region{
+			.srcOffset = 0,
+			.dstOffset = 0,
+			.size = size
+		};
+		vkCmdCopyBuffer(transfer_command_buffer, transfer_src.handle, target.handle, 1, &copy_region);
+
+		VK(vkEndCommandBuffer(transfer_command_buffer));
+	}
+
+	{//run command buffer
+		VkSubmitInfo submit_info{
+			.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+			.commandBufferCount = 1,
+			.pCommandBuffers = &transfer_command_buffer
+		};
+
+		VK(vkQueueSubmit(rtg.graphics_queue, 1, &submit_info, VK_NULL_HANDLE));
+	}
+
+	//wait for command buffer to finish
+	VK(vkQueueWaitIdle(rtg.graphics_queue));
+
+	//don't leak buffer memory:
+	destroy_buffer(std::move(transfer_src));
 }
 
 void Helpers::transfer_to_image(void *data, size_t size, AllocatedImage &target) {
@@ -92,7 +137,31 @@ Helpers::~Helpers() {
 }
 
 void Helpers::create() {
+	VkCommandPoolCreateInfo create_info{
+		.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
+		.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,
+		.queueFamilyIndex = rtg.graphics_queue_family.value(),
+	};
+	VK(vkCreateCommandPool(rtg.device, &create_info, nullptr, &transfer_command_pool));
+
+	VkCommandBufferAllocateInfo alloc_info{
+		.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+		.commandPool = transfer_command_pool,
+		.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+		.commandBufferCount = 1,
+	};
+	VK(vkAllocateCommandBuffers(rtg.device, &alloc_info, &transfer_command_buffer));
 }
 
 void Helpers::destroy() {
+	//technically not needed since freeing the pool frees the buffers contained
+	if (transfer_command_buffer != VK_NULL_HANDLE) {
+		vkFreeCommandBuffers(rtg.device, transfer_command_pool, 1, &transfer_command_buffer);
+		transfer_command_buffer = VK_NULL_HANDLE;
+	}
+
+	if (transfer_command_pool != VK_NULL_HANDLE) {
+		vkDestroyCommandPool(rtg.device, transfer_command_pool, nullptr);
+		transfer_command_pool = VK_NULL_HANDLE;
+	}
 }
