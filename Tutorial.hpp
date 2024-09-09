@@ -67,12 +67,21 @@ struct Tutorial : RTG::Application {
 
 	struct ObjectsPipeline {
 		//descriptor set layouts:
-		// VkDescriptorSetLayout set0_Camera = VK_NULL_HANDLE; // will get back to this
+		VkDescriptorSetLayout set0_World = VK_NULL_HANDLE;
         VkDescriptorSetLayout set1_Transforms = VK_NULL_HANDLE;
         VkDescriptorSetLayout set2_TEXTURE = VK_NULL_HANDLE;
-        
+
 		//types for descriptors:
-		struct Transform {
+
+        struct World {
+            struct { float x, y, z, padding_; } SKY_DIRECTION;
+            struct { float r, g, b, padding_; } SKY_ENERGY;
+            struct { float x, y, z, padding_; } SUN_DIRECTION;
+            struct { float r, g, b, padding_; } SUN_ENERGY;
+        };
+        static_assert(sizeof(World) == 4*4 + 4*4 + 4*4 + 4*4, "World is the expected size.");
+		
+        struct Transform {
             mat4 CLIP_FROM_LOCAL;
             mat4 WORLD_FROM_LOCAL;
             mat4 WORLD_FROM_LOCAL_NORMAL;
@@ -109,6 +118,11 @@ struct Tutorial : RTG::Application {
 		Helpers::AllocatedBuffer Camera_src; //host coherent; mapped
 		Helpers::AllocatedBuffer Camera; //device-local
 		VkDescriptorSet Camera_descriptors; //references Camera
+
+        //location for ObjectsPipeline::World data: (streamed to GPU per-frame)
+        Helpers::AllocatedBuffer World_src; //host coherent; mapped
+        Helpers::AllocatedBuffer World; //device-local
+        VkDescriptorSet World_descriptors; //references World
 
         // locations for ObjectsPipeline::Transforms data: (streamed to GPU per-frame):
         Helpers::AllocatedBuffer Transforms_src; //host coherent; mapped
@@ -157,6 +171,9 @@ struct Tutorial : RTG::Application {
 	mat4 CLIP_FROM_WORLD;
 
 	std::vector<LinesPipeline::Vertex> lines_vertices;
+
+    ObjectsPipeline::World world;
+    
     struct ObjectInstance {
 		ObjectVertices vertices;
 		ObjectsPipeline::Transform transform;
