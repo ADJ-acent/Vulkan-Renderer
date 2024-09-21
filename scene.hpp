@@ -41,7 +41,7 @@ struct Scene
             glm::vec3 value_albedo;
             uint32_t texture_index;
         };
-
+        bool has_texture = false;
         Lambertian albedo;
     };
 
@@ -50,7 +50,7 @@ struct Scene
         std::string source = "";
         VkPrimitiveTopology topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
         uint32_t count = 0;
-        uint32_t material_index;
+        int32_t material_index = -1;
         // assuming all has the format of PosNorTanTex
     };
 
@@ -69,9 +69,9 @@ struct Scene
         std::string name;
         Transform transform;
         std::vector<uint32_t> children;
-        uint32_t cameras_index;
-        uint32_t mesh_index;
-        uint32_t light_index;
+        int32_t cameras_index = -1;
+        int32_t mesh_index = -1;
+        int32_t light_index = -1;
         // ignoring environment
     };
 
@@ -83,7 +83,9 @@ struct Scene
     std::vector<Texture> textures;
     std::vector<uint32_t> root_nodes;
 
-    void load(std::string filename);
-
     Scene(std::string filename);
+
+    void load(std::string file_path);
+
+    void debug();
 };

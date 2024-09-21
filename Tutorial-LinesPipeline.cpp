@@ -1,4 +1,4 @@
-#include "Tutorial.hpp"
+#include "RTGRenderer.hpp"
 
 #include "Helpers.hpp"
 
@@ -12,7 +12,7 @@ static uint32_t frag_code[] =
 #include "spv/lines.frag.inl"
 ;
 
-void Tutorial::LinesPipeline::create(RTG &rtg, VkRenderPass render_pass, uint32_t subpass) {
+void RTGRenderer::LinesPipeline::create(RTG &rtg, VkRenderPass render_pass, uint32_t subpass) {
     VkShaderModule vert_module = rtg.helpers.create_shader_module(vert_code);
     VkShaderModule frag_module = rtg.helpers.create_shader_module(frag_code);
 
@@ -162,7 +162,7 @@ void Tutorial::LinesPipeline::create(RTG &rtg, VkRenderPass render_pass, uint32_
     }
 }
 
-void Tutorial::LinesPipeline::destroy(RTG &rtg) {
+void RTGRenderer::LinesPipeline::destroy(RTG &rtg) {
     if (set0_Camera != VK_NULL_HANDLE) {
 		vkDestroyDescriptorSetLayout(rtg.device, set0_Camera, nullptr);
 		set0_Camera = VK_NULL_HANDLE;

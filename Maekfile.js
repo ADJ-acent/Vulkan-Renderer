@@ -27,14 +27,15 @@ custom_flags_and_rules();
 //maek.CPP(...) builds a c++ file:
 // it returns the path to the output object file
 const main_objs = [
-	maek.CPP('Tutorial.cpp'),
+	maek.CPP('RTGRenderer.cpp'),
 	maek.CPP('PosColVertex.cpp'),
 	maek.CPP('PosNorTexVertex.cpp'),
 	maek.CPP('RTG.cpp'),
 	maek.CPP('Helpers.cpp'),
 	maek.CPP('main.cpp'),
 	maek.CPP('PosNorTanTexVertex.cpp'),
-	maek.CPP('scene.cpp'),
+	maek.CPP('Scene.cpp'),
+	maek.CPP('data_path.cpp'),
 	maek.CPP('sejp.cpp'),
 ];
 

@@ -1,12 +1,19 @@
 #include "scene.hpp"
 #include "sejp.hpp"
+#include "data_path.hpp"
 #include <fstream>
 #include <iostream>
 #include <unordered_map>
+
+Scene::Scene(std::string file_path)
+{
+    load(data_path(file_path));
+}
+
 void Scene::load(std::string filename)
 {
-    if (filename.substr(filename.size()-5, 4) != ".s72") {
-        throw std::runtime_error("Scene " + filename + " is not a compatible format (s72 required).");
+    if (filename.substr(filename.size()-4, 4) != ".s72") {
+        throw std::runtime_error("Scene " + filename + " is not a compatible format (s72 required). Last 4 char is " + filename.substr(filename.size()-5, 4));
     }
     sejp::value val = sejp::load(filename);
     try {
@@ -21,7 +28,7 @@ void Scene::load(std::string filename)
         std::unordered_map<std::string, uint32_t> textures_map;
         std::unordered_map<std::string, uint32_t> cameras_map;
 
-        for (uint32_t i = 1; i < uint32_t(object.size()); ++i) {
+        for (int32_t i = 1; i < int32_t(object.size()); ++i) {
             auto object_i = object[i].as_object().value();
             std::optional<std::string> type = object_i.find("type")->second.as_string();
             if (!type) {
@@ -34,14 +41,14 @@ void Scene::load(std::string filename)
                         std::vector<sejp::value> roots = roots_opt.value();
                         root_nodes.reserve(roots.size());
                         // find node index through the map, insert index to node, if node doesn't exist in the map, create a placeholder entry
-                        for (uint32_t j = 0; j < uint32_t(roots.size()); ++j) {
+                        for (int32_t j = 0; j < int32_t(roots.size()); ++j) {
                             std::string child_name = roots[j].as_string().value();
                             if (auto node_found = nodes_map.find(child_name); node_found != nodes_map.end()) {
                                 root_nodes.push_back(node_found->second);
                             }
                             else {
                                 Node new_node = {.name = child_name};
-                                uint32_t index = uint32_t(nodes.size());
+                                int32_t index = int32_t(nodes.size());
                                 nodes.push_back(new_node);
                                 nodes_map.insert({child_name, index});
                                 root_nodes.push_back(index);
@@ -51,14 +58,14 @@ void Scene::load(std::string filename)
                 }
             } else if (type.value() == "NODE") {
                 std::string node_name = object_i.find("name")->second.as_string().value();
-                uint32_t cur_node_index;
+                int32_t cur_node_index;
                 // look at the map and see if the node has been made already
                 if (auto node_found = nodes_map.find(node_name); node_found != nodes_map.end()) {
                     cur_node_index = node_found->second;
                 }
                 else {
                     Node new_node = {.name = node_name};
-                    cur_node_index = uint32_t(nodes.size());
+                    cur_node_index = int32_t(nodes.size());
                     nodes.push_back(new_node);
                     nodes_map.insert({node_name, cur_node_index});
                 }
@@ -90,13 +97,13 @@ void Scene::load(std::string filename)
                 // set children
                 if (auto res = object_i.find("children"); res != object_i.end()) {
                     std::vector<sejp::value> children = res->second.as_array().value();
-                    for (uint32_t j = 0; j < uint32_t(children.size()); ++j) {
+                    for (int32_t j = 0; j < int32_t(children.size()); ++j) {
                             std::string child_name = children[j].as_string().value();
                             if (auto node_found = nodes_map.find(child_name); node_found != nodes_map.end()) {
                                 nodes[cur_node_index].children.push_back(node_found->second);
                             } else {
                                 Node new_node = {.name = child_name};
-                                uint32_t index = uint32_t(nodes.size());
+                                int32_t index = int32_t(nodes.size());
                                 nodes.push_back(new_node);
                                 nodes_map.insert({child_name, index});
                                 nodes[cur_node_index].children.push_back(index);
@@ -111,7 +118,7 @@ void Scene::load(std::string filename)
                         nodes[cur_node_index].mesh_index = mesh_found->second;
                     } else {
                         Mesh new_mesh = {.name = mesh_name};
-                        uint32_t index = uint32_t(meshes.size());
+                        int32_t index = int32_t(meshes.size());
                         meshes.push_back(new_mesh);
                         meshes_map.insert({mesh_name, index});
                         nodes[cur_node_index].mesh_index = index;
@@ -125,7 +132,7 @@ void Scene::load(std::string filename)
                         nodes[cur_node_index].cameras_index = camera_found->second;
                     } else {
                         Camera new_camera = {.name = camera_name};
-                        uint32_t index = uint32_t(cameras.size());
+                        int32_t index = int32_t(cameras.size());
                         cameras.push_back(new_camera);
                         cameras_map.insert({camera_name, index});
                         nodes[cur_node_index].cameras_index = index;
@@ -136,7 +143,7 @@ void Scene::load(std::string filename)
                 if (auto res = object_i.find("light"); res != object_i.end()) {
                     std::string light_name = res->second.as_string().value();
                     int32_t light_index = -1;
-                    for (uint32_t j = 0; j < lights.size(); ++j) {
+                    for (int32_t j = 0; j < lights.size(); ++j) {
                         if (lights[j].name == light_name) {
                             light_index = j;
                             break;
@@ -145,7 +152,7 @@ void Scene::load(std::string filename)
 
                     if (light_index == -1) {
                         Light new_light = {.name = light_name};
-                        uint32_t index = uint32_t(lights.size());
+                        int32_t index = int32_t(lights.size());
                         lights.push_back(new_light);
                         nodes[cur_node_index].light_index = index;
                     }
@@ -156,14 +163,14 @@ void Scene::load(std::string filename)
 
             } else if (type.value() == "MESH") {
                 std::string mesh_name = object_i.find("name")->second.as_string().value();
-                uint32_t cur_mesh_index;
+                int32_t cur_mesh_index;
                 // look at the map and see if the node has been made already
                 if (auto mesh_found = meshes_map.find(mesh_name); mesh_found != meshes_map.end()) {
                     cur_mesh_index = mesh_found->second;
                 }
                 else {
                     Mesh new_mesh = {.name = mesh_name};
-                    cur_mesh_index = uint32_t(meshes.size());
+                    cur_mesh_index = int32_t(meshes.size());
                     meshes.push_back(new_mesh);
                     meshes_map.insert({mesh_name, cur_mesh_index});
                 }
@@ -184,7 +191,7 @@ void Scene::load(std::string filename)
                         meshes[cur_mesh_index].material_index = material_found->second;
                     } else {
                         Material new_material = {.name = material_name};
-                        uint32_t index = uint32_t(materials.size());
+                        int32_t index = int32_t(materials.size());
                         materials.push_back(new_material);
                         materials_map.insert({material_name, index});
                         meshes[cur_mesh_index].material_index = index;
@@ -193,14 +200,14 @@ void Scene::load(std::string filename)
 
             } else if (type.value() == "CAMERA") {
                 std::string camera_name = object_i.find("name")->second.as_string().value();
-                uint32_t cur_camera_index;
+                int32_t cur_camera_index;
                 // look at the map and see if the node has been made already
                 if (auto camera_found = cameras_map.find(camera_name); camera_found != cameras_map.end()) {
                     cur_camera_index = camera_found->second;
                 }
                 else {
                     Camera new_camera = {.name = camera_name};
-                    cur_camera_index = uint32_t(cameras.size());
+                    cur_camera_index = int32_t(cameras.size());
                     cameras.push_back(new_camera);
                     cameras_map.insert({camera_name, cur_camera_index});
                 }
@@ -222,14 +229,14 @@ void Scene::load(std::string filename)
                 //TODO add driver support
             } else if (type.value() == "MATERIAL") {
                 std::string material_name = object_i.find("name")->second.as_string().value();
-                uint32_t cur_material_index;
+                int32_t cur_material_index;
                 // look at the map and see if the node has been made already
                 if (auto material_found = materials_map.find(material_name); material_found != materials_map.end()) {
                     cur_material_index = material_found->second;
                 }
                 else {
                     Material new_material = {.name = material_name};
-                    cur_material_index = uint32_t(materials.size());
+                    cur_material_index = int32_t(materials.size());
                     materials.push_back(new_material);
                     materials_map.insert({material_name, cur_material_index});
                 }
@@ -244,21 +251,27 @@ void Scene::load(std::string filename)
                             materials[cur_material_index].albedo.value_albedo.y = float(albedo_vector[1].as_number().value());
                             materials[cur_material_index].albedo.value_albedo.z = float(albedo_vector[2].as_number().value());
                         } else {
-                            std::string tex_name = albeto_res->second.as_object().value().find("src")->second.as_string().value();
-                            if (auto tex_res = textures_map.find(tex_name); tex_res != textures_map.end()) {
-                                materials[cur_material_index].albedo.texture_index = tex_res->second;
-                            } else {
-                                Texture new_texture = {.source = tex_name};
-                                // find type
-                                if (auto type_res = albeto_res->second.as_object().value().find("type"); type_res != albeto_res->second.as_object().value().end()) {
-                                    std::string tex_type = type_res->second.as_string().value();
-                                    if (tex_type == "2D") new_texture.is_2D = true;
-                                    else if (tex_type == "cube") new_texture.is_2D = false;
-                                    else {
-                                        throw std::runtime_error("unrecognizable type for texture " + tex_name);
+                            // check whether or not the albedo has a texture
+                            if (auto tex_res = albeto_res->second.as_object().value().find("src"); tex_res != albeto_res->second.as_object().value().end()) {
+                                std::string tex_name = tex_res->second.as_string().value();
+                                materials[cur_material_index].has_texture = true;
+                                if (auto tex_map_entry = textures_map.find(tex_name); tex_map_entry != textures_map.end()) {
+                                    materials[cur_material_index].albedo.texture_index = tex_map_entry->second;
+                                } else {
+                                    Texture new_texture = {.source = tex_name};
+                                    // find type
+                                    if (auto type_res = albeto_res->second.as_object().value().find("type"); type_res != albeto_res->second.as_object().value().end()) {
+                                        std::string tex_type = type_res->second.as_string().value();
+                                        if (tex_type == "2D") new_texture.is_2D = true;
+                                        else if (tex_type == "cube") new_texture.is_2D = false;
+                                        else {
+                                            throw std::runtime_error("unrecognizable type for texture " + tex_name);
+                                        }
                                     }
                                 }
-                                // Maybe TODO: find format
+                            }
+                            else { //default value is [1,1,1]
+                                materials[cur_material_index].albedo.value_albedo = {1,1,1};
                             }
 
                         }
@@ -270,7 +283,7 @@ void Scene::load(std::string filename)
             } else if (type.value() == "LIGHT") {
                 std::string light_name = object_i.find("name")->second.as_string().value();
                 int32_t light_index = -1;
-                for (uint32_t j = 0; j < lights.size(); ++j) {
+                for (int32_t j = 0; j < lights.size(); ++j) {
                     if (lights[j].name == light_name) {
                         light_index = j;
                         break;
@@ -293,9 +306,69 @@ void Scene::load(std::string filename)
         throw e;
     }
 
+    std::cout<< "Finished loading " + filename<<std::endl;
+    debug();
 }
 
-Scene::Scene(std::string filename)
-{
-    load(filename);
+void Scene::debug() {
+    for (const auto& node : nodes) {
+        // Print node name
+        std::cout << "Node Name: " << node.name << "\n";
+
+        // Check if the node is a root
+        bool is_root = (std::find(root_nodes.begin(), root_nodes.end(), &node - &nodes[0]) != root_nodes.end());
+        std::cout << "Is Root: " << (is_root ? "Yes" : "No") << "\n";
+
+        // Print children names
+        std::cout << "Children: ";
+        if (node.children.empty()) {
+            std::cout << "None";
+        } else {
+            for (auto child_index : node.children) {
+                std::cout << nodes[child_index].name << " ";
+            }
+        }
+        std::cout << "\n";
+
+        // Print camera information (if available)
+        if (node.cameras_index != -1) {
+            const Camera& camera = cameras[node.cameras_index];
+            std::cout << "Camera Name: " << camera.name << "\n";
+        }
+
+        // Print mesh information (if available)
+        if (node.mesh_index != -1) {
+            const Mesh& mesh = meshes[node.mesh_index];
+            std::cout << "Mesh Name: " << mesh.name << "\n";
+            std::cout << "Mesh Source: " << mesh.source << "\n";
+
+            // Print material associated with the mesh
+            const Material& material = materials[mesh.material_index];
+            std::cout << "Material Name: " << material.name << "\n";
+
+            // Print texture associated with the material (if available)
+            if (material.has_texture) {
+                const Texture& texture = textures[material.albedo.texture_index];
+                std::cout << "Texture Source: " << texture.source << "\n";
+            } else {
+                std::cout << "Albedo Color: (" 
+                          << material.albedo.value_albedo.r << ", "
+                          << material.albedo.value_albedo.g << ", "
+                          << material.albedo.value_albedo.b << ")\n";
+            }
+        }
+
+        // Print light information (if available)
+        if (node.light_index != -1) {
+            const Light& light = lights[node.light_index];
+            std::cout << "Light Name: " << light.name << "\n";
+            std::cout << "Light Tint: (" 
+                      << light.tint.r << ", "
+                      << light.tint.g << ", "
+                      << light.tint.b << ")\n";
+            std::cout << "Light Strength: " << light.strength << "\n";
+        }
+
+        std::cout << "-----------------------------\n";
+    }
 }

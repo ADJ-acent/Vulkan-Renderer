@@ -3,7 +3,7 @@
 #define _USE_MATH_DEFINES
 #endif
 
-#include "Tutorial.hpp"
+#include "RTGRenderer.hpp"
 
 #include "VK.hpp"
 
@@ -13,7 +13,7 @@
 #include <cstring>
 #include <iostream>
 
-Tutorial::Tutorial(RTG &rtg_) : rtg(rtg_) {
+RTGRenderer::RTGRenderer(RTG &rtg_) : rtg(rtg_) {
 	{ //create command pool
 		VkCommandPoolCreateInfo create_info{
 			.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
@@ -631,11 +631,11 @@ Tutorial::Tutorial(RTG &rtg_) : rtg(rtg_) {
 	}
 }
 
-Tutorial::~Tutorial() {
+RTGRenderer::~RTGRenderer() {
 	//just in case rendering is still in flight, don't destroy resources:
 	//(not using VK macro to avoid throw-ing in destructor)
 	if (VkResult result = vkDeviceWaitIdle(rtg.device); result != VK_SUCCESS) {
-		std::cerr << "Failed to vkDeviceWaitIdle in Tutorial::~Tutorial [" << string_VkResult(result) << "]; continuing anyway." << std::endl;
+		std::cerr << "Failed to vkDeviceWaitIdle in RTGRenderer::~RTGRenderer [" << string_VkResult(result) << "]; continuing anyway." << std::endl;
 	}
 
 	if (texture_descriptor_pool) {
@@ -727,7 +727,7 @@ Tutorial::~Tutorial() {
 	}
 }
 
-void Tutorial::on_swapchain(RTG &rtg_, RTG::SwapchainEvent const &swapchain) {
+void RTGRenderer::on_swapchain(RTG &rtg_, RTG::SwapchainEvent const &swapchain) {
 	// clean up existing framebuffers (and depth image):
 	if (swapchain_depth_image.handle != VK_NULL_HANDLE) {
 		destroy_framebuffers();
@@ -780,7 +780,7 @@ void Tutorial::on_swapchain(RTG &rtg_, RTG::SwapchainEvent const &swapchain) {
 	std::cout<< "There are "<< swapchain.image_views.size() << " images in the swapchain" <<std::endl;
 }
 
-void Tutorial::destroy_framebuffers() {
+void RTGRenderer::destroy_framebuffers() {
 	for (VkFramebuffer &framebuffer : swapchain_framebuffers) {
 		assert(framebuffer != VK_NULL_HANDLE);
 		vkDestroyFramebuffer(rtg.device, framebuffer, nullptr);
@@ -796,7 +796,7 @@ void Tutorial::destroy_framebuffers() {
 }
 
 
-void Tutorial::render(RTG &rtg_, RTG::RenderParams const &render_params) {
+void RTGRenderer::render(RTG &rtg_, RTG::RenderParams const &render_params) {
 	//assert that parameters are valid:
 	assert(&rtg == &rtg_);
 	assert(render_params.workspace_index < workspaces.size());
@@ -1144,7 +1144,7 @@ void Tutorial::render(RTG &rtg_, RTG::RenderParams const &render_params) {
 }
 
 
-void Tutorial::update(float dt) {
+void RTGRenderer::update(float dt) {
 	time = std::fmod(time + dt, 60.0f);
 
 	{ //camera orbiting the origin:
@@ -1341,5 +1341,5 @@ void Tutorial::update(float dt) {
 }
 
 
-void Tutorial::on_input(InputEvent const &) {
+void RTGRenderer::on_input(InputEvent const &) {
 }

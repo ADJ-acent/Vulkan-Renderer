@@ -6,11 +6,11 @@
 
 #include "RTG.hpp"
 
-struct Tutorial : RTG::Application {
+struct RTGRenderer : RTG::Application {
 
-	Tutorial(RTG &);
-	Tutorial(Tutorial const &) = delete; //you shouldn't be copying this object
-	~Tutorial();
+	RTGRenderer(RTG &);
+	RTGRenderer(RTGRenderer const &) = delete; //you shouldn't be copying this object
+	~RTGRenderer();
 
 	//kept for use in destructor:
 	RTG &rtg;
