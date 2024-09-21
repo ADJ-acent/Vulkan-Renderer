@@ -1,7 +1,6 @@
 #pragma once
-#include <vulkan.h>
-#include <glm/glm/glm.hpp>
-#include <glm/gtc/quaternion.hpp>
+#include "VK.hpp"
+#include "GLM.hpp"
 #include <string>
 #include <vector>
 
@@ -16,12 +15,8 @@ struct Scene
     // local transformation
     struct Transform {
 		glm::vec3 position = glm::vec3(0.0f, 0.0f, 0.0f);
-		glm::quat rotation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
+		glm::quat rotation = glm::quat(0.0f, 0.0f, 0.0f, 1.0f);
 		glm::vec3 scale = glm::vec3(1.0f, 1.0f, 1.0f);
-
-        // should not copy construct transforms
-        Transform(Transform const &) = delete;
-        Transform() = default;
     };
 
 
@@ -30,11 +25,11 @@ struct Scene
         float aspect;
         float vfov;
         float near;
-        float far;
+        float far = -1.0f; // -1 means infinite perspective matrix
     };
 
     struct Texture {
-        std::string source;
+        std::string source = "";
         bool is_2D = true;
         //TODO: store texture here
     };
@@ -44,21 +39,24 @@ struct Scene
         union Lambertian
         {
             glm::vec3 value_albedo;
-            Texture* texture_albedo;
+            uint32_t texture_index;
         };
-        
+
+        Lambertian albedo;
     };
 
     struct Mesh {
+        std::string name;
         std::string source = "";
         VkPrimitiveTopology topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
         uint32_t count = 0;
-        Material* material;
+        uint32_t material_index;
         // assuming all has the format of PosNorTanTex
     };
 
     struct Light {
         // assuming only sun type
+        std::string name;
         glm::vec3 tint = glm::vec3(1.0f); // multiplied with energy
         float shadow = 0.0f;
         float angle = 0.0f;
@@ -69,16 +67,23 @@ struct Scene
     // Node 
     struct Node {
         std::string name;
-        Transform* Transform;
-        std::vector<Node*> children;
-        Camera* cameras;
-        Mesh* mesh;
-        Light* light;
+        Transform transform;
+        std::vector<uint32_t> children;
+        uint32_t cameras_index;
+        uint32_t mesh_index;
+        uint32_t light_index;
         // ignoring environment
     };
 
-    std::vector<Node> root_nodes;
+    std::vector<Node> nodes;
+    std::vector<Camera> cameras;
+    std::vector<Light> lights;
+    std::vector<Mesh> meshes;
+    std::vector<Material> materials;
+    std::vector<Texture> textures;
+    std::vector<uint32_t> root_nodes;
 
     void load(std::string filename);
 
+    Scene(std::string filename);
 };

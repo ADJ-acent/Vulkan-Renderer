@@ -52,12 +52,17 @@ void RTG::Configuration::parse(int argc, char **argv) {
 			throw std::runtime_error("Unrecognized argument '" + arg + "'.");
 		}
 	}
+
+	if (scene_path == "") {
+		throw std::runtime_error("Have to set scene path to run.");
+	}
 }
 
 void RTG::Configuration::usage(std::function< void(const char *, const char *) > const &callback) {
 	callback("--debug, --no-debug", "Turn on/off debug and validation layers.");
 	callback("--physical-device <name>", "Run on the named physical device (guesses, otherwise).");
 	callback("--drawing-size <w> <h>", "Set the size of the surface to draw to.");
+	callback("--scene <p>", "Read the scene file in .s72 format.");
 }
 
 static VKAPI_ATTR VkBool32 VKAPI_CALL debug_callback(

@@ -3,6 +3,8 @@
 
 #include "Tutorial.hpp"
 
+#include "scene.hpp"
+
 #include <iostream>
 
 int main(int argc, char **argv) {
@@ -36,6 +38,7 @@ int main(int argc, char **argv) {
 			});
 			return 1;
 		}
+		Scene scene(configuration.scene_path);
 
 		//loads vulkan library, creates surface, initializes helpers:
 		RTG rtg(configuration);
