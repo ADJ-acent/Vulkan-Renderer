@@ -38,13 +38,15 @@ int main(int argc, char **argv) {
 			});
 			return 1;
 		}
+
+		//loads scene hiearchy
 		Scene scene(configuration.scene_path);
 
 		//loads vulkan library, creates surface, initializes helpers:
 		RTG rtg(configuration);
 
 		//initializes global (whole-life-of-application) resources:
-		RTGRenderer application(rtg);
+		RTGRenderer application(rtg, scene);
 
 		//main loop -- handles events, renders frames, etc:
 		rtg.run(application);

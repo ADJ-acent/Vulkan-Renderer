@@ -1,6 +1,7 @@
 #include "scene.hpp"
 #include "sejp.hpp"
 #include "data_path.hpp"
+
 #include <fstream>
 #include <iostream>
 #include <unordered_map>
@@ -181,7 +182,7 @@ void Scene::load(std::string filename)
                 // get count
                 meshes[cur_mesh_index].count = int(object_i.find("count")->second.as_number().value());
                 
-                // get source
+                // get attributes TODO
                 meshes[cur_mesh_index].source = object_i.find("attributes")->second.as_object().value().find("POSITION")->second.as_object().value().find("src")->second.as_string().value();
 
                 // get material
@@ -247,31 +248,50 @@ void Scene::load(std::string filename)
                         if (albedo_vals) {
                             std::vector<sejp::value> albedo_vector = albedo_vals.value();
                             assert(albedo_vector.size() == 3);
-                            materials[cur_material_index].albedo.value_albedo.x = float(albedo_vector[0].as_number().value());
-                            materials[cur_material_index].albedo.value_albedo.y = float(albedo_vector[1].as_number().value());
-                            materials[cur_material_index].albedo.value_albedo.z = float(albedo_vector[2].as_number().value());
+                            Texture new_texture = Texture(glm::vec3(float(albedo_vector[0].as_number().value()), float(albedo_vector[1].as_number().value()), float(albedo_vector[2].as_number().value())));
+                            std::string tex_name = material_name;
+                            if (auto tex_map_entry = textures_map.find(tex_name); tex_map_entry != textures_map.end()) {
+                                materials[cur_material_index].texture_index = tex_map_entry->second;
+                            } else {
+                                uint32_t index = uint32_t(textures.size());
+                                textures.push_back(new_texture);
+                                textures_map.insert({tex_name, index});
+                                materials[cur_material_index].texture_index = index;
+                            }
                         } else {
                             // check whether or not the albedo has a texture
                             if (auto tex_res = albeto_res->second.as_object().value().find("src"); tex_res != albeto_res->second.as_object().value().end()) {
                                 std::string tex_name = tex_res->second.as_string().value();
-                                materials[cur_material_index].has_texture = true;
                                 if (auto tex_map_entry = textures_map.find(tex_name); tex_map_entry != textures_map.end()) {
-                                    materials[cur_material_index].albedo.texture_index = tex_map_entry->second;
+                                    materials[cur_material_index].texture_index = tex_map_entry->second;
                                 } else {
-                                    Texture new_texture = {.source = tex_name};
-                                    // find type
-                                    if (auto type_res = albeto_res->second.as_object().value().find("type"); type_res != albeto_res->second.as_object().value().end()) {
-                                        std::string tex_type = type_res->second.as_string().value();
-                                        if (tex_type == "2D") new_texture.is_2D = true;
-                                        else if (tex_type == "cube") new_texture.is_2D = false;
-                                        else {
-                                            throw std::runtime_error("unrecognizable type for texture " + tex_name);
-                                        }
-                                    }
+                                    Texture new_texture = Texture(tex_name);
+                                    // find type, uncomment when we support cubemap and environment
+                                    // if (auto type_res = albeto_res->second.as_object().value().find("type"); type_res != albeto_res->second.as_object().value().end()) {
+                                    //     std::string tex_type = type_res->second.as_string().value();
+                                    //     if (tex_type == "2D") new_texture.is_2D = true;
+                                    //     else if (tex_type == "cube") new_texture.is_2D = false;
+                                    //     else {
+                                    //         throw std::runtime_error("unrecognizable type for texture " + tex_name);
+                                    //     }
+                                    // }
+                                    uint32_t index = uint32_t(textures.size());
+                                    textures.push_back(new_texture);
+                                    textures_map.insert({tex_name, index});
+                                    materials[cur_material_index].texture_index = index;
                                 }
                             }
-                            else { //default value is [1,1,1]
-                                materials[cur_material_index].albedo.value_albedo = {1,1,1};
+                            else {
+                                Texture new_texture = Texture();
+                                std::string tex_name = material_name;
+                                if (auto tex_map_entry = textures_map.find(tex_name); tex_map_entry != textures_map.end()) {
+                                    materials[cur_material_index].texture_index = tex_map_entry->second;
+                                } else {
+                                    uint32_t index = uint32_t(textures.size());
+                                    textures.push_back(new_texture);
+                                    textures_map.insert({tex_name, index});
+                                    materials[cur_material_index].texture_index = index;
+                                }
                             }
 
                         }
@@ -303,6 +323,7 @@ void Scene::load(std::string filename)
 
 
     } catch (std::exception &e) {
+        std::cerr<<"Exception occured while trying to parse .s72 scene file\n";
         throw e;
     }
 
@@ -314,6 +335,21 @@ void Scene::debug() {
     for (const auto& node : nodes) {
         // Print node name
         std::cout << "Node Name: " << node.name << "\n";
+
+        std::cout << "Node Transforms:"<<std::endl;
+        std::cout << "Node Position: (" 
+                          << node.transform.position.x << ", "
+                          << node.transform.position.y << ", "
+                          << node.transform.position.z << ")\n";
+        std::cout << "Node Rotation: (" 
+                          << node.transform.rotation.x << ", "
+                          << node.transform.rotation.y << ", "
+                          << node.transform.rotation.z << ", "
+                          << node.transform.rotation.w << ")\n";
+        std::cout << "Node Scale: (" 
+                          << node.transform.scale.x << ", "
+                          << node.transform.scale.y << ", "
+                          << node.transform.scale.z << ")\n";
 
         // Check if the node is a root
         bool is_root = (std::find(root_nodes.begin(), root_nodes.end(), &node - &nodes[0]) != root_nodes.end());
@@ -347,14 +383,14 @@ void Scene::debug() {
             std::cout << "Material Name: " << material.name << "\n";
 
             // Print texture associated with the material (if available)
-            if (material.has_texture) {
-                const Texture& texture = textures[material.albedo.texture_index];
+             const Texture& texture = textures[material.texture_index];
+            if (texture.has_src) {
                 std::cout << "Texture Source: " << texture.source << "\n";
             } else {
                 std::cout << "Albedo Color: (" 
-                          << material.albedo.value_albedo.r << ", "
-                          << material.albedo.value_albedo.g << ", "
-                          << material.albedo.value_albedo.b << ")\n";
+                          << texture.value.r << ", "
+                          << texture.value.g << ", "
+                          << texture.value.b << ")\n";
             }
         }
 
@@ -371,4 +407,55 @@ void Scene::debug() {
 
         std::cout << "-----------------------------\n";
     }
+}
+
+glm::mat4x4 Scene::Transform::parent_from_local() const
+{
+    //compute:
+	//   translate   *   rotate    *   scale
+	// [ 1 0 0 p.x ]   [       0 ]   [ s.x 0 0 0 ]
+	// [ 0 1 0 p.y ] * [ rot   0 ] * [ 0 s.y 0 0 ]
+	// [ 0 0 1 p.z ]   [       0 ]   [ 0 0 s.z 0 ]
+	//                 [ 0 0 0 1 ]   [ 0 0   0 1 ]
+
+	glm::mat3 rot = glm::mat3_cast(rotation);
+
+	// Construct the 4x4 matrix:
+	return glm::mat4(
+		glm::vec4(rot[0] * scale.x, 0.0f), // First column
+		glm::vec4(rot[1] * scale.y, 0.0f), // Second column
+		glm::vec4(rot[2] * scale.z, 0.0f), // Third column
+		glm::vec4(position, 1.0f)          // Fourth column (position, with homogeneous coordinate 1.0)
+	);
+}
+
+glm::mat4x4 Scene::Transform::local_from_parent() const
+{
+    //compute:
+	//   1/scale       *    rot^-1   *  translate^-1
+	// [ 1/s.x 0 0 0 ]   [       0 ]   [ 0 0 0 -p.x ]
+	// [ 0 1/s.y 0 0 ] * [rot^-1 0 ] * [ 0 0 0 -p.y ]
+	// [ 0 0 1/s.z 0 ]   [       0 ]   [ 0 0 0 -p.z ]
+	//                   [ 0 0 0 1 ]   [ 0 0 0  1   ]
+
+	glm::vec3 inv_scale;
+	//taking some care so that we don't end up with NaN's , just a degenerate matrix, if scale is zero:
+	inv_scale.x = (scale.x == 0.0f ? 0.0f : 1.0f / scale.x);
+	inv_scale.y = (scale.y == 0.0f ? 0.0f : 1.0f / scale.y);
+	inv_scale.z = (scale.z == 0.0f ? 0.0f : 1.0f / scale.z);
+
+	//compute inverse of rotation:
+	glm::mat3 inv_rot = glm::mat3_cast(glm::inverse(rotation));
+
+	//scale the rows of rot:
+	inv_rot[0] *= inv_scale;
+	inv_rot[1] *= inv_scale;
+	inv_rot[2] *= inv_scale;
+
+	return glm::mat4x4(
+		glm::vec4(inv_rot[0], 0.0f),         // First column
+		glm::vec4(inv_rot[1], 0.0f),         // Second column
+		glm::vec4(inv_rot[2], 0.0f),         // Third column
+		glm::vec4(inv_rot * -position, 1.0f) // Fourth column (inverse translation, homogeneous coordinate 1.0)
+	);
 }

@@ -7,13 +7,17 @@
 
 #include "VK.hpp"
 
+#define STB_IMAGE_IMPLEMENTATION
+#include "stb_image.h"
+
 #include <array>
 #include <cassert>
 #include <cmath>
 #include <cstring>
+#include <deque>
 #include <iostream>
 
-RTGRenderer::RTGRenderer(RTG &rtg_) : rtg(rtg_) {
+RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_) {
 	{ //create command pool
 		VkCommandPoolCreateInfo create_info{
 			.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
@@ -423,99 +427,49 @@ RTGRenderer::RTGRenderer(RTG &rtg_) : rtg(rtg_) {
 		//copy data to buffer:
 		rtg.helpers.transfer_to_buffer(vertices.data(), bytes, object_vertices);
 	}
+	{//cache the mesh information
+
+	}
 
 	{//make some textures
-		textures.reserve(3);
+		textures.reserve(scene.textures.size());
 
-		{ //texture 0 will be a dark grey / light grey checkerboard with a red square at the origin.
-			//actually make the texture:
-			uint32_t size = 128;
-			std::vector< uint32_t > data;
-			data.reserve(size * size);
-			for (uint32_t y = 0; y < size; ++y) {
-				float fy = (y + 0.5f) / float(size);
-				for (uint32_t x = 0; x < size; ++x) {
-					float fx = (x + 0.5f) / float(size);
-					//highlight the origin:
-					if      (fx < 0.05f && fy < 0.05f) data.emplace_back(0xff0000ff); //red
-					else if ( (fx < 0.5f) == (fy < 0.5f)) data.emplace_back(0xff444444); //dark grey
-					else data.emplace_back(0xffbbbbbb); //light grey
-				}
+		for (uint32_t i = 0; i < scene.textures.size(); ++i) {
+			Scene::Texture cur_texture = scene.textures[i];
+			if (cur_texture.has_src) {
+				int width,height,n;
+				unsigned char *data = stbi_load(cur_texture.source.c_str(), &width, &height, &n, 4);
+				if (data == NULL) throw std::runtime_error("Error loading texture " + cur_texture.source);
+				assert(n == 3); // should only be 3 channel per .s72 spec
+				//make a place for the texture to live on the GPU:
+				textures.emplace_back(rtg.helpers.create_image(
+					VkExtent2D{ .width = uint32_t(width) , .height = uint32_t(height) }, //size of image
+					VK_FORMAT_R8G8B8A8_UNORM, //how to interpret image data (in this case, linearly-encoded 8-bit RGBA) TODO: double check format
+					VK_IMAGE_TILING_OPTIMAL,
+					VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, //will sample and upload
+					VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, //should be device-local
+					Helpers::Unmapped
+				));
+				//transfer data:
+				rtg.helpers.transfer_to_image(data, sizeof(data[0]) * width*height*n, textures.back());
+				//free image:
+				stbi_image_free(data);
 			}
-			assert(data.size() == size*size);
+			else {
+				uint8_t data[4] = {uint8_t(cur_texture.value.x*255.0f), uint8_t(cur_texture.value.y*255.0f), uint8_t(cur_texture.value.z*255.0f),255};
+				//make a place for the texture to live on the GPU:
+				textures.emplace_back(rtg.helpers.create_image(
+					VkExtent2D{ .width = 1 , .height = 1 }, //size of image
+					VK_FORMAT_R8G8B8A8_UNORM, //how to interpret image data (in this case, SRGB-encoded 8-bit RGBA)
+					VK_IMAGE_TILING_OPTIMAL,
+					VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, //will sample and upload
+					VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, //should be device-local
+					Helpers::Unmapped
+				));
 
-			//make a place for the texture to live on the GPU:
-			textures.emplace_back(rtg.helpers.create_image(
-				VkExtent2D{ .width = size , .height = size }, //size of image
-				VK_FORMAT_R8G8B8A8_UNORM, //how to interpret image data (in this case, linearly-encoded 8-bit RGBA)
-				VK_IMAGE_TILING_OPTIMAL,
-				VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, //will sample and upload
-				VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, //should be device-local
-				Helpers::Unmapped
-			));
-
-			//transfer data:
-			rtg.helpers.transfer_to_image(data.data(), sizeof(data[0]) * data.size(), textures.back());
-		}
-
-		{ //texture 1 will be a classic 'xor' texture:
-			//actually make the texture:
-			uint32_t size = 256;
-			std::vector< uint32_t > data;
-			data.reserve(size * size);
-			for (uint32_t y = 0; y < size; ++y) {
-				for (uint32_t x = 0; x < size; ++x) {
-					uint8_t r = uint8_t(x) ^ uint8_t(y);
-					uint8_t g = uint8_t(x + 128) ^ uint8_t(y);
-					uint8_t b = uint8_t(x) ^ uint8_t(y + 27);
-					uint8_t a = 0xff;
-					data.emplace_back( uint32_t(r) | (uint32_t(g) << 8) | (uint32_t(b) << 16) | (uint32_t(a) << 24) );
-				}
+				//transfer data:
+				rtg.helpers.transfer_to_image(&data, sizeof(uint8_t) * 4, textures.back());
 			}
-			assert(data.size() == size*size);
-
-			//make a place for the texture to live on the GPU:
-			textures.emplace_back(rtg.helpers.create_image(
-				VkExtent2D{ .width = size , .height = size }, //size of image
-				VK_FORMAT_R8G8B8A8_SRGB, //how to interpret image data (in this case, SRGB-encoded 8-bit RGBA)
-				VK_IMAGE_TILING_OPTIMAL,
-				VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, //will sample and upload
-				VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, //should be device-local
-				Helpers::Unmapped
-			));
-
-			//transfer data:
-			rtg.helpers.transfer_to_image(data.data(), sizeof(data[0]) * data.size(), textures.back());
-		}
-
-		{//texture 2 has diagonal pattern
-			uint32_t size = 256;
-			std::vector< uint32_t > data;
-			data.reserve(size * size);
-			for (uint32_t y = 0; y < size; ++y) {
-				for (uint32_t x = 0; x < size; ++x) {
-					uint8_t r = uint8_t((float((x + y) % 10) / 10.0f ) * 255.0f);
-					uint8_t g = uint8_t((float((x + y + 5) % 10) / 10.0f ) * 255.0f);
-					uint8_t b = uint8_t(x) ^ uint8_t(y + 27);
-					uint8_t a = 0xff;
-					data.emplace_back( uint32_t(r) | (uint32_t(g) << 8) | (uint32_t(b) << 16) | (uint32_t(a) << 24) );
-				}
-			}
-			assert(data.size() == size*size);
-
-			//make a place for the texture to live on the GPU:
-			textures.emplace_back(rtg.helpers.create_image(
-				VkExtent2D{ .width = size , .height = size }, //size of image
-				VK_FORMAT_R8G8B8A8_SRGB, //how to interpret image data (in this case, SRGB-encoded 8-bit RGBA)
-				VK_IMAGE_TILING_OPTIMAL,
-				VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, //will sample and upload
-				VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, //should be device-local
-				Helpers::Unmapped
-			));
-
-			//transfer data:
-			rtg.helpers.transfer_to_image(data.data(), sizeof(data[0]) * data.size(), textures.back());
-		
 		}
 	}
 
@@ -1195,34 +1149,53 @@ void RTGRenderer::update(float dt) {
 		world.SUN_ENERGY.b = 0.9f;
 	}
 
-	{ //make a grid that is circular:
-		lines_vertices.clear();
-		constexpr size_t count = 2 * 101;
-		lines_vertices.reserve(count);
-		//horizontal lines at z = 0.5f:
-		for (uint32_t i = 0; i < 101; ++i) {
-			float x = 1.0f, y = 1.0f;
-			if (i < 50) {
-				y -= float(i) / 25.0f;
-			}
-			else {
-				x -= float(i-50) / 25.0f;
-			}
-			lines_vertices.emplace_back(PosColVertex{
-				.Position{.x = x, .y = y, .z = .1f + sin(time/20.0f)},
-				.Color{ .r = uint8_t((x+1) * 255.0f/2.0f), .g = uint8_t((y+1) * 255.0f/2.0f), .b = 0xff, .a = 0xff},
-			});
-			lines_vertices.emplace_back(PosColVertex{
-				.Position{.x = -x, .y = -y, .z = .1f + cos(time/10.0f)},
-				.Color{ .r = uint8_t((-x+1) * 255.0f/2.0f), .g = uint8_t((-y+1) * 255.0f/2.0f), .b = 0x00, .a = 0xff},
-			});
-		}
+	// { //make a grid that is circular:
+	// 	lines_vertices.clear();
+	// 	constexpr size_t count = 2 * 101;
+	// 	lines_vertices.reserve(count);
+	// 	//horizontal lines at z = 0.5f:
+	// 	for (uint32_t i = 0; i < 101; ++i) {
+	// 		float x = 1.0f, y = 1.0f;
+	// 		if (i < 50) {
+	// 			y -= float(i) / 25.0f;
+	// 		}
+	// 		else {
+	// 			x -= float(i-50) / 25.0f;
+	// 		}
+	// 		lines_vertices.emplace_back(PosColVertex{
+	// 			.Position{.x = x, .y = y, .z = .1f + sin(time/20.0f)},
+	// 			.Color{ .r = uint8_t((x+1) * 255.0f/2.0f), .g = uint8_t((y+1) * 255.0f/2.0f), .b = 0xff, .a = 0xff},
+	// 		});
+	// 		lines_vertices.emplace_back(PosColVertex{
+	// 			.Position{.x = -x, .y = -y, .z = .1f + cos(time/10.0f)},
+	// 			.Color{ .r = uint8_t((-x+1) * 255.0f/2.0f), .g = uint8_t((-y+1) * 255.0f/2.0f), .b = 0x00, .a = 0xff},
+	// 		});
+	// 	}
 
-		assert(lines_vertices.size() == count);
-	}
+	// 	assert(lines_vertices.size() == count);
+	// }
 
 	{ //make some objects:
 		object_instances.clear();
+
+		static std::deque<glm::mat4x4> transform_stack;
+
+		auto draw_child_nodes = [&](uint32_t node_index){
+
+		};
+
+		//traverse the scene hiearchy:
+		for (uint32_t i = 0; i < scene.root_nodes.size(); ++i) {
+			Scene::Node& cur_node = scene.nodes[scene.root_nodes[i]];
+			transform_stack.clear();
+			glm::mat4x4 cur_node_world_transform = cur_node.transform.parent_from_local();
+			transform_stack.push_back(cur_node_world_transform);
+			if (int32_t cur_mesh_index = cur_node.mesh_index != -1) {
+				
+			}
+
+
+		}
 
 		{ //plane translated +x by one unit:
 			mat4 WORLD_FROM_LOCAL{

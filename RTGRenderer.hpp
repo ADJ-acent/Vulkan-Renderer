@@ -1,20 +1,25 @@
 #pragma once
 
 #include "PosColVertex.hpp"
-#include "PosNorTexVertex.hpp"
+#include "PosNorTanTexVertex.hpp"
 #include "mat4.hpp"
 
 #include "RTG.hpp"
+#include "Scene.hpp"
+
+#include "GLM.hpp"
 
 struct RTGRenderer : RTG::Application {
 
-	RTGRenderer(RTG &);
+	RTGRenderer(RTG &, Scene &);
 	RTGRenderer(RTGRenderer const &) = delete; //you shouldn't be copying this object
 	~RTGRenderer();
 
 	//kept for use in destructor:
 	RTG &rtg;
 
+	//scene that contains nodes, camera, light, material and texture information
+	Scene &scene;
 	//--------------------------------------------------------------------
 	//Resources that last the lifetime of the application:
 
@@ -48,7 +53,7 @@ struct RTGRenderer : RTG::Application {
 
 		//types for descriptors:
 		struct Camera {
-			mat4 CLIP_FROM_WORLD;
+			glm::mat4x4 CLIP_FROM_WORLD;
 		};
 
 		static_assert(sizeof(Camera) == 16*4, "camera buffer structure is packed");
@@ -82,9 +87,9 @@ struct RTGRenderer : RTG::Application {
         static_assert(sizeof(World) == 4*4 + 4*4 + 4*4 + 4*4, "World is the expected size.");
 		
         struct Transform {
-            mat4 CLIP_FROM_LOCAL;
-            mat4 WORLD_FROM_LOCAL;
-            mat4 WORLD_FROM_LOCAL_NORMAL;
+            glm::mat4x4 CLIP_FROM_LOCAL;
+            glm::mat4x4 WORLD_FROM_LOCAL;
+            glm::mat4x4 WORLD_FROM_LOCAL_NORMAL;
         };
         static_assert(sizeof(Transform) == 16*4 + 16*4 + 16*4, "Transform is the expected size.");
 
@@ -92,7 +97,7 @@ struct RTGRenderer : RTG::Application {
 
 		VkPipelineLayout layout = VK_NULL_HANDLE;
 
-		using Vertex = PosNorTexVertex;
+		using Vertex = PosNorTanTexVertex;
 
 		VkPipeline handle = VK_NULL_HANDLE;
 
@@ -168,7 +173,7 @@ struct RTGRenderer : RTG::Application {
 
 	float time = 0.0f;
 
-	mat4 CLIP_FROM_WORLD;
+	glm::mat4x4 CLIP_FROM_WORLD;
 
 	std::vector<LinesPipeline::Vertex> lines_vertices;
 

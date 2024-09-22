@@ -71,6 +71,7 @@
         "xtree": "cpp",
         "xutility": "cpp",
         "cstdarg": "cpp",
-        "random": "cpp"
+        "random": "cpp",
+        "deque": "cpp"
     }
 }
