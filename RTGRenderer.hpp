@@ -144,9 +144,7 @@ struct RTGRenderer : RTG::Application {
 		uint32_t first = 0;
 		uint32_t count = 0;
 	};
-	ObjectVertices plane_vertices;
-	ObjectVertices torus_vertices;
-    ObjectVertices sphere_vertices;
+	std::vector<ObjectVertices> mesh_vertices; // indexed the same as scene.meshes
 
     std::vector< Helpers::AllocatedImage > textures;
 	std::vector< VkImageView > texture_views;

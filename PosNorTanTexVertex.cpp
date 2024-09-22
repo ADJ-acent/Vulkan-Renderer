@@ -24,13 +24,13 @@ static std::array<VkVertexInputAttributeDescription, 4> attributes{
 		.offset = offsetof(PosNorTanTexVertex, Normal),
 	},
 	VkVertexInputAttributeDescription{
-		.location = 1,
+		.location = 2,
 		.binding = 0,
 		.format = VK_FORMAT_R32G32B32A32_SFLOAT,
 		.offset = offsetof(PosNorTanTexVertex, Tangent),
 	},
 	VkVertexInputAttributeDescription{
-		.location = 2,
+		.location = 3,
 		.binding = 0,
 		.format = VK_FORMAT_R32G32_SFLOAT,
 		.offset = offsetof(PosNorTanTexVertex, TexCoord),

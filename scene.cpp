@@ -16,6 +16,7 @@ void Scene::load(std::string filename)
     if (filename.substr(filename.size()-4, 4) != ".s72") {
         throw std::runtime_error("Scene " + filename + " is not a compatible format (s72 required). Last 4 char is " + filename.substr(filename.size()-5, 4));
     }
+    scene_path = filename;
     sejp::value val = sejp::load(filename);
     try {
         std::vector<sejp::value > const &object = val.as_array().value();
@@ -182,8 +183,86 @@ void Scene::load(std::string filename)
                 // get count
                 meshes[cur_mesh_index].count = int(object_i.find("count")->second.as_number().value());
                 
-                // get attributes TODO
-                meshes[cur_mesh_index].source = object_i.find("attributes")->second.as_object().value().find("POSITION")->second.as_object().value().find("src")->second.as_string().value();
+                // get attributes
+                if (auto attributes_res = object_i.find("attributes"); attributes_res != object_i.end()) {
+                    auto attributes = attributes_res->second.as_object().value();
+                    // get position
+                    if (auto attribute_res = attributes.find("POSITION"); attribute_res != attributes.end()) {
+                        auto position = attribute_res->second.as_object().value();
+                        meshes[cur_mesh_index].attributes[0].source = position.find("src")->second.as_string().value();
+                        meshes[cur_mesh_index].attributes[0].offset = uint32_t(int32_t(position.find("offset")->second.as_number().value()));
+                        meshes[cur_mesh_index].attributes[0].stride = uint32_t(int32_t(position.find("stride")->second.as_number().value()));
+                        std::string format = position.find("format")->second.as_string().value();
+                        if (format == "R32G32_SFLOAT") {
+                            meshes[cur_mesh_index].attributes[0].format = VK_FORMAT_R32G32_SFLOAT;
+                        } else if (format == "R32G32B32_SFLOAT") {
+                            meshes[cur_mesh_index].attributes[0].format = VK_FORMAT_R32G32B32_SFLOAT;
+                        } else if (format == "R32G32B32A32_SFLOAT") {
+                            meshes[cur_mesh_index].attributes[0].format = VK_FORMAT_R32G32B32A32_SFLOAT;
+                        } else if (format == "R8G8B8A8_UNORM") {
+                            meshes[cur_mesh_index].attributes[0].format = VK_FORMAT_R8G8B8A8_UNORM;
+                        } else {
+                            throw std::runtime_error("Unsupported mesh format " + format + " for " + mesh_name);
+                        }
+                    }
+                    // get normal
+                    if (auto attribute_res = attributes.find("NORMAL"); attribute_res != attributes.end()) {
+                        auto normal = attribute_res->second.as_object().value();
+                        meshes[cur_mesh_index].attributes[1].source = normal.find("src")->second.as_string().value();
+                        meshes[cur_mesh_index].attributes[1].offset = uint32_t(int32_t(normal.find("offset")->second.as_number().value()));
+                        meshes[cur_mesh_index].attributes[1].stride = uint32_t(int32_t(normal.find("stride")->second.as_number().value()));
+                        std::string format = normal.find("format")->second.as_string().value();
+                        if (format == "R32G32_SFLOAT") {
+                            meshes[cur_mesh_index].attributes[1].format = VK_FORMAT_R32G32_SFLOAT;
+                        } else if (format == "R32G32B32_SFLOAT") {
+                            meshes[cur_mesh_index].attributes[1].format = VK_FORMAT_R32G32B32_SFLOAT;
+                        } else if (format == "R32G32B32A32_SFLOAT") {
+                            meshes[cur_mesh_index].attributes[1].format = VK_FORMAT_R32G32B32A32_SFLOAT;
+                        } else if (format == "R8G8B8A8_UNORM") {
+                            meshes[cur_mesh_index].attributes[1].format = VK_FORMAT_R8G8B8A8_UNORM;
+                        } else {
+                            throw std::runtime_error("Unsupported mesh format " + format + " for " + mesh_name);
+                        }
+                    }
+                    // get tangent
+                    if (auto attribute_res = attributes.find("TANGENT"); attribute_res != attributes.end()) {
+                        auto tangent = attribute_res->second.as_object().value();
+                        meshes[cur_mesh_index].attributes[2].source = tangent.find("src")->second.as_string().value();
+                        meshes[cur_mesh_index].attributes[2].offset = uint32_t(int32_t(tangent.find("offset")->second.as_number().value()));
+                        meshes[cur_mesh_index].attributes[2].stride = uint32_t(int32_t(tangent.find("stride")->second.as_number().value()));
+                        std::string format = tangent.find("format")->second.as_string().value();
+                        if (format == "R32G32_SFLOAT") {
+                            meshes[cur_mesh_index].attributes[2].format = VK_FORMAT_R32G32_SFLOAT;
+                        } else if (format == "R32G32B32_SFLOAT") {
+                            meshes[cur_mesh_index].attributes[2].format = VK_FORMAT_R32G32B32_SFLOAT;
+                        } else if (format == "R32G32B32A32_SFLOAT") {
+                            meshes[cur_mesh_index].attributes[2].format = VK_FORMAT_R32G32B32A32_SFLOAT;
+                        } else if (format == "R8G8B8A8_UNORM") {
+                            meshes[cur_mesh_index].attributes[2].format = VK_FORMAT_R8G8B8A8_UNORM;
+                        } else {
+                            throw std::runtime_error("Unsupported mesh format " + format + " for " + mesh_name);
+                        }
+                    }
+                    // get texture coords
+                    if (auto attribute_res = attributes.find("TEXCOORD"); attribute_res != attributes.end()) {
+                        auto texcoord = attribute_res->second.as_object().value();
+                        meshes[cur_mesh_index].attributes[3].source = texcoord.find("src")->second.as_string().value();
+                        meshes[cur_mesh_index].attributes[3].offset = uint32_t(int32_t(texcoord.find("offset")->second.as_number().value()));
+                        meshes[cur_mesh_index].attributes[3].stride = uint32_t(int32_t(texcoord.find("stride")->second.as_number().value()));
+                        std::string format = texcoord.find("format")->second.as_string().value();
+                        if (format == "R32G32_SFLOAT") {
+                            meshes[cur_mesh_index].attributes[3].format = VK_FORMAT_R32G32_SFLOAT;
+                        } else if (format == "R32G32B32_SFLOAT") {
+                            meshes[cur_mesh_index].attributes[3].format = VK_FORMAT_R32G32B32_SFLOAT;
+                        } else if (format == "R32G32B32A32_SFLOAT") {
+                            meshes[cur_mesh_index].attributes[3].format = VK_FORMAT_R32G32B32A32_SFLOAT;
+                        } else if (format == "R8G8B8A8_UNORM") {
+                            meshes[cur_mesh_index].attributes[3].format = VK_FORMAT_R8G8B8A8_UNORM;
+                        } else {
+                            throw std::runtime_error("Unsupported mesh format " + format + " for " + mesh_name);
+                        }
+                    }
+                }
 
                 // get material
                 if (auto res = object_i.find("material"); res != object_i.end()) {
@@ -376,7 +455,15 @@ void Scene::debug() {
         if (node.mesh_index != -1) {
             const Mesh& mesh = meshes[node.mesh_index];
             std::cout << "Mesh Name: " << mesh.name << "\n";
-            std::cout << "Mesh Source: " << mesh.source << "\n";
+            for (int i = 0; i < 4; ++i) {
+                std::string attribute_name;
+                if (i == 0) attribute_name = "position";
+                else if (i == 1) attribute_name = "normal";
+                else if (i == 2) attribute_name = "tangent";
+                else if (i == 3) attribute_name = "texcoord";
+                std::cout<< "Attribute: " << attribute_name << "\n";
+                std::cout<<"    Source: "<< mesh.attributes[i].source << ", Offset: " << mesh.attributes[i].offset << ", Stride: "<< mesh.attributes[i].stride<<std::endl;
+            }
 
             // Print material associated with the mesh
             const Material& material = materials[mesh.material_index];

@@ -52,9 +52,10 @@ struct Scene
     struct Mesh {
         std::string name;
         struct Attribute {
-            std::string source;
+            std::string source = "";
             uint32_t offset;
             uint32_t stride;
+            VkFormat format;
         };
         Attribute attributes[4]; // Position, Normal, Tangent, TexCoord
         VkPrimitiveTopology topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
@@ -91,6 +92,7 @@ struct Scene
     std::vector<Material> materials;
     std::vector<Texture> textures;
     std::vector<uint32_t> root_nodes;
+    std::string scene_path;
 
     Scene(std::string filename);
 

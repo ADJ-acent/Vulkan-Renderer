@@ -259,38 +259,78 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_) {
 	}
 
 	{//create object vertices
-		std::vector<PosNorTexVertex> vertices;
+		std::vector<PosNorTanTexVertex> vertices;
+
+		for (uint32_t i = 0; i < uint32_t(scene.meshes.size()); ++i) {
+
+		}
 
 		{ //A [-1,1]x[-1,1]x{0} quadrilateral:
 			plane_vertices.first = uint32_t(vertices.size());
-			vertices.emplace_back(PosNorTexVertex{
+			vertices.emplace_back(PosNorTanTexVertex{
 				.Position{ .x = -1.0f, .y = -1.0f, .z = 0.0f },
 				.Normal{ .x = 0.0f, .y = 0.0f, .z = 1.0f },
+				.Tangent{
+						.x = 0,
+						.y = 0,
+						.z = 0,
+						.w = 0
+					},
 				.TexCoord{ .s = 0.0f, .t = 0.0f },
 			});
-			vertices.emplace_back(PosNorTexVertex{
+			vertices.emplace_back(PosNorTanTexVertex{
 				.Position{ .x = 1.0f, .y = -1.0f, .z = 0.0f },
 				.Normal{ .x = 0.0f, .y = 0.0f, .z = 1.0f},
+				.Tangent{
+						.x = 0,
+						.y = 0,
+						.z = 0,
+						.w = 0
+					},
 				.TexCoord{ .s = 1.0f, .t = 0.0f },
 			});
-			vertices.emplace_back(PosNorTexVertex{
+			vertices.emplace_back(PosNorTanTexVertex{
 				.Position{ .x = -1.0f, .y = 1.0f, .z = 0.0f },
 				.Normal{ .x = 0.0f, .y = 0.0f, .z = 1.0f},
+				.Tangent{
+						.x = 0,
+						.y = 0,
+						.z = 0,
+						.w = 0
+					},
 				.TexCoord{ .s = 0.0f, .t = 1.0f },
 			});
-			vertices.emplace_back(PosNorTexVertex{
+			vertices.emplace_back(PosNorTanTexVertex{
 				.Position{ .x = 1.0f, .y = 1.0f, .z = 0.0f },
 				.Normal{ .x = 0.0f, .y = 0.0f, .z = 1.0f },
+				.Tangent{
+						.x = 0,
+						.y = 0,
+						.z = 0,
+						.w = 0
+					},
 				.TexCoord{ .s = 1.0f, .t = 1.0f },
 			});
-			vertices.emplace_back(PosNorTexVertex{
+			vertices.emplace_back(PosNorTanTexVertex{
 				.Position{ .x = -1.0f, .y = 1.0f, .z = 0.0f },
 				.Normal{ .x = 0.0f, .y = 0.0f, .z = 1.0f},
+				.Tangent{
+						.x = 0,
+						.y = 0,
+						.z = 0,
+						.w = 0
+					},
 				.TexCoord{ .s = 0.0f, .t = 1.0f },
 			});
-			vertices.emplace_back(PosNorTexVertex{
+			vertices.emplace_back(PosNorTanTexVertex{
 				.Position{ .x = 1.0f, .y = -1.0f, .z = 0.0f },
 				.Normal{ .x = 0.0f, .y = 0.0f, .z = 1.0f},
+				.Tangent{
+						.x = 0,
+						.y = 0,
+						.z = 0,
+						.w = 0
+					},
 				.TexCoord{ .s = 1.0f, .t = 0.0f },
 			});
 
@@ -320,7 +360,7 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_) {
 				float ua = (ui % U_STEPS) / float(U_STEPS) * 2.0f * float(M_PI);
 				float va = (vi % V_STEPS) / float(V_STEPS) * 2.0f * float(M_PI);
 
-				vertices.emplace_back( PosNorTexVertex{
+				vertices.emplace_back( PosNorTanTexVertex{
 					.Position{
 						.x = (R1 + R2 * std::cos(va)) * std::cos(ua),
 						.y = (R1 + R2 * std::cos(va)) * std::sin(ua),
@@ -330,6 +370,12 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_) {
 						.x = std::cos(va) * std::cos(ua),
 						.y = std::cos(va) * std::sin(ua),
 						.z = std::sin(va),
+					},
+					.Tangent{
+						.x = 0,
+						.y = 0,
+						.z = 0,
+						.w = 0
 					},
 					.TexCoord{
 						.s = ui / float(U_STEPS) * U_REPEATS,
@@ -367,7 +413,7 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_) {
 				float angle = float(vi) / float(V_STEPS) * 2.0f * float(M_PI);
 				float height_from_center = height - R;
 
-				vertices.emplace_back( PosNorTexVertex{
+				vertices.emplace_back( PosNorTanTexVertex{
 					.Position{
 						.x = std::cos(angle) * std::sqrt(R*R - height_from_center * height_from_center),
 						.y = std::sin(angle) * std::sqrt(R*R - height_from_center * height_from_center),
@@ -379,6 +425,12 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_) {
 						.y = std::sin(angle) *
 							std::sqrt(R*R - height_from_center * height_from_center) / R,
 						.z = (height-R) / R,
+					},
+					.Tangent{
+						.x = 0,
+						.y = 0,
+						.z = 0,
+						.w = 0
 					},
 					.TexCoord{
 						.s = float(ui) / float(U_STEPS),
@@ -426,9 +478,6 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_) {
 
 		//copy data to buffer:
 		rtg.helpers.transfer_to_buffer(vertices.data(), bytes, object_vertices);
-	}
-	{//cache the mesh information
-
 	}
 
 	{//make some textures
@@ -994,33 +1043,33 @@ void RTGRenderer::render(RTG &rtg_, RTG::RenderParams const &render_params) {
 			vkCmdDraw(workspace.command_buffer, 3, 1, 0, 0);
 		}
 
-		{//draw with the lines pipeline:
-			vkCmdBindPipeline(workspace.command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, lines_pipeline.handle);
+		// {//draw with the lines pipeline:
+		// 	vkCmdBindPipeline(workspace.command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, lines_pipeline.handle);
 
-			{//use lines_vertices (offset 0) as vertex buffer binding 0:
-				std::array< VkBuffer, 1 > vertex_buffers{ workspace.lines_vertices.handle };
-				std::array< VkDeviceSize, 1 > offsets{ 0 };
-				vkCmdBindVertexBuffers(workspace.command_buffer, 0, uint32_t(vertex_buffers.size()), vertex_buffers.data(), offsets.data());
-			}
+		// 	{//use lines_vertices (offset 0) as vertex buffer binding 0:
+		// 		std::array< VkBuffer, 1 > vertex_buffers{ workspace.lines_vertices.handle };
+		// 		std::array< VkDeviceSize, 1 > offsets{ 0 };
+		// 		vkCmdBindVertexBuffers(workspace.command_buffer, 0, uint32_t(vertex_buffers.size()), vertex_buffers.data(), offsets.data());
+		// 	}
 
-			{ //bind Camera descriptor set:
-				std::array< VkDescriptorSet, 1 > descriptor_sets{
-					workspace.Camera_descriptors, //0: Camera
-				};
+		// 	{ //bind Camera descriptor set:
+		// 		std::array< VkDescriptorSet, 1 > descriptor_sets{
+		// 			workspace.Camera_descriptors, //0: Camera
+		// 		};
 		
-				vkCmdBindDescriptorSets(
-					workspace.command_buffer, //command buffer
-					VK_PIPELINE_BIND_POINT_GRAPHICS, //pipeline bind point
-					lines_pipeline.layout, //pipeline layout
-					0, //first set
-					uint32_t(descriptor_sets.size()), descriptor_sets.data(), //descriptor sets count, ptr
-					0, nullptr //dynamic offsets count, ptr
-				);
-			}
+		// 		vkCmdBindDescriptorSets(
+		// 			workspace.command_buffer, //command buffer
+		// 			VK_PIPELINE_BIND_POINT_GRAPHICS, //pipeline bind point
+		// 			lines_pipeline.layout, //pipeline layout
+		// 			0, //first set
+		// 			uint32_t(descriptor_sets.size()), descriptor_sets.data(), //descriptor sets count, ptr
+		// 			0, nullptr //dynamic offsets count, ptr
+		// 		);
+		// 	}
 
-			//draw lines vertices:
-			vkCmdDraw(workspace.command_buffer, uint32_t(lines_vertices.size()), 1, 0, 0);
-		}
+		// 	//draw lines vertices:
+		// 	vkCmdDraw(workspace.command_buffer, uint32_t(lines_vertices.size()), 1, 0, 0);
+		// }
 
 		{//draw with the objects pipeline:
 			vkCmdBindPipeline(workspace.command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, objects_pipeline.handle);
@@ -1102,8 +1151,8 @@ void RTGRenderer::update(float dt) {
 	time = std::fmod(time + dt, 60.0f);
 
 	{ //camera orbiting the origin:
-		float ang = float(M_PI) * 2.0f * 10.0f;// * (time / 60.0f);
-		CLIP_FROM_WORLD = perspective(
+		float ang = float(M_PI) * 2.0f * 10.0f * (time / 60.0f);
+		CLIP_FROM_WORLD = glm::make_mat4((perspective(
 			60.0f / float(M_PI) * 180.0f, //vfov
 			rtg.swapchain_extent.width / float(rtg.swapchain_extent.height), //aspect
 			0.1f, //near
@@ -1112,7 +1161,7 @@ void RTGRenderer::update(float dt) {
 			3.0f * std::cos(ang), 3.0f * std::sin(ang), 1.0f, //eye
 			0.0f, 0.0f, 0.5f, //target
 			0.0f, 0.0f, 1.0f //up
-		);
+		)).data());
 	}
 
 	{ //non static sun and static sky:
@@ -1149,31 +1198,31 @@ void RTGRenderer::update(float dt) {
 		world.SUN_ENERGY.b = 0.9f;
 	}
 
-	// { //make a grid that is circular:
-	// 	lines_vertices.clear();
-	// 	constexpr size_t count = 2 * 101;
-	// 	lines_vertices.reserve(count);
-	// 	//horizontal lines at z = 0.5f:
-	// 	for (uint32_t i = 0; i < 101; ++i) {
-	// 		float x = 1.0f, y = 1.0f;
-	// 		if (i < 50) {
-	// 			y -= float(i) / 25.0f;
-	// 		}
-	// 		else {
-	// 			x -= float(i-50) / 25.0f;
-	// 		}
-	// 		lines_vertices.emplace_back(PosColVertex{
-	// 			.Position{.x = x, .y = y, .z = .1f + sin(time/20.0f)},
-	// 			.Color{ .r = uint8_t((x+1) * 255.0f/2.0f), .g = uint8_t((y+1) * 255.0f/2.0f), .b = 0xff, .a = 0xff},
-	// 		});
-	// 		lines_vertices.emplace_back(PosColVertex{
-	// 			.Position{.x = -x, .y = -y, .z = .1f + cos(time/10.0f)},
-	// 			.Color{ .r = uint8_t((-x+1) * 255.0f/2.0f), .g = uint8_t((-y+1) * 255.0f/2.0f), .b = 0x00, .a = 0xff},
-	// 		});
-	// 	}
+	{ //make a grid that is circular:
+		lines_vertices.clear();
+		constexpr size_t count = 2 * 101;
+		lines_vertices.reserve(count);
+		//horizontal lines at z = 0.5f:
+		for (uint32_t i = 0; i < 101; ++i) {
+			float x = 1.0f, y = 1.0f;
+			if (i < 50) {
+				y -= float(i) / 25.0f;
+			}
+			else {
+				x -= float(i-50) / 25.0f;
+			}
+			lines_vertices.emplace_back(PosColVertex{
+				.Position{.x = x, .y = y, .z = .1f + sin(time/20.0f)},
+				.Color{ .r = uint8_t((x+1) * 255.0f/2.0f), .g = uint8_t((y+1) * 255.0f/2.0f), .b = 0xff, .a = 0xff},
+			});
+			lines_vertices.emplace_back(PosColVertex{
+				.Position{.x = -x, .y = -y, .z = .1f + cos(time/10.0f)},
+				.Color{ .r = uint8_t((-x+1) * 255.0f/2.0f), .g = uint8_t((-y+1) * 255.0f/2.0f), .b = 0x00, .a = 0xff},
+			});
+		}
 
-	// 	assert(lines_vertices.size() == count);
-	// }
+		assert(lines_vertices.size() == count);
+	}
 
 	{ //make some objects:
 		object_instances.clear();
@@ -1198,12 +1247,12 @@ void RTGRenderer::update(float dt) {
 		}
 
 		{ //plane translated +x by one unit:
-			mat4 WORLD_FROM_LOCAL{
+			glm::mat4x4 WORLD_FROM_LOCAL = glm::make_mat4(mat4{
 				1.0f, 0.0f, 0.0f, 0.0f,
 				0.0f, 1.0f, 0.0f, 0.0f,
 				0.0f, 0.0f, 1.0f, 0.0f,
 				1.0f, 0.0f, 0.0f, 1.0f,
-			};
+			}.data());
 
 			object_instances.emplace_back(ObjectInstance{
 				.vertices = plane_vertices,
@@ -1219,12 +1268,12 @@ void RTGRenderer::update(float dt) {
 			float ang = time / 60.0f * 2.0f * float(M_PI) * 10.0f;
 			float ca = std::cos(ang);
 			float sa = std::sin(ang);
-			mat4 WORLD_FROM_LOCAL{
+			glm::mat4x4 WORLD_FROM_LOCAL = glm::make_mat4(mat4{
 				  ca, 0.0f,  -sa, 0.0f,
 				0.0f, 1.0f, 0.0f, 0.0f,
 				  sa, 0.0f,   ca, 0.0f,
 				-1.0f,0.0f, 0.0f, 1.0f,
-			};
+			}.data());
 
 			object_instances.emplace_back(ObjectInstance{
 				.vertices = torus_vertices,
@@ -1237,12 +1286,12 @@ void RTGRenderer::update(float dt) {
 		}
 
 		{ //small sphere stay in place;
-			mat4 WORLD_FROM_LOCAL{
+			glm::mat4x4 WORLD_FROM_LOCAL = glm::make_mat4(mat4{
 				.1f, 0.0f, 0.0f, 0.0f,
 				0.0f, .1f, 0.0f, 0.0f,
 				0.0f, 0.0f, .1f, 0.0f,
 				0.0f, 0.0f, 0.0f, 1.0f,
-			};
+			}.data());
 
 			object_instances.emplace_back(ObjectInstance{
 				.vertices = sphere_vertices,
@@ -1255,61 +1304,61 @@ void RTGRenderer::update(float dt) {
 			});
 		}
 
-		{ //mid sphere;
-			mat4 WORLD_FROM_LOCAL{
-				.2f, 0.0f, 0.0f, 0.0f,
-				0.0f, .2f, 0.0f, 0.0f,
-				0.0f, 0.0f, .2f, 0.0f,
-				-0.3f, -0.3f, 0.0f, 1.0f,
-			};
+		// { //mid sphere;
+		// 	mat4 WORLD_FROM_LOCAL{
+		// 		.2f, 0.0f, 0.0f, 0.0f,
+		// 		0.0f, .2f, 0.0f, 0.0f,
+		// 		0.0f, 0.0f, .2f, 0.0f,
+		// 		-0.3f, -0.3f, 0.0f, 1.0f,
+		// 	};
 
-			object_instances.emplace_back(ObjectInstance{
-				.vertices = sphere_vertices,
-				.transform{
-					.CLIP_FROM_LOCAL = CLIP_FROM_WORLD * WORLD_FROM_LOCAL,
-					.WORLD_FROM_LOCAL = WORLD_FROM_LOCAL,
-					.WORLD_FROM_LOCAL_NORMAL = WORLD_FROM_LOCAL,
-				},
-			});
-		}
+		// 	object_instances.emplace_back(ObjectInstance{
+		// 		.vertices = sphere_vertices,
+		// 		.transform{
+		// 			.CLIP_FROM_LOCAL = CLIP_FROM_WORLD * WORLD_FROM_LOCAL,
+		// 			.WORLD_FROM_LOCAL = WORLD_FROM_LOCAL,
+		// 			.WORLD_FROM_LOCAL_NORMAL = WORLD_FROM_LOCAL,
+		// 		},
+		// 	});
+		// }
 
-		{ //large sphere;
-			mat4 WORLD_FROM_LOCAL{
-				.5f, 0.0f, 0.0f, 0.0f,
-				0.0f, .5f, 0.0f, 0.0f,
-				0.0f, 0.0f, .5f, 0.0f,
-				-1.0f, -1.0f, 0.0f, 1.0f,
-			};
+		// { //large sphere;
+		// 	mat4 WORLD_FROM_LOCAL{
+		// 		.5f, 0.0f, 0.0f, 0.0f,
+		// 		0.0f, .5f, 0.0f, 0.0f,
+		// 		0.0f, 0.0f, .5f, 0.0f,
+		// 		-1.0f, -1.0f, 0.0f, 1.0f,
+		// 	};
 
-			object_instances.emplace_back(ObjectInstance{
-				.vertices = sphere_vertices,
-				.transform{
-					.CLIP_FROM_LOCAL = CLIP_FROM_WORLD * WORLD_FROM_LOCAL,
-					.WORLD_FROM_LOCAL = WORLD_FROM_LOCAL,
-					.WORLD_FROM_LOCAL_NORMAL = WORLD_FROM_LOCAL,
-				},
-				.texture = 1,
-			});
-		}
+		// 	object_instances.emplace_back(ObjectInstance{
+		// 		.vertices = sphere_vertices,
+		// 		.transform{
+		// 			.CLIP_FROM_LOCAL = CLIP_FROM_WORLD * WORLD_FROM_LOCAL,
+		// 			.WORLD_FROM_LOCAL = WORLD_FROM_LOCAL,
+		// 			.WORLD_FROM_LOCAL_NORMAL = WORLD_FROM_LOCAL,
+		// 		},
+		// 		.texture = 1,
+		// 	});
+		// }
 
-		{ //extra large sphere;
-			mat4 WORLD_FROM_LOCAL{
-				1.0f, 0.0f, 0.0f, 0.0f,
-				0.0f, 1.0f, 0.0f, 0.0f,
-				0.0f, 0.0f, 1.0f, 0.0f,
-				-2.0f, -2.0f, 0.0f, 1.0f,
-			};
+		// { //extra large sphere;
+		// 	mat4 WORLD_FROM_LOCAL{
+		// 		1.0f, 0.0f, 0.0f, 0.0f,
+		// 		0.0f, 1.0f, 0.0f, 0.0f,
+		// 		0.0f, 0.0f, 1.0f, 0.0f,
+		// 		-2.0f, -2.0f, 0.0f, 1.0f,
+		// 	};
 
-			object_instances.emplace_back(ObjectInstance{
-				.vertices = sphere_vertices,
-				.transform{
-					.CLIP_FROM_LOCAL = CLIP_FROM_WORLD * WORLD_FROM_LOCAL,
-					.WORLD_FROM_LOCAL = WORLD_FROM_LOCAL,
-					.WORLD_FROM_LOCAL_NORMAL = WORLD_FROM_LOCAL,
-				},
-				.texture = 2,
-			});
-		}
+		// 	object_instances.emplace_back(ObjectInstance{
+		// 		.vertices = sphere_vertices,
+		// 		.transform{
+		// 			.CLIP_FROM_LOCAL = CLIP_FROM_WORLD * WORLD_FROM_LOCAL,
+		// 			.WORLD_FROM_LOCAL = WORLD_FROM_LOCAL,
+		// 			.WORLD_FROM_LOCAL_NORMAL = WORLD_FROM_LOCAL,
+		// 		},
+		// 		.texture = 2,
+		// 	});
+		// }
 	}
 }
 
