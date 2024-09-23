@@ -1110,6 +1110,9 @@ void RTGRenderer::on_input(InputEvent const &event) {
 		0.1f, //near
 		1000.0f //far
 	).data());
+	static glm::vec3 eye = {user_camera.radius * std::cos(user_camera.elevation) * std::cos(user_camera.azimuth),
+			      user_camera.radius * std::cos(user_camera.elevation) * std::sin(user_camera.azimuth),
+				  user_camera.radius * std::sin(user_camera.elevation)};
 	bool update_camera = false;
 	switch (event.type) {
 		case InputEvent::Type::MouseMotion:
@@ -1132,16 +1135,18 @@ void RTGRenderer::on_input(InputEvent const &event) {
 			} 
 			else if (event.motion.state && shift_down) {
 				//pan
-				// update_camera = true;
-				// glm::vec3 forward = glm::normalize(user_camera.target - eye);  // Forward direction
-				// glm::vec3 right = glm::normalize(glm::cross(forward, glm::vec3(0.0f, 0.0f, 1.0f))); // Right vector
-				// glm::vec3 up = glm::cross(right, forward);  // Up vector
-	
-				// float panSensitivity = 0.1f;  // Adjust this as needed for a comfortable panning speed
-				// user_camera.target += right * (event.motion.x - previous_mouse_x) * panSensitivity;
-				// user_camera.target += up * (event.motion.y - previous_mouse_y) * panSensitivity;
-				// previous_mouse_x = event.motion.x;
-				// previous_mouse_y = event.motion.y;
+				if (previous_mouse_x != -1.0f) {
+					update_camera = true;
+					glm::vec3 forward = glm::normalize(user_camera.target - eye);  // Forward direction
+					glm::vec3 right = glm::normalize(glm::cross(forward, glm::vec3(0.0f, 0.0f, 1.0f))); // Right vector
+					glm::vec3 up = glm::cross(right, forward);  // Up vector
+		
+					float pan_sensitivity = 5.0f;
+					user_camera.target -= right * (event.motion.x - previous_mouse_x) * pan_sensitivity;
+					user_camera.target += up * (event.motion.y - previous_mouse_y) * pan_sensitivity;
+				}
+				previous_mouse_x = event.motion.x;
+				previous_mouse_y = event.motion.y;
 			}
 			break;
 		case InputEvent::Type::KeyDown:
@@ -1175,9 +1180,10 @@ void RTGRenderer::on_input(InputEvent const &event) {
 			up =-1.0f;
 			upside_down = true;
 		}
+		eye = glm::vec3{x,y,z} + user_camera.target;
 		CLIP_FROM_WORLD = perspective_mat * glm::make_mat4(look_at(
-			x,y,z, //eye
-			0.0f,0.0f,0.5f, //target
+			eye.x,eye.y,eye.z, //eye
+			user_camera.target.x,user_camera.target.y,user_camera.target.z, //target
 			0.0f, 0.0f, up //up
 		).data());
 	}
