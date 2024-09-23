@@ -3,6 +3,9 @@
 #define _USE_MATH_DEFINES
 #endif
 
+#ifndef GLFW_KEY_LEFT_SHIFT
+	#define GLFW_KEY_LEFT_SHIFT 340
+#endif
 #include "RTGRenderer.hpp"
 
 #include "VK.hpp"
@@ -16,6 +19,7 @@
 #include <cstring>
 #include <deque>
 #include <iostream>
+#include <fstream>
 
 RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_) {
 	{ //create command pool
@@ -260,212 +264,22 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_) {
 
 	{//create object vertices
 		std::vector<PosNorTanTexVertex> vertices;
-
+		vertices.resize(scene.vertices_count);
+		uint32_t new_vertices_start = 0;
+		mesh_vertices.clear();
+		mesh_vertices.reserve(scene.meshes.size());
 		for (uint32_t i = 0; i < uint32_t(scene.meshes.size()); ++i) {
-
-		}
-
-		{ //A [-1,1]x[-1,1]x{0} quadrilateral:
-			plane_vertices.first = uint32_t(vertices.size());
-			vertices.emplace_back(PosNorTanTexVertex{
-				.Position{ .x = -1.0f, .y = -1.0f, .z = 0.0f },
-				.Normal{ .x = 0.0f, .y = 0.0f, .z = 1.0f },
-				.Tangent{
-						.x = 0,
-						.y = 0,
-						.z = 0,
-						.w = 0
-					},
-				.TexCoord{ .s = 0.0f, .t = 0.0f },
-			});
-			vertices.emplace_back(PosNorTanTexVertex{
-				.Position{ .x = 1.0f, .y = -1.0f, .z = 0.0f },
-				.Normal{ .x = 0.0f, .y = 0.0f, .z = 1.0f},
-				.Tangent{
-						.x = 0,
-						.y = 0,
-						.z = 0,
-						.w = 0
-					},
-				.TexCoord{ .s = 1.0f, .t = 0.0f },
-			});
-			vertices.emplace_back(PosNorTanTexVertex{
-				.Position{ .x = -1.0f, .y = 1.0f, .z = 0.0f },
-				.Normal{ .x = 0.0f, .y = 0.0f, .z = 1.0f},
-				.Tangent{
-						.x = 0,
-						.y = 0,
-						.z = 0,
-						.w = 0
-					},
-				.TexCoord{ .s = 0.0f, .t = 1.0f },
-			});
-			vertices.emplace_back(PosNorTanTexVertex{
-				.Position{ .x = 1.0f, .y = 1.0f, .z = 0.0f },
-				.Normal{ .x = 0.0f, .y = 0.0f, .z = 1.0f },
-				.Tangent{
-						.x = 0,
-						.y = 0,
-						.z = 0,
-						.w = 0
-					},
-				.TexCoord{ .s = 1.0f, .t = 1.0f },
-			});
-			vertices.emplace_back(PosNorTanTexVertex{
-				.Position{ .x = -1.0f, .y = 1.0f, .z = 0.0f },
-				.Normal{ .x = 0.0f, .y = 0.0f, .z = 1.0f},
-				.Tangent{
-						.x = 0,
-						.y = 0,
-						.z = 0,
-						.w = 0
-					},
-				.TexCoord{ .s = 0.0f, .t = 1.0f },
-			});
-			vertices.emplace_back(PosNorTanTexVertex{
-				.Position{ .x = 1.0f, .y = -1.0f, .z = 0.0f },
-				.Normal{ .x = 0.0f, .y = 0.0f, .z = 1.0f},
-				.Tangent{
-						.x = 0,
-						.y = 0,
-						.z = 0,
-						.w = 0
-					},
-				.TexCoord{ .s = 1.0f, .t = 0.0f },
-			});
-
-			plane_vertices.count = uint32_t(vertices.size()) - plane_vertices.first;
-		}
-
-		{//A torus:
-			torus_vertices.first = uint32_t(vertices.size());
-
-			//will parameterize with (u,v) where:
-			// - u is angle around main axis (+z)
-			// - v is angle around the tube
-
-			constexpr float R1 = 0.75f; //main radius
-			constexpr float R2 = 0.15f; //tube radius
-
-			constexpr uint32_t U_STEPS = 20;
-			constexpr uint32_t V_STEPS = 16;
-
-			//texture repeats around the torus:
-			constexpr float V_REPEATS = 2.0f;
-			float U_REPEATS = std::ceil(V_REPEATS / R2 * R1);
-
-			auto emplace_vertex = [&](uint32_t ui, uint32_t vi) {
-				//convert steps to angles:
-				// (doing the mod since trig on 2 M_PI may not exactly match 0)
-				float ua = (ui % U_STEPS) / float(U_STEPS) * 2.0f * float(M_PI);
-				float va = (vi % V_STEPS) / float(V_STEPS) * 2.0f * float(M_PI);
-
-				vertices.emplace_back( PosNorTanTexVertex{
-					.Position{
-						.x = (R1 + R2 * std::cos(va)) * std::cos(ua),
-						.y = (R1 + R2 * std::cos(va)) * std::sin(ua),
-						.z = R2 * std::sin(va),
-					},
-					.Normal{
-						.x = std::cos(va) * std::cos(ua),
-						.y = std::cos(va) * std::sin(ua),
-						.z = std::sin(va),
-					},
-					.Tangent{
-						.x = 0,
-						.y = 0,
-						.z = 0,
-						.w = 0
-					},
-					.TexCoord{
-						.s = ui / float(U_STEPS) * U_REPEATS,
-						.t = vi / float(V_STEPS) * V_REPEATS,
-					},
-				});
-			};
-
-			for (uint32_t ui = 0; ui < U_STEPS; ++ui) {
-				for (uint32_t vi = 0; vi < V_STEPS; ++vi) {
-					emplace_vertex(ui, vi);
-					emplace_vertex(ui+1, vi);
-					emplace_vertex(ui, vi+1);
-
-					emplace_vertex(ui, vi+1);
-					emplace_vertex(ui+1, vi);
-					emplace_vertex(ui+1, vi+1);
-				}
+			Scene::Mesh& cur_mesh = scene.meshes[i];
+			mesh_vertices[i].count = cur_mesh.count;
+			mesh_vertices[i].first = new_vertices_start;
+			std::ifstream file(scene.scene_path + "/" + cur_mesh.attributes[0].source, std::ios::binary); // assuming the attribute layout holds
+			if (!file.is_open()) throw std::runtime_error("Error opening file for mesh data: " + scene.scene_path + "/" + cur_mesh.attributes[0].source);
+			if (!file.read(reinterpret_cast< char * >(&vertices[new_vertices_start]), cur_mesh.count * sizeof(PosNorTanTexVertex))) {
+				throw std::runtime_error("Failed to read mesh data: " + scene.scene_path + "/" + cur_mesh.attributes[0].source);
 			}
-
-
-			torus_vertices.count = uint32_t(vertices.size()) - torus_vertices.first;
+			new_vertices_start += cur_mesh.count;
 		}
-
-		{//a sphere
-			sphere_vertices.first = uint32_t(vertices.size());
-			constexpr float R = .5f;
-			constexpr uint32_t U_STEPS = 50;
-			constexpr uint32_t V_STEPS = 50; // should only be even
-
-			auto emplace_vertex = [&](uint32_t ui, uint32_t vi) {
-				//convert steps to angles:
-				// (doing the mod since trig on 2 M_PI may not exactly match 0)
-				float height = float(ui) / float(U_STEPS) * 2 * R;
-				float angle = float(vi) / float(V_STEPS) * 2.0f * float(M_PI);
-				float height_from_center = height - R;
-
-				vertices.emplace_back( PosNorTanTexVertex{
-					.Position{
-						.x = std::cos(angle) * std::sqrt(R*R - height_from_center * height_from_center),
-						.y = std::sin(angle) * std::sqrt(R*R - height_from_center * height_from_center),
-						.z = height,
-					},
-					.Normal{
-						.x = std::cos(angle) * 
-							std::sqrt(R*R - height_from_center * height_from_center) / R,
-						.y = std::sin(angle) *
-							std::sqrt(R*R - height_from_center * height_from_center) / R,
-						.z = (height-R) / R,
-					},
-					.Tangent{
-						.x = 0,
-						.y = 0,
-						.z = 0,
-						.w = 0
-					},
-					.TexCoord{
-						.s = float(ui) / float(U_STEPS),
-						.t = float(vi) / float(V_STEPS),
-					},
-				});
-			};
-
-
-			for (uint32_t ui = 0; ui < U_STEPS; ++ui) {
-				for (uint32_t vi = 0; vi < V_STEPS; ++vi) {
-					if (ui == 0) {
-						emplace_vertex(ui, vi);
-						emplace_vertex(ui+1, vi+1);
-						emplace_vertex(ui+1, vi);
-					}
-					else if (ui == U_STEPS - 1) {
-						emplace_vertex(ui, vi);
-						emplace_vertex(ui, vi+1);
-						emplace_vertex(ui+1, vi);
-					}
-					else {
-						emplace_vertex(ui, vi);
-						emplace_vertex(ui, vi+1);
-						emplace_vertex(ui+1, vi);
-
-						emplace_vertex(ui, vi+1);
-						emplace_vertex(ui+1, vi+1);
-						emplace_vertex(ui+1, vi);
-					}
-				}
-			}
-
-			sphere_vertices.count = uint32_t(vertices.size()) - sphere_vertices.first;
-		}
+		assert(new_vertices_start == scene.vertices_count);
 
 		size_t bytes = vertices.size() * sizeof(vertices[0]);
 
@@ -481,14 +295,29 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_) {
 	}
 
 	{//make some textures
-		textures.reserve(scene.textures.size());
+		textures.reserve(scene.textures.size() + 1); // index 0 is the default texture
+		{//default material
+			uint8_t data[4] = {255,255,255,255};
+			//make a place for the texture to live on the GPU:
+			textures.emplace_back(rtg.helpers.create_image(
+				VkExtent2D{ .width = 1 , .height = 1 }, //size of image
+				VK_FORMAT_R8G8B8A8_UNORM, //how to interpret image data (in this case, SRGB-encoded 8-bit RGBA)
+				VK_IMAGE_TILING_OPTIMAL,
+				VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, //will sample and upload
+				VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, //should be device-local
+				Helpers::Unmapped
+			));
+
+			//transfer data:
+			rtg.helpers.transfer_to_image(&data, sizeof(uint8_t) * 4, textures.back());
+		}
 
 		for (uint32_t i = 0; i < scene.textures.size(); ++i) {
-			Scene::Texture cur_texture = scene.textures[i];
+			Scene::Texture& cur_texture = scene.textures[i];
 			if (cur_texture.has_src) {
 				int width,height,n;
-				unsigned char *data = stbi_load(cur_texture.source.c_str(), &width, &height, &n, 4);
-				if (data == NULL) throw std::runtime_error("Error loading texture " + cur_texture.source);
+				unsigned char *image = stbi_load(cur_texture.source.c_str(), &width, &height, &n, 4);
+				if (image == NULL) throw std::runtime_error("Error loading texture " + cur_texture.source);
 				assert(n == 3); // should only be 3 channel per .s72 spec
 				//make a place for the texture to live on the GPU:
 				textures.emplace_back(rtg.helpers.create_image(
@@ -499,10 +328,9 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_) {
 					VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, //should be device-local
 					Helpers::Unmapped
 				));
-				//transfer data:
-				rtg.helpers.transfer_to_image(data, sizeof(data[0]) * width*height*n, textures.back());
+				rtg.helpers.transfer_to_image(image, sizeof(image[0]) * width*height*n, textures.back());
 				//free image:
-				stbi_image_free(data);
+				stbi_image_free(image);
 			}
 			else {
 				uint8_t data[4] = {uint8_t(cur_texture.value.x*255.0f), uint8_t(cur_texture.value.y*255.0f), uint8_t(cur_texture.value.z*255.0f),255};
@@ -631,6 +459,29 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_) {
 		}
 
 		vkUpdateDescriptorSets(rtg.device, uint32_t(writes.size()), writes.data(), 0, nullptr);
+	}
+
+	
+	{ //setup camera
+		float x = user_camera.radius * std::sin(user_camera.elevation) * std::cos(user_camera.azimuth);
+		float y = user_camera.radius * std::sin(user_camera.elevation) * std::sin(user_camera.azimuth);
+		float z = user_camera.radius * std::cos(user_camera.elevation);
+		CLIP_FROM_WORLD = glm::make_mat4((perspective(
+			60.0f * float(M_PI) / 180.0f, //vfov
+			rtg.swapchain_extent.width / float(rtg.swapchain_extent.height), //aspect
+			0.1f, //near
+			1000.0f //far
+		) * look_at(
+			x,y,z, //eye
+			0.0f, 0.0f, 0.5f, //target
+			0.0f, 0.0f, 1.0f //up
+		)).data());
+	}
+
+	for (Scene::Node& cur_node : scene.nodes) {
+		if (int32_t cur_mesh_index = cur_node.mesh_index != -1) {
+			std::cout << "node name: "<< cur_node.name <<", Mesh Index:" <<cur_mesh_index<<std::endl;
+		}
 	}
 }
 
@@ -1150,20 +1001,6 @@ void RTGRenderer::render(RTG &rtg_, RTG::RenderParams const &render_params) {
 void RTGRenderer::update(float dt) {
 	time = std::fmod(time + dt, 60.0f);
 
-	{ //camera orbiting the origin:
-		float ang = float(M_PI) * 2.0f * 10.0f * (time / 60.0f);
-		CLIP_FROM_WORLD = glm::make_mat4((perspective(
-			60.0f / float(M_PI) * 180.0f, //vfov
-			rtg.swapchain_extent.width / float(rtg.swapchain_extent.height), //aspect
-			0.1f, //near
-			1000.0f //far
-		) * look_at(
-			3.0f * std::cos(ang), 3.0f * std::sin(ang), 1.0f, //eye
-			0.0f, 0.0f, 0.5f, //target
-			0.0f, 0.0f, 1.0f //up
-		)).data());
-	}
-
 	{ //non static sun and static sky:
 		world.SKY_DIRECTION.x = 0.0f;
 		world.SKY_DIRECTION.y = 0.0f;
@@ -1173,20 +1010,9 @@ void RTGRenderer::update(float dt) {
 		world.SKY_ENERGY.g = 0.1f;
 		world.SKY_ENERGY.b = 0.2f;
 
-		constexpr float rotation_speed = .01f;
-		float angle = time * rotation_speed;
-		static bool do_once = true;
-
 		world.SUN_DIRECTION.x = 6.0f / 23.0f;
-		if (do_once) {
-			world.SUN_DIRECTION.y = 13.0f / 23.0f;
-			world.SUN_DIRECTION.z = 18.0f / 23.0f;
-			do_once = false;
-		}
-		else {
-			world.SUN_DIRECTION.y = world.SUN_DIRECTION.y * std::cos(angle) - world.SUN_DIRECTION.z * std::sin(angle);
-			world.SUN_DIRECTION.z = world.SUN_DIRECTION.y * std::sin(angle) + world.SUN_DIRECTION.z * std::cos(angle);
-		}
+		world.SUN_DIRECTION.y = 13.0f / 23.0f;
+		world.SUN_DIRECTION.z = 18.0f / 23.0f;
 
 		float length = sqrt(world.SUN_DIRECTION.x * world.SUN_DIRECTION.x + world.SUN_DIRECTION.y * world.SUN_DIRECTION.y + world.SUN_DIRECTION.z * world.SUN_DIRECTION.z);
 		world.SKY_DIRECTION.x /= length;
@@ -1227,141 +1053,133 @@ void RTGRenderer::update(float dt) {
 	{ //make some objects:
 		object_instances.clear();
 
-		static std::deque<glm::mat4x4> transform_stack;
+		std::deque<glm::mat4x4> transform_stack;
+		// std::cout<<"---------------------start-----------------"<<std::endl;
 
-		auto draw_child_nodes = [&](uint32_t node_index){
+		std::function<void(uint32_t)> draw_node = [&](uint32_t i) {
+			Scene::Node& cur_node = scene.nodes[i];
+			glm::mat4x4 cur_node_transform_in_parent = cur_node.transform.parent_from_local();
+			if (transform_stack.empty()) {
+				transform_stack.push_back(cur_node_transform_in_parent);
+			}
+			else {
+				glm::mat4x4 parent_node_transform_in_world = transform_stack.back();
+				transform_stack.push_back(parent_node_transform_in_world * cur_node_transform_in_parent);
+			}
+			// draw own mesh
+			if (int32_t cur_mesh_index = cur_node.mesh_index; cur_mesh_index != -1) {
+				glm::mat4x4 WORLD_FROM_LOCAL = transform_stack.back();
+				uint32_t texture_index = 0;
+				if (scene.meshes[cur_mesh_index].material_index != -1) {
+					texture_index = scene.materials[scene.meshes[cur_mesh_index].material_index].texture_index + 1;
+				}
+				// std::cout<<"node name: "<<cur_node.name<<std::endl;
+				// std::cout<<"drawing "<<cur_mesh_index<<std::endl;
+				// std::cout<<"start: "<<mesh_vertices[cur_mesh_index].first<<" ,count: "<<mesh_vertices[cur_mesh_index].count<<std::endl;
 
+				object_instances.emplace_back(ObjectInstance{
+					.vertices = mesh_vertices[cur_mesh_index],
+					.transform{
+						.CLIP_FROM_LOCAL = CLIP_FROM_WORLD * WORLD_FROM_LOCAL,
+						.WORLD_FROM_LOCAL = WORLD_FROM_LOCAL,
+						.WORLD_FROM_LOCAL_NORMAL = WORLD_FROM_LOCAL,
+					},
+					.texture = texture_index,
+				});
+			}
+			// draw children mesh
+			for (uint32_t child_index : cur_node.children) {
+				draw_node(child_index);
+			}
+			transform_stack.pop_back();
 		};
 
 		//traverse the scene hiearchy:
 		for (uint32_t i = 0; i < scene.root_nodes.size(); ++i) {
-			Scene::Node& cur_node = scene.nodes[scene.root_nodes[i]];
 			transform_stack.clear();
-			glm::mat4x4 cur_node_world_transform = cur_node.transform.parent_from_local();
-			transform_stack.push_back(cur_node_world_transform);
-			if (int32_t cur_mesh_index = cur_node.mesh_index != -1) {
-				
-			}
-
-
+			draw_node(scene.root_nodes[i]);
 		}
-
-		{ //plane translated +x by one unit:
-			glm::mat4x4 WORLD_FROM_LOCAL = glm::make_mat4(mat4{
-				1.0f, 0.0f, 0.0f, 0.0f,
-				0.0f, 1.0f, 0.0f, 0.0f,
-				0.0f, 0.0f, 1.0f, 0.0f,
-				1.0f, 0.0f, 0.0f, 1.0f,
-			}.data());
-
-			object_instances.emplace_back(ObjectInstance{
-				.vertices = plane_vertices,
-				.transform{
-					.CLIP_FROM_LOCAL = CLIP_FROM_WORLD * WORLD_FROM_LOCAL,
-					.WORLD_FROM_LOCAL = WORLD_FROM_LOCAL,
-					.WORLD_FROM_LOCAL_NORMAL = WORLD_FROM_LOCAL,
-				},
-				.texture = 2,
-			});
-		}
-		{ //torus translated -x by one unit and rotated CCW around +y:
-			float ang = time / 60.0f * 2.0f * float(M_PI) * 10.0f;
-			float ca = std::cos(ang);
-			float sa = std::sin(ang);
-			glm::mat4x4 WORLD_FROM_LOCAL = glm::make_mat4(mat4{
-				  ca, 0.0f,  -sa, 0.0f,
-				0.0f, 1.0f, 0.0f, 0.0f,
-				  sa, 0.0f,   ca, 0.0f,
-				-1.0f,0.0f, 0.0f, 1.0f,
-			}.data());
-
-			object_instances.emplace_back(ObjectInstance{
-				.vertices = torus_vertices,
-				.transform{
-					.CLIP_FROM_LOCAL = CLIP_FROM_WORLD * WORLD_FROM_LOCAL,
-					.WORLD_FROM_LOCAL = WORLD_FROM_LOCAL,
-					.WORLD_FROM_LOCAL_NORMAL = WORLD_FROM_LOCAL,
-				},
-			});
-		}
-
-		{ //small sphere stay in place;
-			glm::mat4x4 WORLD_FROM_LOCAL = glm::make_mat4(mat4{
-				.1f, 0.0f, 0.0f, 0.0f,
-				0.0f, .1f, 0.0f, 0.0f,
-				0.0f, 0.0f, .1f, 0.0f,
-				0.0f, 0.0f, 0.0f, 1.0f,
-			}.data());
-
-			object_instances.emplace_back(ObjectInstance{
-				.vertices = sphere_vertices,
-				.transform{
-					.CLIP_FROM_LOCAL = CLIP_FROM_WORLD * WORLD_FROM_LOCAL,
-					.WORLD_FROM_LOCAL = WORLD_FROM_LOCAL,
-					.WORLD_FROM_LOCAL_NORMAL = WORLD_FROM_LOCAL,
-				},
-				.texture = 1,
-			});
-		}
-
-		// { //mid sphere;
-		// 	mat4 WORLD_FROM_LOCAL{
-		// 		.2f, 0.0f, 0.0f, 0.0f,
-		// 		0.0f, .2f, 0.0f, 0.0f,
-		// 		0.0f, 0.0f, .2f, 0.0f,
-		// 		-0.3f, -0.3f, 0.0f, 1.0f,
-		// 	};
-
-		// 	object_instances.emplace_back(ObjectInstance{
-		// 		.vertices = sphere_vertices,
-		// 		.transform{
-		// 			.CLIP_FROM_LOCAL = CLIP_FROM_WORLD * WORLD_FROM_LOCAL,
-		// 			.WORLD_FROM_LOCAL = WORLD_FROM_LOCAL,
-		// 			.WORLD_FROM_LOCAL_NORMAL = WORLD_FROM_LOCAL,
-		// 		},
-		// 	});
-		// }
-
-		// { //large sphere;
-		// 	mat4 WORLD_FROM_LOCAL{
-		// 		.5f, 0.0f, 0.0f, 0.0f,
-		// 		0.0f, .5f, 0.0f, 0.0f,
-		// 		0.0f, 0.0f, .5f, 0.0f,
-		// 		-1.0f, -1.0f, 0.0f, 1.0f,
-		// 	};
-
-		// 	object_instances.emplace_back(ObjectInstance{
-		// 		.vertices = sphere_vertices,
-		// 		.transform{
-		// 			.CLIP_FROM_LOCAL = CLIP_FROM_WORLD * WORLD_FROM_LOCAL,
-		// 			.WORLD_FROM_LOCAL = WORLD_FROM_LOCAL,
-		// 			.WORLD_FROM_LOCAL_NORMAL = WORLD_FROM_LOCAL,
-		// 		},
-		// 		.texture = 1,
-		// 	});
-		// }
-
-		// { //extra large sphere;
-		// 	mat4 WORLD_FROM_LOCAL{
-		// 		1.0f, 0.0f, 0.0f, 0.0f,
-		// 		0.0f, 1.0f, 0.0f, 0.0f,
-		// 		0.0f, 0.0f, 1.0f, 0.0f,
-		// 		-2.0f, -2.0f, 0.0f, 1.0f,
-		// 	};
-
-		// 	object_instances.emplace_back(ObjectInstance{
-		// 		.vertices = sphere_vertices,
-		// 		.transform{
-		// 			.CLIP_FROM_LOCAL = CLIP_FROM_WORLD * WORLD_FROM_LOCAL,
-		// 			.WORLD_FROM_LOCAL = WORLD_FROM_LOCAL,
-		// 			.WORLD_FROM_LOCAL_NORMAL = WORLD_FROM_LOCAL,
-		// 		},
-		// 		.texture = 2,
-		// 	});
-		// }
 	}
 }
 
 
-void RTGRenderer::on_input(InputEvent const &) {
+void RTGRenderer::on_input(InputEvent const &event) {
+	static glm::mat4x4 perspective_mat = glm::make_mat4(perspective(
+		60.0f * float(M_PI) / 180.0f, //vfov
+		rtg.swapchain_extent.width / float(rtg.swapchain_extent.height), //aspect
+		0.1f, //near
+		1000.0f //far
+	).data());
+	bool update_camera = false;
+	switch (event.type) {
+		case InputEvent::Type::MouseMotion:
+			if (event.motion.state && !shift_down) {
+				if (previous_mouse_x != -1.0f) {
+					update_camera = true;
+					if (upside_down) {
+						user_camera.azimuth += (event.motion.x - previous_mouse_x) * 3.0f;
+					}
+					else {
+						user_camera.azimuth -= (event.motion.x - previous_mouse_x) * 3.0f;
+					}
+					user_camera.elevation += (event.motion.y - previous_mouse_y) * 3.0f;
+					user_camera.azimuth = fmod(user_camera.azimuth, 2.0f * float(M_PI));
+					user_camera.elevation = fmod(user_camera.elevation, 2.0f * float(M_PI));
+				}
+
+				previous_mouse_x = event.motion.x;
+				previous_mouse_y = event.motion.y;
+			} 
+			else if (event.motion.state && shift_down) {
+				//pan
+				// update_camera = true;
+				// glm::vec3 forward = glm::normalize(user_camera.target - eye);  // Forward direction
+				// glm::vec3 right = glm::normalize(glm::cross(forward, glm::vec3(0.0f, 0.0f, 1.0f))); // Right vector
+				// glm::vec3 up = glm::cross(right, forward);  // Up vector
+	
+				// float panSensitivity = 0.1f;  // Adjust this as needed for a comfortable panning speed
+				// user_camera.target += right * (event.motion.x - previous_mouse_x) * panSensitivity;
+				// user_camera.target += up * (event.motion.y - previous_mouse_y) * panSensitivity;
+				// previous_mouse_x = event.motion.x;
+				// previous_mouse_y = event.motion.y;
+			}
+			break;
+		case InputEvent::Type::KeyDown:
+			if (event.key.key == GLFW_KEY_LEFT_SHIFT) {
+				shift_down = true;
+			}
+			break;
+		case InputEvent::Type::KeyUp:
+			if (event.key.key == GLFW_KEY_LEFT_SHIFT) {
+				shift_down = false;
+			}
+			break;
+		case InputEvent::Type::MouseButtonUp:
+			previous_mouse_x = -1.0f;
+			break;
+		case InputEvent::Type::MouseWheel:
+			user_camera.radius = std::max(user_camera.radius - event.wheel.y*0.5f, 0.0f);
+			update_camera = true;
+			break;
+		default:
+			break;
+	}
+	if (update_camera) {
+		float x = user_camera.radius * std::cos(user_camera.elevation) * std::cos(user_camera.azimuth);
+		float y = user_camera.radius * std::cos(user_camera.elevation) * std::sin(user_camera.azimuth);
+		float z = user_camera.radius * std::sin(user_camera.elevation);
+		float up = 1.0f;
+		upside_down = false;
+		// flip up axis when upside down
+		if (int((abs(user_camera.elevation) + float(M_PI) / 2) / float(M_PI)) % 2 == 1 ) {
+			up =-1.0f;
+			upside_down = true;
+		}
+		CLIP_FROM_WORLD = perspective_mat * glm::make_mat4(look_at(
+			x,y,z, //eye
+			0.0f,0.0f,0.5f, //target
+			0.0f, 0.0f, up //up
+		).data());
+	}
+
 }

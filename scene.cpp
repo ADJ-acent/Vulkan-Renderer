@@ -16,7 +16,7 @@ void Scene::load(std::string filename)
     if (filename.substr(filename.size()-4, 4) != ".s72") {
         throw std::runtime_error("Scene " + filename + " is not a compatible format (s72 required). Last 4 char is " + filename.substr(filename.size()-5, 4));
     }
-    scene_path = filename;
+    scene_path = filename.substr(0, filename.rfind('/'));;
     sejp::value val = sejp::load(filename);
     try {
         std::vector<sejp::value > const &object = val.as_array().value();
@@ -182,6 +182,7 @@ void Scene::load(std::string filename)
 
                 // get count
                 meshes[cur_mesh_index].count = int(object_i.find("count")->second.as_number().value());
+                vertices_count += meshes[cur_mesh_index].count;
                 
                 // get attributes
                 if (auto attributes_res = object_i.find("attributes"); attributes_res != object_i.end()) {
@@ -406,8 +407,13 @@ void Scene::load(std::string filename)
         throw e;
     }
 
-    std::cout<< "Finished loading " + filename<<std::endl;
-    debug();
+    std::cout<< "------------------------Finished loading " + filename +"---------------------"<<std::endl;
+    for (Scene::Node& cur_node : nodes) {
+        if (int32_t cur_mesh_index = cur_node.mesh_index; cur_mesh_index != -1) {
+            std::cout << "node name: "<< cur_node.name <<", Mesh Index:" <<cur_mesh_index<<std::endl;
+        }
+    }
+    // debug();
 }
 
 void Scene::debug() {
@@ -454,7 +460,7 @@ void Scene::debug() {
         // Print mesh information (if available)
         if (node.mesh_index != -1) {
             const Mesh& mesh = meshes[node.mesh_index];
-            std::cout << "Mesh Name: " << mesh.name << "\n";
+            std::cout << "Mesh Name: " << mesh.name <<", Mesh Index: "<< node.mesh_index<< "\n";
             for (int i = 0; i < 4; ++i) {
                 std::string attribute_name;
                 if (i == 0) attribute_name = "position";

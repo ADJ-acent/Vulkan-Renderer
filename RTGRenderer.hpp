@@ -184,6 +184,19 @@ struct RTGRenderer : RTG::Application {
 	};
 	std::vector< ObjectInstance > object_instances;
 
+	struct FreeCamera
+	{
+		glm::vec3 target = {0.0f, 0.0f, 0.5f};
+		float radius = 10.0f;
+		float azimuth = 0.0f;
+		float elevation = 0.785398163f; //Pi/4
+	} user_camera;
+
+	float previous_mouse_x = -1.0f, previous_mouse_y = -1.0f;
+	bool shift_down;
+	bool upside_down = false;
+	
+
 	//--------------------------------------------------------------------
 	//Rendering function, uses all the resources above to queue work to draw a frame:
 

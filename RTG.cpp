@@ -603,10 +603,11 @@ static void cursor_pos_callback(GLFWwindow *window, double xpos, double ypos) {
 
 	InputEvent event;
 	std::memset(&event, '\0', sizeof(event));
-
+	int width, height;
+	glfwGetWindowSize(window, &width, &height);
 	event.type = InputEvent::MouseMotion;
-	event.motion.x = float(xpos);
-	event.motion.y = float(ypos);
+	event.motion.x = float(xpos) / float(width);
+	event.motion.y = float(ypos) / float(height);
 	event.motion.state = 0;
 	for (int b = 0; b < 8 && b < GLFW_MOUSE_BUTTON_LAST; ++b) {
 		if (glfwGetMouseButton(window, b) == GLFW_PRESS) {
