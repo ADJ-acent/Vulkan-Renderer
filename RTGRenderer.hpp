@@ -190,11 +190,17 @@ struct RTGRenderer : RTG::Application {
 		float radius = 10.0f;
 		float azimuth = 0.0f;
 		float elevation = 0.785398163f; //Pi/4
-	} user_camera;
+	} user_camera, debug_camera;
 
 	float previous_mouse_x = -1.0f, previous_mouse_y = -1.0f;
 	bool shift_down;
 	bool upside_down = false;
+
+	enum ViewCamera{
+		SceneCamera,
+		UserCamera,
+		DebugCamera
+	} view_camera = ViewCamera::SceneCamera;
 	
 
 	//--------------------------------------------------------------------

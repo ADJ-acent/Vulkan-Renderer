@@ -477,12 +477,6 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_) {
 			0.0f, 0.0f, 1.0f //up
 		)).data());
 	}
-
-	for (Scene::Node& cur_node : scene.nodes) {
-		if (int32_t cur_mesh_index = cur_node.mesh_index != -1) {
-			std::cout << "node name: "<< cur_node.name <<", Mesh Index:" <<cur_mesh_index<<std::endl;
-		}
-	}
 }
 
 RTGRenderer::~RTGRenderer() {
@@ -716,41 +710,41 @@ void RTGRenderer::render(RTG &rtg_, RTG::RenderParams const &render_params) {
 
 			vkCmdCopyBuffer(workspace.command_buffer, workspace.lines_vertices_src.handle, workspace.lines_vertices.handle, 1, &copy_region);
 		}
+	}
 
-		{//upload camera info:
-			LinesPipeline::Camera camera{
-				.CLIP_FROM_WORLD = CLIP_FROM_WORLD
-			};
-			assert(workspace.Camera_src.size == sizeof(camera));
+	{//upload camera info:
+		LinesPipeline::Camera camera{
+			.CLIP_FROM_WORLD = CLIP_FROM_WORLD
+		};
+		assert(workspace.Camera_src.size == sizeof(camera));
 
-			//host-side copy into Camera_src:
-			memcpy(workspace.Camera_src.allocation.data(), &camera, sizeof(camera));
+		//host-side copy into Camera_src:
+		memcpy(workspace.Camera_src.allocation.data(), &camera, sizeof(camera));
 
-			//add device-side copy from Camera_src -> Camera:
-			assert(workspace.Camera_src.size == workspace.Camera.size);
-			VkBufferCopy copy_region{
-				.srcOffset = 0,
-				.dstOffset = 0,
-				.size = workspace.Camera_src.size,
-			};
-			vkCmdCopyBuffer(workspace.command_buffer, workspace.Camera_src.handle, workspace.Camera.handle, 1, &copy_region);
-		}
+		//add device-side copy from Camera_src -> Camera:
+		assert(workspace.Camera_src.size == workspace.Camera.size);
+		VkBufferCopy copy_region{
+			.srcOffset = 0,
+			.dstOffset = 0,
+			.size = workspace.Camera_src.size,
+		};
+		vkCmdCopyBuffer(workspace.command_buffer, workspace.Camera_src.handle, workspace.Camera.handle, 1, &copy_region);
+	}
 
-		{ //upload world info:
-			assert(workspace.Camera_src.size == sizeof(world));
+	{ //upload world info:
+		assert(workspace.Camera_src.size == sizeof(world));
 
-			//host-side copy into World_src:
-			memcpy(workspace.World_src.allocation.data(), &world, sizeof(world));
+		//host-side copy into World_src:
+		memcpy(workspace.World_src.allocation.data(), &world, sizeof(world));
 
-			//add device-side copy from World_src -> World:
-			assert(workspace.World_src.size == workspace.World.size);
-			VkBufferCopy copy_region{
-				.srcOffset = 0,
-				.dstOffset = 0,
-				.size = workspace.World_src.size,
-			};
-			vkCmdCopyBuffer(workspace.command_buffer, workspace.World_src.handle, workspace.World.handle, 1, &copy_region);
-		}
+		//add device-side copy from World_src -> World:
+		assert(workspace.World_src.size == workspace.World.size);
+		VkBufferCopy copy_region{
+			.srcOffset = 0,
+			.dstOffset = 0,
+			.size = workspace.World_src.size,
+		};
+		vkCmdCopyBuffer(workspace.command_buffer, workspace.World_src.handle, workspace.World.handle, 1, &copy_region);
 	}
 
 	if (!object_instances.empty()) { //upload object transforms:
@@ -1024,38 +1018,36 @@ void RTGRenderer::update(float dt) {
 		world.SUN_ENERGY.b = 0.9f;
 	}
 
-	{ //make a grid that is circular:
-		lines_vertices.clear();
-		constexpr size_t count = 2 * 101;
-		lines_vertices.reserve(count);
-		//horizontal lines at z = 0.5f:
-		for (uint32_t i = 0; i < 101; ++i) {
-			float x = 1.0f, y = 1.0f;
-			if (i < 50) {
-				y -= float(i) / 25.0f;
-			}
-			else {
-				x -= float(i-50) / 25.0f;
-			}
-			lines_vertices.emplace_back(PosColVertex{
-				.Position{.x = x, .y = y, .z = .1f + sin(time/20.0f)},
-				.Color{ .r = uint8_t((x+1) * 255.0f/2.0f), .g = uint8_t((y+1) * 255.0f/2.0f), .b = 0xff, .a = 0xff},
-			});
-			lines_vertices.emplace_back(PosColVertex{
-				.Position{.x = -x, .y = -y, .z = .1f + cos(time/10.0f)},
-				.Color{ .r = uint8_t((-x+1) * 255.0f/2.0f), .g = uint8_t((-y+1) * 255.0f/2.0f), .b = 0x00, .a = 0xff},
-			});
-		}
+	// { //make a grid that is circular:
+	// 	lines_vertices.clear();
+	// 	constexpr size_t count = 2 * 101;
+	// 	lines_vertices.reserve(count);
+	// 	//horizontal lines at z = 0.5f:
+	// 	for (uint32_t i = 0; i < 101; ++i) {
+	// 		float x = 1.0f, y = 1.0f;
+	// 		if (i < 50) {
+	// 			y -= float(i) / 25.0f;
+	// 		}
+	// 		else {
+	// 			x -= float(i-50) / 25.0f;
+	// 		}
+	// 		lines_vertices.emplace_back(PosColVertex{
+	// 			.Position{.x = x, .y = y, .z = .1f + sin(time/20.0f)},
+	// 			.Color{ .r = uint8_t((x+1) * 255.0f/2.0f), .g = uint8_t((y+1) * 255.0f/2.0f), .b = 0xff, .a = 0xff},
+	// 		});
+	// 		lines_vertices.emplace_back(PosColVertex{
+	// 			.Position{.x = -x, .y = -y, .z = .1f + cos(time/10.0f)},
+	// 			.Color{ .r = uint8_t((-x+1) * 255.0f/2.0f), .g = uint8_t((-y+1) * 255.0f/2.0f), .b = 0x00, .a = 0xff},
+	// 		});
+	// 	}
 
-		assert(lines_vertices.size() == count);
-	}
+	// 	assert(lines_vertices.size() == count);
+	// }
 
 	{ //make some objects:
 		object_instances.clear();
 
 		std::deque<glm::mat4x4> transform_stack;
-		// std::cout<<"---------------------start-----------------"<<std::endl;
-
 		std::function<void(uint32_t)> draw_node = [&](uint32_t i) {
 			Scene::Node& cur_node = scene.nodes[i];
 			glm::mat4x4 cur_node_transform_in_parent = cur_node.transform.parent_from_local();
@@ -1073,9 +1065,6 @@ void RTGRenderer::update(float dt) {
 				if (scene.meshes[cur_mesh_index].material_index != -1) {
 					texture_index = scene.materials[scene.meshes[cur_mesh_index].material_index].texture_index + 1;
 				}
-				// std::cout<<"node name: "<<cur_node.name<<std::endl;
-				// std::cout<<"drawing "<<cur_mesh_index<<std::endl;
-				// std::cout<<"start: "<<mesh_vertices[cur_mesh_index].first<<" ,count: "<<mesh_vertices[cur_mesh_index].count<<std::endl;
 
 				object_instances.emplace_back(ObjectInstance{
 					.vertices = mesh_vertices[cur_mesh_index],
@@ -1141,7 +1130,7 @@ void RTGRenderer::on_input(InputEvent const &event) {
 					glm::vec3 right = glm::normalize(glm::cross(forward, glm::vec3(0.0f, 0.0f, 1.0f))); // Right vector
 					glm::vec3 up = glm::cross(right, forward);  // Up vector
 		
-					float pan_sensitivity = 5.0f;
+					float pan_sensitivity = 2.0f * std::max(user_camera.radius,0.5f);
 					user_camera.target -= right * (event.motion.x - previous_mouse_x) * pan_sensitivity;
 					user_camera.target += up * (event.motion.y - previous_mouse_y) * pan_sensitivity;
 				}

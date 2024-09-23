@@ -89,7 +89,7 @@ struct Scene
     std::vector<Camera> cameras;
     std::vector<Light> lights;
     std::vector<Mesh> meshes;
-    uint32_t vertices_count;
+    uint32_t vertices_count = 0;
 
     std::vector<Material> materials;
     std::vector<Texture> textures;
