@@ -407,13 +407,9 @@ void Scene::load(std::string filename)
         throw e;
     }
 
-    std::cout<< "------------------------Finished loading " + filename +"---------------------"<<std::endl;
-    for (Scene::Node& cur_node : nodes) {
-        if (int32_t cur_mesh_index = cur_node.mesh_index; cur_mesh_index != -1) {
-            std::cout << "node name: "<< cur_node.name <<", Mesh Index:" <<cur_mesh_index<<std::endl;
-        }
-    }
-    // debug();
+    std::cout<< "----Finished loading " + filename +"----"<<std::endl;
+
+    debug();
 }
 
 void Scene::debug() {
