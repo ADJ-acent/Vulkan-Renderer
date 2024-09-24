@@ -6,12 +6,12 @@
 #include <iostream>
 #include <unordered_map>
 
-Scene::Scene(std::string file_path)
+Scene::Scene(std::string filename, std::optional<std::string> camera)
 {
-    load(data_path(file_path));
+    load(data_path(filename), camera);
 }
 
-void Scene::load(std::string filename)
+void Scene::load(std::string filename, std::optional<std::string> requested_camera)
 {
     if (filename.substr(filename.size()-4, 4) != ".s72") {
         throw std::runtime_error("Scene " + filename + " is not a compatible format (s72 required). Last 4 char is " + filename.substr(filename.size()-5, 4));
@@ -408,6 +408,36 @@ void Scene::load(std::string filename)
     }
 
     std::cout<< "----Finished loading " + filename +"----"<<std::endl;
+
+    { //build the camera local to world transform vectors
+        std::vector<uint32_t> cur_transform_list;
+		std::function<void(uint32_t)> fill_camera_transforms = [&](uint32_t i) {
+			const Scene::Node& cur_node = nodes[i];
+            cur_transform_list.push_back(i);
+			if (cur_node.cameras_index != -1) {
+                cameras[cur_node.cameras_index].local_to_world = cur_transform_list;
+                if (requested_camera.has_value() && requested_camera.value() == cameras[cur_node.cameras_index].name) {
+                    requested_camera_index = cur_node.cameras_index;
+                }
+            }
+			// look for cameras in children
+			for (uint32_t child_index : cur_node.children) {
+				fill_camera_transforms(child_index);
+			}
+			cur_transform_list.pop_back();
+		};
+
+		//traverse the scene hiearchy:
+		for (uint32_t i = 0; i < root_nodes.size(); ++i) {
+			fill_camera_transforms(root_nodes[i]);
+		}
+	}
+
+    // could not find requested camera
+    if (requested_camera.has_value() && requested_camera_index == -1) {
+        throw std::runtime_error("Did not find camera with name: " + requested_camera.value() + ", aborting...");
+    }
+    requested_camera_index = 0;
 
     debug();
 }

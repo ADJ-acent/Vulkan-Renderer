@@ -3,6 +3,7 @@
 #include "GLM.hpp"
 #include <string>
 #include <vector>
+#include <optional>
 
 /**
  *  Loads from .s72 format and manages a hiearchy of transformations
@@ -23,13 +24,13 @@ struct Scene
 
     };
 
-
     struct Camera {
         std::string name;
         float aspect;
         float vfov;
         float near;
         float far = -1.0f; // -1 means infinite perspective matrix
+        std::vector<uint32_t> local_to_world; // list of node indices to get from local to world (index 0 is a root node)
     };
 
     struct Texture {
@@ -87,6 +88,8 @@ struct Scene
 
     std::vector<Node> nodes;
     std::vector<Camera> cameras;
+    int32_t requested_camera_index = -1;
+
     std::vector<Light> lights;
     std::vector<Mesh> meshes;
     uint32_t vertices_count = 0;
@@ -96,9 +99,9 @@ struct Scene
     std::vector<uint32_t> root_nodes;
     std::string scene_path;
 
-    Scene(std::string filename);
+    Scene(std::string filename, std::optional<std::string> camera);
 
-    void load(std::string file_path);
+    void load(std::string file_path, std::optional<std::string> requested_camera);
 
 
     void debug();

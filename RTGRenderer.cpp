@@ -5,6 +5,9 @@
 
 #ifndef GLFW_KEY_LEFT_SHIFT
 	#define GLFW_KEY_LEFT_SHIFT 340
+	#define GLFW_KEY_RIGHT 262
+	#define GLFW_KEY_LEFT 263
+	#define GLFW_KEY_C 67
 #endif
 #include "RTGRenderer.hpp"
 
@@ -460,22 +463,48 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_) {
 
 		vkUpdateDescriptorSets(rtg.device, uint32_t(writes.size()), writes.data(), 0, nullptr);
 	}
-
 	
-	{ //setup camera
-		float x = user_camera.radius * std::sin(user_camera.elevation) * std::cos(user_camera.azimuth);
-		float y = user_camera.radius * std::sin(user_camera.elevation) * std::sin(user_camera.azimuth);
-		float z = user_camera.radius * std::cos(user_camera.elevation);
-		CLIP_FROM_WORLD = glm::make_mat4((perspective(
-			60.0f * float(M_PI) / 180.0f, //vfov
-			rtg.swapchain_extent.width / float(rtg.swapchain_extent.height), //aspect
-			0.1f, //near
-			1000.0f //far
-		) * look_at(
-			x,y,z, //eye
-			0.0f, 0.0f, 0.5f, //target
-			0.0f, 0.0f, 1.0f //up
-		)).data());
+	{ //setup camera if no --camera in the command line, scene camera is set in update
+		if (!rtg_.configuration.scene_camera.has_value()) {
+			float x = user_camera.radius * std::sin(user_camera.elevation) * std::cos(user_camera.azimuth);
+			float y = user_camera.radius * std::sin(user_camera.elevation) * std::sin(user_camera.azimuth);
+			float z = user_camera.radius * std::cos(user_camera.elevation);
+			CLIP_FROM_WORLD = glm::make_mat4((perspective(
+				60.0f * float(M_PI) / 180.0f, //vfov
+				rtg.swapchain_extent.width / float(rtg.swapchain_extent.height), //aspect
+				0.1f, //near
+				1000.0f //far
+			) * look_at(
+				x,y,z, //eye
+				0.0f, 0.0f, 0.5f, //target
+				0.0f, 0.0f, 1.0f //up
+			)).data());
+			view_camera = ViewCamera::UserCamera;
+		}
+		else {
+			Scene::Camera& cur_camera = scene.cameras[scene.requested_camera_index];
+			glm::mat4x4 cur_camera_transform = scene.nodes[cur_camera.local_to_world[0]].transform.parent_from_local();
+			for (int i = 1; i < cur_camera.local_to_world.size(); ++i) {
+				cur_camera_transform *= scene.nodes[cur_camera.local_to_world[i]].transform.parent_from_local();
+			}
+			glm::vec3 eye = glm::vec3(cur_camera_transform[3]);
+			glm::vec3 forward = -glm::vec3(cur_camera_transform[2]);
+			glm::vec3 target = eye + forward;
+
+			CLIP_FROM_WORLD = glm::make_mat4((perspective(
+				cur_camera.vfov, //vfov
+				cur_camera.aspect, //aspect
+				cur_camera.near, //near
+				cur_camera.far //far
+			) * look_at(
+				eye.x, eye.y, eye.z, //eye
+				target.x, target.y, target.z, //target
+				0.0f, 0.0f, 1.0f //up
+			)).data());
+
+
+			view_camera = ViewCamera::SceneCamera;
+		}
 	}
 }
 
@@ -856,23 +885,40 @@ void RTGRenderer::render(RTG &rtg_, RTG::RenderParams const &render_params) {
 		};
 		vkCmdBeginRenderPass(workspace.command_buffer, &begin_info, VK_SUBPASS_CONTENTS_INLINE);
 
-		{//set scissor rectangle:
-			VkRect2D scissor{
-				.offset = {.x = 0, .y = 0},
-				.extent = rtg.swapchain_extent,
-			};
-			vkCmdSetScissor(workspace.command_buffer, 0, 1, &scissor);
-		}
-		{//configure viewport transform:
-			VkViewport viewport{
-				.x = 0.0f,
-				.y = 0.0f,
-				.width = float(rtg.swapchain_extent.width),
-				.height = float(rtg.swapchain_extent.height),
-				.minDepth = 0.0f,
-				.maxDepth = 1.0f,
-			};
-			vkCmdSetViewport(workspace.command_buffer, 0, 1, &viewport);
+		{// set viewport and scissors
+			VkExtent2D extent = rtg.swapchain_extent;
+			VkOffset2D offset = {.x = 0, .y = 0};
+			if (view_camera == SceneCamera) {
+				float camera_aspect = scene.cameras[scene.requested_camera_index].aspect; // W / H
+				float actual_aspect = rtg.swapchain_extent.width / float(rtg.swapchain_extent.height);
+				if (actual_aspect < camera_aspect) {
+					extent.height = uint32_t(float(extent.width) / camera_aspect);
+					offset.y += (rtg.swapchain_extent.height - extent.height) / 2;
+				}
+				else if (actual_aspect > camera_aspect) {
+					extent.width = uint32_t(float(extent.height) * camera_aspect);
+					offset.x += (rtg.swapchain_extent.width - extent.width) / 2;
+				}
+			}
+
+			{//set scissor rectangle:
+				VkRect2D scissor{
+					.offset = offset,
+					.extent = extent,
+				};
+				vkCmdSetScissor(workspace.command_buffer, 0, 1, &scissor);
+			}
+			{//configure viewport transform:
+				VkViewport viewport{
+					.x = float(offset.x),
+					.y = float(offset.y),
+					.width = float(extent.width),
+					.height = float(extent.height),
+					.minDepth = 0.0f,
+					.maxDepth = 1.0f,
+				};
+				vkCmdSetViewport(workspace.command_buffer, 0, 1, &viewport);
+			}
 		}
 
 		{//draw with the background pipeline:
@@ -1044,7 +1090,43 @@ void RTGRenderer::update(float dt) {
 	// 	assert(lines_vertices.size() == count);
 	// }
 
-	{ //make some objects:
+	// set scene camera for animation purposes
+	if (view_camera == ViewCamera::SceneCamera){
+		Scene::Camera& cur_camera = scene.cameras[scene.requested_camera_index];
+		glm::mat4x4 cur_camera_transform = scene.nodes[cur_camera.local_to_world[0]].transform.parent_from_local();
+		for (int i = 1; i < cur_camera.local_to_world.size(); ++i) {
+			cur_camera_transform *= scene.nodes[cur_camera.local_to_world[i]].transform.parent_from_local();
+		}
+		glm::vec3 eye = glm::vec3(cur_camera_transform[3]);
+		glm::vec3 forward = -glm::vec3(cur_camera_transform[2]);
+		glm::vec3 target = eye + forward;
+
+		CLIP_FROM_WORLD = glm::make_mat4((perspective(
+			cur_camera.vfov, //vfov
+			cur_camera.aspect, //aspect
+			cur_camera.near, //near
+			cur_camera.far //far
+		) * look_at(
+			eye.x, eye.y, eye.z, //eye
+			target.x, target.y, target.z, //target
+			0.0f, 0.0f, 1.0f //up
+		)).data());
+	} else { // check if 
+		static float last_aspect = float(rtg.swapchain_extent.width) / float(rtg.swapchain_extent.height);
+
+		if (last_aspect != float(rtg.swapchain_extent.width) / float(rtg.swapchain_extent.height)) {
+			perspective_mat = glm::make_mat4(perspective(
+				60.0f * float(M_PI) / 180.0f, //vfov
+				rtg.swapchain_extent.width / float(rtg.swapchain_extent.height), //aspect
+				0.1f, //near
+				1000.0f //far
+			).data());
+			FreeCamera& cam = (view_camera == ViewCamera::UserCamera) ? user_camera : debug_camera;
+			update_free_camera(cam);
+		}
+	}
+
+	{ //fill object instances with scene hiearchy
 		object_instances.clear();
 
 		std::deque<glm::mat4x4> transform_stack;
@@ -1093,30 +1175,43 @@ void RTGRenderer::update(float dt) {
 
 
 void RTGRenderer::on_input(InputEvent const &event) {
-	static glm::mat4x4 perspective_mat = glm::make_mat4(perspective(
-		60.0f * float(M_PI) / 180.0f, //vfov
-		rtg.swapchain_extent.width / float(rtg.swapchain_extent.height), //aspect
-		0.1f, //near
-		1000.0f //far
-	).data());
-	static glm::vec3 eye = {user_camera.radius * std::cos(user_camera.elevation) * std::cos(user_camera.azimuth),
-			      user_camera.radius * std::cos(user_camera.elevation) * std::sin(user_camera.azimuth),
-				  user_camera.radius * std::sin(user_camera.elevation)};
 	bool update_camera = false;
+
+	// switches camera mode from scene, view, and debug
+	if (event.type == InputEvent::Type::KeyDown && event.key.key == GLFW_KEY_C) {
+		view_camera = static_cast<ViewCamera>((view_camera + 1) % 3);
+		if (view_camera == ViewCamera::SceneCamera) return;
+		update_camera = true;
+	}
+
+	if (view_camera == ViewCamera::SceneCamera) {
+		if (event.type == InputEvent::Type::KeyDown) {
+			if (event.key.key == GLFW_KEY_LEFT) {
+				if (scene.cameras.size() == 1) return;
+				scene.requested_camera_index = (scene.requested_camera_index - 1) % scene.cameras.size();
+			} else if (event.key.key == GLFW_KEY_RIGHT) {
+				if (scene.cameras.size() == 1) return;
+				scene.requested_camera_index = (scene.requested_camera_index + 1) % scene.cameras.size();
+			}
+		}
+		return;
+	}
+
+	FreeCamera& cam = (view_camera == ViewCamera::UserCamera) ? user_camera : debug_camera;
 	switch (event.type) {
 		case InputEvent::Type::MouseMotion:
 			if (event.motion.state && !shift_down) {
 				if (previous_mouse_x != -1.0f) {
 					update_camera = true;
 					if (upside_down) {
-						user_camera.azimuth += (event.motion.x - previous_mouse_x) * 3.0f;
+						cam.azimuth += (event.motion.x - previous_mouse_x) * 3.0f;
 					}
 					else {
-						user_camera.azimuth -= (event.motion.x - previous_mouse_x) * 3.0f;
+						cam.azimuth -= (event.motion.x - previous_mouse_x) * 3.0f;
 					}
-					user_camera.elevation += (event.motion.y - previous_mouse_y) * 3.0f;
-					user_camera.azimuth = fmod(user_camera.azimuth, 2.0f * float(M_PI));
-					user_camera.elevation = fmod(user_camera.elevation, 2.0f * float(M_PI));
+					cam.elevation += (event.motion.y - previous_mouse_y) * 3.0f;
+					cam.azimuth = fmod(cam.azimuth, 2.0f * float(M_PI));
+					cam.elevation = fmod(cam.elevation, 2.0f * float(M_PI));
 				}
 
 				previous_mouse_x = event.motion.x;
@@ -1126,13 +1221,13 @@ void RTGRenderer::on_input(InputEvent const &event) {
 				//pan
 				if (previous_mouse_x != -1.0f) {
 					update_camera = true;
-					glm::vec3 forward = glm::normalize(user_camera.target - eye);  // Forward direction
+					glm::vec3 forward = glm::normalize(cam.target - cam.eye);  // Forward direction
 					glm::vec3 right = glm::normalize(glm::cross(forward, glm::vec3(0.0f, 0.0f, 1.0f))); // Right vector
 					glm::vec3 up = glm::cross(right, forward);  // Up vector
 		
-					float pan_sensitivity = 2.0f * std::max(user_camera.radius,0.5f);
-					user_camera.target -= right * (event.motion.x - previous_mouse_x) * pan_sensitivity;
-					user_camera.target += up * (event.motion.y - previous_mouse_y) * pan_sensitivity;
+					float pan_sensitivity = 2.0f * std::max(cam.radius,0.5f);
+					cam.target -= right * (event.motion.x - previous_mouse_x) * pan_sensitivity;
+					cam.target += up * (event.motion.y - previous_mouse_y) * pan_sensitivity;
 				}
 				previous_mouse_x = event.motion.x;
 				previous_mouse_y = event.motion.y;
@@ -1152,29 +1247,35 @@ void RTGRenderer::on_input(InputEvent const &event) {
 			previous_mouse_x = -1.0f;
 			break;
 		case InputEvent::Type::MouseWheel:
-			user_camera.radius = std::max(user_camera.radius - event.wheel.y*0.5f, 0.0f);
+			cam.radius = std::max(cam.radius - event.wheel.y*0.5f, 0.0f);
 			update_camera = true;
 			break;
 		default:
 			break;
 	}
+	
 	if (update_camera) {
-		float x = user_camera.radius * std::cos(user_camera.elevation) * std::cos(user_camera.azimuth);
-		float y = user_camera.radius * std::cos(user_camera.elevation) * std::sin(user_camera.azimuth);
-		float z = user_camera.radius * std::sin(user_camera.elevation);
-		float up = 1.0f;
-		upside_down = false;
-		// flip up axis when upside down
-		if (int((abs(user_camera.elevation) + float(M_PI) / 2) / float(M_PI)) % 2 == 1 ) {
-			up =-1.0f;
-			upside_down = true;
-		}
-		eye = glm::vec3{x,y,z} + user_camera.target;
-		CLIP_FROM_WORLD = perspective_mat * glm::make_mat4(look_at(
-			eye.x,eye.y,eye.z, //eye
-			user_camera.target.x,user_camera.target.y,user_camera.target.z, //target
-			0.0f, 0.0f, up //up
-		).data());
+		update_free_camera(cam);
 	}
 
+}
+
+void RTGRenderer::update_free_camera(FreeCamera &cam)
+{
+	float x = cam.radius * std::cos(cam.elevation) * std::cos(cam.azimuth);
+	float y = cam.radius * std::cos(cam.elevation) * std::sin(cam.azimuth);
+	float z = cam.radius * std::sin(cam.elevation);
+	float up = 1.0f;
+	upside_down = false;
+	// flip up axis when upside down
+	if (int((abs(cam.elevation) + float(M_PI) / 2) / float(M_PI)) % 2 == 1 ) {
+		up =-1.0f;
+		upside_down = true;
+	}
+	cam.eye = glm::vec3{x,y,z} + cam.target;
+	CLIP_FROM_WORLD = perspective_mat * glm::make_mat4(look_at(
+		cam.eye.x,cam.eye.y,cam.eye.z, //eye
+		cam.target.x,cam.target.y,cam.target.z, //target
+		0.0f, 0.0f, up //up
+	).data());
 }

@@ -62,7 +62,7 @@ struct RTG {
 		std::string scene_path = "";
 
 		//camera to use for the scene
-		std::optional<std::string> scene_camera = "";
+		std::optional<std::string> scene_camera;
 
 		//requested (priority-ranked) formats for output surface: (will use first available)
 		std::vector< VkSurfaceFormatKHR > surface_formats{

@@ -165,9 +165,11 @@ struct RTGRenderer : RTG::Application {
 
 	//--------------------------------------------------------------------
 	//Resources that change when time passes or the user interacts:
+	struct FreeCamera;
 
 	virtual void update(float dt) override;
 	virtual void on_input(InputEvent const &) override;
+	void update_free_camera(FreeCamera& camera);
 
 	float time = 0.0f;
 
@@ -190,19 +192,31 @@ struct RTGRenderer : RTG::Application {
 		float radius = 10.0f;
 		float azimuth = 0.0f;
 		float elevation = 0.785398163f; //Pi/4
+		glm::vec3 eye = {
+			radius * std::cos(elevation) * std::cos(azimuth),
+			radius * std::cos(elevation) * std::sin(azimuth),
+			radius * std::sin(elevation)
+		};
 	} user_camera, debug_camera;
 
 	float previous_mouse_x = -1.0f, previous_mouse_y = -1.0f;
-	bool shift_down;
+	bool shift_down = false;
 	bool upside_down = false;
 
 	enum ViewCamera{
-		SceneCamera,
-		UserCamera,
-		DebugCamera
+		SceneCamera = 0,
+		UserCamera = 1,
+		DebugCamera = 2
 	} view_camera = ViewCamera::SceneCamera;
-	
 
+	// used for free and debug cam
+	glm::mat4x4 perspective_mat = glm::make_mat4(perspective(
+		60.0f * 3.14159265358979323846f / 180.0f, //vfov
+		rtg.swapchain_extent.width / float(rtg.swapchain_extent.height), //aspect
+		0.1f, //near
+		1000.0f //far
+	).data());
+	
 	//--------------------------------------------------------------------
 	//Rendering function, uses all the resources above to queue work to draw a frame:
 
