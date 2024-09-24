@@ -6,6 +6,7 @@
 
 #include "RTG.hpp"
 #include "Scene.hpp"
+#include "frustum_culling.hpp"
 
 #include "GLM.hpp"
 
@@ -145,6 +146,7 @@ struct RTGRenderer : RTG::Application {
 		uint32_t count = 0;
 	};
 	std::vector<ObjectVertices> mesh_vertices; // indexed the same as scene.meshes
+	std::vector<AABB> mesh_AABBs; // also indexed the same as scene.meshes
 
     std::vector< Helpers::AllocatedImage > textures;
 	std::vector< VkImageView > texture_views;
@@ -203,11 +205,12 @@ struct RTGRenderer : RTG::Application {
 	bool shift_down = false;
 	bool upside_down = false;
 
-	enum ViewCamera{
+	enum InSceneCamera{
 		SceneCamera = 0,
 		UserCamera = 1,
 		DebugCamera = 2
-	} view_camera = ViewCamera::SceneCamera;
+	};
+	InSceneCamera view_camera = InSceneCamera::SceneCamera;
 
 	// used for free and debug cam
 	glm::mat4x4 perspective_mat = glm::make_mat4(perspective(
@@ -216,7 +219,11 @@ struct RTGRenderer : RTG::Application {
 		0.1f, //near
 		1000.0f //far
 	).data());
-	
+
+	// used for frustum culling
+	glm::mat4x4 culling_view_mat;
+
+	InSceneCamera culling_camera = InSceneCamera::SceneCamera;	
 	//--------------------------------------------------------------------
 	//Rendering function, uses all the resources above to queue work to draw a frame:
 

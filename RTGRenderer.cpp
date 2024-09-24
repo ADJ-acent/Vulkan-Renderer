@@ -270,7 +270,9 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_) {
 		vertices.resize(scene.vertices_count);
 		uint32_t new_vertices_start = 0;
 		mesh_vertices.clear();
+		mesh_AABBs.clear();
 		mesh_vertices.reserve(scene.meshes.size());
+		mesh_AABBs.reserve(scene.meshes.size());
 		for (uint32_t i = 0; i < uint32_t(scene.meshes.size()); ++i) {
 			Scene::Mesh& cur_mesh = scene.meshes[i];
 			mesh_vertices[i].count = cur_mesh.count;
@@ -279,6 +281,12 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_) {
 			if (!file.is_open()) throw std::runtime_error("Error opening file for mesh data: " + scene.scene_path + "/" + cur_mesh.attributes[0].source);
 			if (!file.read(reinterpret_cast< char * >(&vertices[new_vertices_start]), cur_mesh.count * sizeof(PosNorTanTexVertex))) {
 				throw std::runtime_error("Failed to read mesh data: " + scene.scene_path + "/" + cur_mesh.attributes[0].source);
+			}
+			//find OOB
+			for (size_t vertex_i = mesh_vertices[i].first; vertex_i < (mesh_vertices[i].first + mesh_vertices[i].count); ++vertex_i) {
+				glm::vec3 cur_vert_pos = {vertices[vertex_i].Position.x, vertices[vertex_i].Position.y, vertices[vertex_i].Position.z};
+				mesh_AABBs[i].min = glm::min(mesh_AABBs[i].min, cur_vert_pos);
+				mesh_AABBs[i].max = glm::max(mesh_AABBs[i].max, cur_vert_pos);
 			}
 			new_vertices_start += cur_mesh.count;
 		}
@@ -470,17 +478,20 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_) {
 			float x = user_camera.radius * std::sin(user_camera.elevation) * std::cos(user_camera.azimuth);
 			float y = user_camera.radius * std::sin(user_camera.elevation) * std::sin(user_camera.azimuth);
 			float z = user_camera.radius * std::cos(user_camera.elevation);
-			CLIP_FROM_WORLD = glm::make_mat4((perspective(
+			//cache culling view
+			culling_view_mat = glm::make_mat4(look_at(
+				x,y,z, //eye
+				0.0f, 0.0f, 0.5f, //target
+				0.0f, 0.0f, 1.0f //up
+			).data());
+			CLIP_FROM_WORLD = glm::make_mat4(perspective(
 				60.0f * float(M_PI) / 180.0f, //vfov
 				rtg.swapchain_extent.width / float(rtg.swapchain_extent.height), //aspect
 				0.1f, //near
 				1000.0f //far
-			) * look_at(
-				x,y,z, //eye
-				0.0f, 0.0f, 0.5f, //target
-				0.0f, 0.0f, 1.0f //up
-			)).data());
-			view_camera = ViewCamera::UserCamera;
+			).data()) * culling_view_mat;
+			view_camera = InSceneCamera::UserCamera;
+			culling_camera = InSceneCamera::UserCamera;
 		}
 		else {
 			Scene::Camera& cur_camera = scene.cameras[scene.requested_camera_index];
@@ -492,19 +503,21 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_) {
 			glm::vec3 forward = -glm::vec3(cur_camera_transform[2]);
 			glm::vec3 target = eye + forward;
 
-			CLIP_FROM_WORLD = glm::make_mat4((perspective(
+			culling_view_mat = glm::make_mat4(look_at(
+				eye.x, eye.y, eye.z, //eye
+				target.x, target.y, target.z, //target
+				0.0f, 0.0f, 1.0f //up
+			).data());
+
+			CLIP_FROM_WORLD = glm::make_mat4(perspective(
 				cur_camera.vfov, //vfov
 				cur_camera.aspect, //aspect
 				cur_camera.near, //near
 				cur_camera.far //far
-			) * look_at(
-				eye.x, eye.y, eye.z, //eye
-				target.x, target.y, target.z, //target
-				0.0f, 0.0f, 1.0f //up
-			)).data());
+			).data()) * culling_view_mat;
 
-
-			view_camera = ViewCamera::SceneCamera;
+			view_camera = InSceneCamera::SceneCamera;
+			culling_camera = InSceneCamera::SceneCamera;
 		}
 	}
 }
@@ -1095,7 +1108,7 @@ void RTGRenderer::update(float dt) {
 	// }
 
 	// set scene camera for animation purposes
-	if (view_camera == ViewCamera::SceneCamera){
+	if (view_camera == InSceneCamera::SceneCamera){
 		Scene::Camera& cur_camera = scene.cameras[scene.requested_camera_index];
 		glm::mat4x4 cur_camera_transform = scene.nodes[cur_camera.local_to_world[0]].transform.parent_from_local();
 		for (int i = 1; i < cur_camera.local_to_world.size(); ++i) {
@@ -1105,17 +1118,20 @@ void RTGRenderer::update(float dt) {
 		glm::vec3 forward = -glm::vec3(cur_camera_transform[2]);
 		glm::vec3 target = eye + forward;
 
-		CLIP_FROM_WORLD = glm::make_mat4((perspective(
+		culling_view_mat = glm::make_mat4(look_at(
+			eye.x, eye.y, eye.z, //eye
+			target.x, target.y, target.z, //target
+			0.0f, 0.0f, 1.0f //up
+		).data());
+
+		CLIP_FROM_WORLD = glm::make_mat4(perspective(
 			cur_camera.vfov, //vfov
 			cur_camera.aspect, //aspect
 			cur_camera.near, //near
 			cur_camera.far //far
-		) * look_at(
-			eye.x, eye.y, eye.z, //eye
-			target.x, target.y, target.z, //target
-			0.0f, 0.0f, 1.0f //up
-		)).data());
-	} else { // check if aspect ratio changed
+		).data()) * culling_view_mat;
+	} 
+	else { // check if aspect ratio changed
 		static float last_aspect = float(rtg.swapchain_extent.width) / float(rtg.swapchain_extent.height);
 
 		if (last_aspect != float(rtg.swapchain_extent.width) / float(rtg.swapchain_extent.height)) {
@@ -1125,7 +1141,7 @@ void RTGRenderer::update(float dt) {
 				0.1f, //near
 				1000.0f //far
 			).data());
-			FreeCamera& cam = (view_camera == ViewCamera::UserCamera) ? user_camera : debug_camera;
+			FreeCamera& cam = (view_camera == InSceneCamera::UserCamera) ? user_camera : debug_camera;
 			update_free_camera(cam);
 		}
 	}
@@ -1147,6 +1163,7 @@ void RTGRenderer::update(float dt) {
 			// draw own mesh
 			if (int32_t cur_mesh_index = cur_node.mesh_index; cur_mesh_index != -1) {
 				glm::mat4x4 WORLD_FROM_LOCAL = transform_stack.back();
+				OBB obb = AABB_transform_to_OBB(culling_view_mat * WORLD_FROM_LOCAL, mesh_AABBs[cur_mesh_index]);
 				uint32_t texture_index = 0;
 				if (scene.meshes[cur_mesh_index].material_index != -1) {
 					texture_index = scene.materials[scene.meshes[cur_mesh_index].material_index].texture_index + 1;
@@ -1183,8 +1200,8 @@ void RTGRenderer::on_input(InputEvent const &event) {
 
 	// switches camera mode from scene, view, and debug
 	if (event.type == InputEvent::Type::KeyDown && event.key.key == GLFW_KEY_C) {
-		view_camera = static_cast<ViewCamera>((view_camera + 1) % 3);
-		if (view_camera == ViewCamera::SceneCamera) return;
+		view_camera = static_cast<InSceneCamera>((view_camera + 1) % 3);
+		if (view_camera == InSceneCamera::SceneCamera) return;
 		update_camera = true;
 		//update perspective just in case aspect changed
 		perspective_mat = glm::make_mat4(perspective(
@@ -1193,11 +1210,11 @@ void RTGRenderer::on_input(InputEvent const &event) {
 				0.1f, //near
 				1000.0f //far
 			).data());
-			FreeCamera& cam = (view_camera == ViewCamera::UserCamera) ? user_camera : debug_camera;
+			FreeCamera& cam = (view_camera == InSceneCamera::UserCamera) ? user_camera : debug_camera;
 			update_free_camera(cam);
 	}
 
-	if (view_camera == ViewCamera::SceneCamera) {
+	if (view_camera == InSceneCamera::SceneCamera) {
 		if (event.type == InputEvent::Type::KeyDown) {
 			// Swapping between scene cameras
 			if (event.key.key == GLFW_KEY_LEFT) {
@@ -1216,7 +1233,7 @@ void RTGRenderer::on_input(InputEvent const &event) {
 		return;
 	}
 
-	FreeCamera& cam = (view_camera == ViewCamera::UserCamera) ? user_camera : debug_camera;
+	FreeCamera& cam = (view_camera == InSceneCamera::UserCamera) ? user_camera : debug_camera;
 	switch (event.type) {
 		case InputEvent::Type::MouseMotion:
 			//orbit
@@ -1293,9 +1310,20 @@ void RTGRenderer::update_free_camera(FreeCamera &cam)
 		upside_down = true;
 	}
 	cam.eye = glm::vec3{x,y,z} + cam.target;
-	CLIP_FROM_WORLD = perspective_mat * glm::make_mat4(look_at(
-		cam.eye.x,cam.eye.y,cam.eye.z, //eye
-		cam.target.x,cam.target.y,cam.target.z, //target
-		0.0f, 0.0f, up //up
-	).data());
+	if (view_camera != DebugCamera) {
+		culling_view_mat = glm::make_mat4(look_at(
+			cam.eye.x,cam.eye.y,cam.eye.z, //eye
+			cam.target.x,cam.target.y,cam.target.z, //target
+			0.0f, 0.0f, 1.0f //up
+		).data());
+
+		CLIP_FROM_WORLD = perspective_mat * culling_view_mat;
+	}
+	else { // don't cache debug camera's view matrix
+		CLIP_FROM_WORLD = perspective_mat * glm::make_mat4(look_at(
+			cam.eye.x,cam.eye.y,cam.eye.z, //eye
+			cam.target.x,cam.target.y,cam.target.z, //target
+			0.0f, 0.0f, up //up
+		).data());
+	}
 }

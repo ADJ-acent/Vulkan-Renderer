@@ -27,6 +27,7 @@ custom_flags_and_rules();
 //maek.CPP(...) builds a c++ file:
 // it returns the path to the output object file
 const main_objs = [
+	maek.CPP('frustum_culling.cpp'),
 	maek.CPP('RTGRenderer.cpp'),
 	maek.CPP('PosColVertex.cpp'),
 	maek.CPP('PosNorTexVertex.cpp'),
