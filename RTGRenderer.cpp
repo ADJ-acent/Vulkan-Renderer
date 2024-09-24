@@ -679,7 +679,7 @@ void RTGRenderer::render(RTG &rtg_, RTG::RenderParams const &render_params) {
 	assert(&rtg == &rtg_);
 	assert(render_params.workspace_index < workspaces.size());
 	assert(render_params.image_index < swapchain_framebuffers.size());
-	
+
 	//prevent faulty attempt to render when the swapchain has no area
 	if (rtg.swapchain_extent.width == 0 || rtg.swapchain_extent.height == 0) return;
 
@@ -1205,12 +1205,12 @@ void RTGRenderer::on_input(InputEvent const &event) {
 					std::cout<<"Only one camera available, unable to switch to another scene camera"<<std::endl;
 					return;
 				}
-				scene.requested_camera_index = (scene.requested_camera_index - 1) % scene.cameras.size();
-				std::cout<< "Now viewing through camera: " + scene.cameras[scene.requested_camera_index].name<<std::endl;
+				scene.requested_camera_index = (scene.requested_camera_index - 1 + int32_t(scene.cameras.size())) % scene.cameras.size();
+				std::cout<< "Now viewing through camera: " + scene.cameras[scene.requested_camera_index].name<< " with index " << scene.requested_camera_index <<std::endl;
 			} else if (event.key.key == GLFW_KEY_RIGHT) {
 				if (scene.cameras.size() == 1) return;
 				scene.requested_camera_index = (scene.requested_camera_index + 1) % scene.cameras.size();
-				std::cout<< "Now viewing through camera: " + scene.cameras[scene.requested_camera_index].name<<std::endl;
+				std::cout<< "Now viewing through camera: " + scene.cameras[scene.requested_camera_index].name<< " with index " << scene.requested_camera_index <<std::endl;
 			}
 		}
 		return;
@@ -1219,6 +1219,7 @@ void RTGRenderer::on_input(InputEvent const &event) {
 	FreeCamera& cam = (view_camera == ViewCamera::UserCamera) ? user_camera : debug_camera;
 	switch (event.type) {
 		case InputEvent::Type::MouseMotion:
+			//orbit
 			if (event.motion.state && !shift_down) {
 				if (previous_mouse_x != -1.0f) {
 					update_camera = true;
