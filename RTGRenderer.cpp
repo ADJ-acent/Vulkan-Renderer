@@ -319,8 +319,8 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_) {
 			Scene::Texture& cur_texture = scene.textures[i];
 			if (cur_texture.has_src) {
 				int width,height,n;
-				unsigned char *image = stbi_load(cur_texture.source.c_str(), &width, &height, &n, 4);
-				if (image == NULL) throw std::runtime_error("Error loading texture " + cur_texture.source);
+				unsigned char *image = stbi_load((scene.scene_path +"/"+ cur_texture.source).c_str(), &width, &height, &n, 4);
+				if (image == NULL) throw std::runtime_error("Error loading texture " + scene.scene_path + cur_texture.source);
 				assert(n == 3); // should only be 3 channel per .s72 spec
 				//make a place for the texture to live on the GPU:
 				textures.emplace_back(rtg.helpers.create_image(
@@ -331,7 +331,8 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_) {
 					VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, //should be device-local
 					Helpers::Unmapped
 				));
-				rtg.helpers.transfer_to_image(image, sizeof(image[0]) * width*height*n, textures.back());
+				std::cout<<width<<", "<<height<<", "<< n <<std::endl;
+				rtg.helpers.transfer_to_image(image, sizeof(image[0]) * width*height*4, textures.back());
 				//free image:
 				stbi_image_free(image);
 			}
@@ -678,6 +679,9 @@ void RTGRenderer::render(RTG &rtg_, RTG::RenderParams const &render_params) {
 	assert(&rtg == &rtg_);
 	assert(render_params.workspace_index < workspaces.size());
 	assert(render_params.image_index < swapchain_framebuffers.size());
+	
+	//prevent faulty attempt to render when the swapchain has no area
+	if (rtg.swapchain_extent.width == 0 || rtg.swapchain_extent.height == 0) return;
 
 	//get more convenient names for the current workspace and target framebuffer:
 	Workspace &workspace = workspaces[render_params.workspace_index];
@@ -869,7 +873,7 @@ void RTGRenderer::render(RTG &rtg_, RTG::RenderParams const &render_params) {
 
 	{//render pass:
 		std::array<VkClearValue, 2> clear_values{
-			VkClearValue{.color{.float32{0.0f, 1.0f, .7f, 1.0f}}},
+			VkClearValue{.color{.float32{0.0f, 0.0f, 0.0f, 1.0f}}},
 			VkClearValue{.depthStencil{.depth = 1.0f, .stencil = 0}},
 		};
 		VkRenderPassBeginInfo begin_info{
@@ -921,18 +925,18 @@ void RTGRenderer::render(RTG &rtg_, RTG::RenderParams const &render_params) {
 			}
 		}
 
-		{//draw with the background pipeline:
-			vkCmdBindPipeline(workspace.command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, background_pipeline.handle);
+		// {//draw with the background pipeline:
+		// 	vkCmdBindPipeline(workspace.command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, background_pipeline.handle);
 			
-			{//push time:
-				BackgroundPipeline::Push push{
-					.time = float(time),
-				};
-				vkCmdPushConstants(workspace.command_buffer, background_pipeline.layout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(push), &push);
-			}
+		// 	{//push time:
+		// 		BackgroundPipeline::Push push{
+		// 			.time = float(time),
+		// 		};
+		// 		vkCmdPushConstants(workspace.command_buffer, background_pipeline.layout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(push), &push);
+		// 	}
 			
-			vkCmdDraw(workspace.command_buffer, 3, 1, 0, 0);
-		}
+		// 	vkCmdDraw(workspace.command_buffer, 3, 1, 0, 0);
+		// }
 
 		// {//draw with the lines pipeline:
 		// 	vkCmdBindPipeline(workspace.command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, lines_pipeline.handle);
@@ -1111,7 +1115,7 @@ void RTGRenderer::update(float dt) {
 			target.x, target.y, target.z, //target
 			0.0f, 0.0f, 1.0f //up
 		)).data());
-	} else { // check if 
+	} else { // check if aspect ratio changed
 		static float last_aspect = float(rtg.swapchain_extent.width) / float(rtg.swapchain_extent.height);
 
 		if (last_aspect != float(rtg.swapchain_extent.width) / float(rtg.swapchain_extent.height)) {
@@ -1182,16 +1186,31 @@ void RTGRenderer::on_input(InputEvent const &event) {
 		view_camera = static_cast<ViewCamera>((view_camera + 1) % 3);
 		if (view_camera == ViewCamera::SceneCamera) return;
 		update_camera = true;
+		//update perspective just in case aspect changed
+		perspective_mat = glm::make_mat4(perspective(
+				60.0f * float(M_PI) / 180.0f, //vfov
+				rtg.swapchain_extent.width / float(rtg.swapchain_extent.height), //aspect
+				0.1f, //near
+				1000.0f //far
+			).data());
+			FreeCamera& cam = (view_camera == ViewCamera::UserCamera) ? user_camera : debug_camera;
+			update_free_camera(cam);
 	}
 
 	if (view_camera == ViewCamera::SceneCamera) {
 		if (event.type == InputEvent::Type::KeyDown) {
+			// Swapping between scene cameras
 			if (event.key.key == GLFW_KEY_LEFT) {
-				if (scene.cameras.size() == 1) return;
+				if (scene.cameras.size() == 1) {
+					std::cout<<"Only one camera available, unable to switch to another scene camera"<<std::endl;
+					return;
+				}
 				scene.requested_camera_index = (scene.requested_camera_index - 1) % scene.cameras.size();
+				std::cout<< "Now viewing through camera: " + scene.cameras[scene.requested_camera_index].name<<std::endl;
 			} else if (event.key.key == GLFW_KEY_RIGHT) {
 				if (scene.cameras.size() == 1) return;
 				scene.requested_camera_index = (scene.requested_camera_index + 1) % scene.cameras.size();
+				std::cout<< "Now viewing through camera: " + scene.cameras[scene.requested_camera_index].name<<std::endl;
 			}
 		}
 		return;

@@ -210,7 +210,6 @@ void Helpers::transfer_to_buffer(void *data, size_t size, AllocatedBuffer &targe
 
 void Helpers::transfer_to_image(void *data, size_t size, AllocatedImage &target) {
 	assert(target.handle); //target image should be allocated already
-
 	//check data is the right size:
 	size_t bytes_per_pixel = vkuFormatElementSize(target.format);
 	assert(size == target.extent.width * target.extent.height * bytes_per_pixel);

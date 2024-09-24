@@ -63,6 +63,7 @@ void RTG::Configuration::usage(std::function< void(const char *, const char *) >
 	callback("--physical-device <name>", "Run on the named physical device (guesses, otherwise).");
 	callback("--drawing-size <w> <h>", "Set the size of the surface to draw to.");
 	callback("--scene <p>", "Read the scene file in .s72 format.");
+	callback("--camera <c>", "View the scene through camera with name <c>.");
 }
 
 static VKAPI_ATTR VkBool32 VKAPI_CALL debug_callback(

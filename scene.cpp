@@ -498,18 +498,23 @@ void Scene::debug() {
             }
 
             // Print material associated with the mesh
-            const Material& material = materials[mesh.material_index];
-            std::cout << "Material Name: " << material.name << "\n";
+            if (mesh.material_index != -1) {
+                const Material& material = materials[mesh.material_index];
+                std::cout << "Material Name: " << material.name << "\n";
 
-            // Print texture associated with the material (if available)
-             const Texture& texture = textures[material.texture_index];
-            if (texture.has_src) {
-                std::cout << "Texture Source: " << texture.source << "\n";
-            } else {
-                std::cout << "Albedo Color: (" 
-                          << texture.value.r << ", "
-                          << texture.value.g << ", "
-                          << texture.value.b << ")\n";
+                // Print texture associated with the material (if available)
+                const Texture& texture = textures[material.texture_index];
+                if (texture.has_src) {
+                    std::cout << "Texture Source: " << texture.source << "\n";
+                } else {
+                    std::cout << "Albedo Color: (" 
+                            << texture.value.r << ", "
+                            << texture.value.g << ", "
+                            << texture.value.b << ")\n";
+                }
+            }
+            else {
+                std::cout << "Material Name: Default" << "\n";
             }
         }
 
