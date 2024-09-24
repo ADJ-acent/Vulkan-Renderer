@@ -382,19 +382,55 @@ void Scene::load(std::string filename, std::optional<std::string> requested_came
                 std::cout << "Ignoring Environment Objects" <<std::endl;
             } else if (type.value() == "LIGHT") {
                 std::string light_name = object_i.find("name")->second.as_string().value();
+                glm::vec3 tint = glm::vec3(1.0f,1.0f,1.0f);
+                if (auto tint_res = object_i.find("tint"); tint_res != object_i.end()) {
+                    auto tint_arr = tint_res->second.as_array().value();
+                    assert(tint_arr.size() == 3);
+                    tint.x = float(tint_arr[0].as_number().value());
+                    tint.y = float(tint_arr[1].as_number().value());
+                    tint.z = float(tint_arr[2].as_number().value());
+                }
+                float shadow = 0.0f;
+                if (auto shadow_res = object_i.find("shadow"); shadow_res != object_i.end()) {
+                    shadow = float(shadow_res->second.as_number().value());
+                }
+                float angle = 0.0f;
+                float strength = 1.0f;
+                if (auto sun_res = object_i.find("sun"); sun_res != object_i.end()) {
+                    auto sun_obj = sun_res->second.as_object().value();
+                    if (auto angle_res = sun_obj.find("angle"); angle_res != sun_obj.end()) {
+                        angle = float(angle_res->second.as_number().value());
+                    }
+                    if (auto strength_res = sun_obj.find("strength"); strength_res != sun_obj.end()) {
+                        strength = float(strength_res->second.as_number().value());
+                    }
+                }
+                else {
+                    throw std::runtime_error("Only 'sun' light type supported for now.");
+                }
                 int32_t light_index = -1;
                 for (int32_t j = 0; j < lights.size(); ++j) {
                     if (lights[j].name == light_name) {
                         light_index = j;
+                        lights[j].tint = tint;
+                        lights[j].angle = angle;
+                        lights[j].strength = strength;
                         break;
                     }
                 }
 
                 if (light_index == -1) {
-                    Light new_light = {.name = light_name};
+                    Light new_light = {
+                        .name = light_name,
+                        .tint = tint,
+                        .angle = angle,
+                        .strength = strength
+                    };
                     lights.push_back(new_light);
                 }
 
+            } else if (type.value() == "DRIVER") {
+                //TODO implement driver
             } else {
                 std::cerr << "Unknown type: " + type.value() <<std::endl;
             }
@@ -527,6 +563,7 @@ void Scene::debug() {
                       << light.tint.g << ", "
                       << light.tint.b << ")\n";
             std::cout << "Light Strength: " << light.strength << "\n";
+            std::cout << "Light Angle: " << light.angle << "\n";
         }
 
         std::cout << "-----------------------------\n";

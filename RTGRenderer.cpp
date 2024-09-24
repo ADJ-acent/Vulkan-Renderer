@@ -1058,27 +1058,59 @@ void RTGRenderer::render(RTG &rtg_, RTG::RenderParams const &render_params) {
 void RTGRenderer::update(float dt) {
 	time = std::fmod(time + dt, 60.0f);
 
-	{ //non static sun and static sky:
+	{ //static sun and static sky:
+		//guaranteed to have at most 2 lights
+		assert(scene.lights.size() <= 2);
+		bool sun_defined = false, sky_defined = false;
+		for (const Scene::Light& light : scene.lights) {
+			if (abs(light.angle - 0.0f) < 0.001f) {
+				sun_defined = true;
+				glm::vec3 energy = light.strength * light.tint;
+				world.SUN_ENERGY.r = energy.r;
+				world.SUN_ENERGY.g = energy.g;
+				world.SUN_ENERGY.b = energy.b;
+			}
+			else if (abs(light.angle - float(M_PI)) < 0.001f) {
+				sky_defined = true;
+				glm::vec3 energy = light.strength * light.tint;
+				world.SKY_ENERGY.r = energy.r;
+				world.SKY_ENERGY.g = energy.g;
+				world.SKY_ENERGY.b = energy.b;
+			}
+		}
+		if (!sky_defined && !sun_defined) {
+			world.SKY_ENERGY.r = .1f;
+			world.SKY_ENERGY.g = .1f;
+			world.SKY_ENERGY.b = .2f;
+
+			world.SUN_ENERGY.r = 1.0f;
+			world.SUN_ENERGY.g = 1.0f;
+			world.SUN_ENERGY.b = 0.9f;
+		}
+		else if (!sky_defined) {
+			world.SKY_ENERGY.r = 0.0f;
+			world.SKY_ENERGY.g = 0.0f;
+			world.SKY_ENERGY.b = 0.0f;
+		}
+		else if (!sun_defined) {
+			world.SUN_ENERGY.r = 0.0f;
+			world.SUN_ENERGY.g = 0.0f;
+			world.SUN_ENERGY.b = 0.0f;
+		}
 		world.SKY_DIRECTION.x = 0.0f;
 		world.SKY_DIRECTION.y = 0.0f;
 		world.SKY_DIRECTION.z = 1.0f;
 
-		world.SKY_ENERGY.r = 0.1f;
-		world.SKY_ENERGY.g = 0.1f;
-		world.SKY_ENERGY.b = 0.2f;
-
-		world.SUN_DIRECTION.x = 6.0f / 23.0f;
-		world.SUN_DIRECTION.y = 13.0f / 23.0f;
-		world.SUN_DIRECTION.z = 18.0f / 23.0f;
+		world.SUN_DIRECTION.x = 0.0f;
+		world.SUN_DIRECTION.y = 0.0f;
+		world.SUN_DIRECTION.z = 1.0f;
 
 		float length = sqrt(world.SUN_DIRECTION.x * world.SUN_DIRECTION.x + world.SUN_DIRECTION.y * world.SUN_DIRECTION.y + world.SUN_DIRECTION.z * world.SUN_DIRECTION.z);
 		world.SKY_DIRECTION.x /= length;
 		world.SKY_DIRECTION.y /= length;
 		world.SKY_DIRECTION.z /= length;
 
-		world.SUN_ENERGY.r = 1.0f;
-		world.SUN_ENERGY.g = 1.0f;
-		world.SUN_ENERGY.b = 0.9f;
+		
 	}
 
 	// { //make a grid that is circular:
@@ -1143,6 +1175,7 @@ void RTGRenderer::update(float dt) {
 			).data());
 			FreeCamera& cam = (view_camera == InSceneCamera::UserCamera) ? user_camera : debug_camera;
 			update_free_camera(cam);
+			last_aspect = float(rtg.swapchain_extent.width) / float(rtg.swapchain_extent.height);
 		}
 	}
 
@@ -1225,7 +1258,10 @@ void RTGRenderer::on_input(InputEvent const &event) {
 				scene.requested_camera_index = (scene.requested_camera_index - 1 + int32_t(scene.cameras.size())) % scene.cameras.size();
 				std::cout<< "Now viewing through camera: " + scene.cameras[scene.requested_camera_index].name<< " with index " << scene.requested_camera_index <<std::endl;
 			} else if (event.key.key == GLFW_KEY_RIGHT) {
-				if (scene.cameras.size() == 1) return;
+				if (scene.cameras.size() == 1) {
+					std::cout<<"Only one camera available, unable to switch to another scene camera"<<std::endl;
+					return;
+				}
 				scene.requested_camera_index = (scene.requested_camera_index + 1) % scene.cameras.size();
 				std::cout<< "Now viewing through camera: " + scene.cameras[scene.requested_camera_index].name<< " with index " << scene.requested_camera_index <<std::endl;
 			}
@@ -1263,7 +1299,12 @@ void RTGRenderer::on_input(InputEvent const &event) {
 					glm::vec3 up = glm::cross(right, forward);  // Up vector
 		
 					float pan_sensitivity = 2.0f * std::max(cam.radius,0.5f);
-					cam.target -= right * (event.motion.x - previous_mouse_x) * pan_sensitivity;
+					if (upside_down) {
+						cam.target += right * (event.motion.x - previous_mouse_x) * pan_sensitivity;
+					}
+					else {
+						cam.target -= right * (event.motion.x - previous_mouse_x) * pan_sensitivity;
+					}
 					cam.target += up * (event.motion.y - previous_mouse_y) * pan_sensitivity;
 				}
 				previous_mouse_x = event.motion.x;
@@ -1283,11 +1324,12 @@ void RTGRenderer::on_input(InputEvent const &event) {
 		case InputEvent::Type::MouseButtonUp:
 			previous_mouse_x = -1.0f;
 			break;
+		case InputEvent::Type::MouseButtonDown:
+			upside_down = (int((abs(cam.elevation) + float(M_PI) / 2) / float(M_PI)) % 2 == 1);
+			break;
 		case InputEvent::Type::MouseWheel:
 			cam.radius = std::max(cam.radius - event.wheel.y*0.5f, 0.0f);
 			update_camera = true;
-			break;
-		default:
 			break;
 	}
 	
@@ -1303,18 +1345,16 @@ void RTGRenderer::update_free_camera(FreeCamera &cam)
 	float y = cam.radius * std::cos(cam.elevation) * std::sin(cam.azimuth);
 	float z = cam.radius * std::sin(cam.elevation);
 	float up = 1.0f;
-	upside_down = false;
 	// flip up axis when upside down
 	if (int((abs(cam.elevation) + float(M_PI) / 2) / float(M_PI)) % 2 == 1 ) {
 		up =-1.0f;
-		upside_down = true;
 	}
 	cam.eye = glm::vec3{x,y,z} + cam.target;
 	if (view_camera != DebugCamera) {
 		culling_view_mat = glm::make_mat4(look_at(
 			cam.eye.x,cam.eye.y,cam.eye.z, //eye
 			cam.target.x,cam.target.y,cam.target.z, //target
-			0.0f, 0.0f, 1.0f //up
+			0.0f, 0.0f, up //up
 		).data());
 
 		CLIP_FROM_WORLD = perspective_mat * culling_view_mat;

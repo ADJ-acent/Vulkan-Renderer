@@ -86,6 +86,23 @@ struct Scene
         // ignoring environment
     };
 
+    struct Driver {
+        std::string name;
+        uint32_t node_index;
+        enum Channel {
+            Translation = 0,
+            Scale = 1,
+            Rotation = 2,
+        } channel;
+        std::vector<float> times;
+        std::vector<float> values;
+        enum InterpolationMode {
+            STEP,
+            LINEAR,
+            SLERP,
+        } interpolation;
+    };
+
     std::vector<Node> nodes;
     std::vector<Camera> cameras;
     int32_t requested_camera_index = -1;
@@ -96,6 +113,8 @@ struct Scene
 
     std::vector<Material> materials;
     std::vector<Texture> textures;
+    std::vector<Driver> drivers;
+
     std::vector<uint32_t> root_nodes;
     std::string scene_path;
 
