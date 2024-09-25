@@ -40,7 +40,7 @@ int main(int argc, char **argv) {
 		}
 
 		//loads scene hiearchy
-		Scene scene(configuration.scene_path, configuration.scene_camera);
+		Scene scene(configuration.scene_path, configuration.scene_camera, configuration.animation_settings);
 
 		//loads vulkan library, creates surface, initializes helpers:
 		RTG rtg(configuration);

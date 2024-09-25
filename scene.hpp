@@ -116,12 +116,12 @@ struct Scene
     std::vector<Material> materials;
     std::vector<Texture> textures;
     std::vector<Driver> drivers;
-    bool looping_animation = true;
+    uint8_t animation_setting;
 
     std::vector<uint32_t> root_nodes;
     std::string scene_path;
 
-    Scene(std::string filename, std::optional<std::string> camera);
+    Scene(std::string filename, std::optional<std::string> camera, uint8_t animation_setting);
 
     void load(std::string file_path, std::optional<std::string> requested_camera);
 

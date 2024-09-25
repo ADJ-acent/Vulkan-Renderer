@@ -222,6 +222,7 @@ struct RTGRenderer : RTG::Application {
 
 	// used for frustum culling
 	glm::mat4x4 culling_view_mat;
+	CullingFrustum scene_cam_frustum, user_cam_frustum;
 
 	InSceneCamera culling_camera = InSceneCamera::SceneCamera;	
 	//--------------------------------------------------------------------

@@ -490,6 +490,7 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_) {
 				0.1f, //near
 				1000.0f //far
 			).data()) * culling_view_mat;
+
 			view_camera = InSceneCamera::UserCamera;
 			culling_camera = InSceneCamera::UserCamera;
 		}
@@ -516,9 +517,23 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_) {
 				cur_camera.far //far
 			).data()) * culling_view_mat;
 
+			scene_cam_frustum = make_frustum(
+				cur_camera.vfov, //vfov
+				cur_camera.aspect, //aspect
+				cur_camera.near, //near
+				cur_camera.far //far
+			);
+
 			view_camera = InSceneCamera::SceneCamera;
 			culling_camera = InSceneCamera::SceneCamera;
 		}
+		//cache scene cam frustum since it does not change
+		scene_cam_frustum = make_frustum(
+			60.0f * float(M_PI) / 180.0f, //vfov
+			rtg.swapchain_extent.width / float(rtg.swapchain_extent.height), //aspect
+			0.1f, //near
+			1000.0f //far
+		);
 	}
 }
 
@@ -1165,6 +1180,13 @@ void RTGRenderer::update(float dt) {
 			cur_camera.near, //near
 			cur_camera.far //far
 		).data()) * culling_view_mat;
+
+		scene_cam_frustum = make_frustum(
+				cur_camera.vfov, //vfov
+				cur_camera.aspect, //aspect
+				cur_camera.near, //near
+				cur_camera.far //far
+			);
 	} 
 	else { // check if aspect ratio changed
 		static float last_aspect = float(rtg.swapchain_extent.width) / float(rtg.swapchain_extent.height);
@@ -1196,10 +1218,20 @@ void RTGRenderer::update(float dt) {
 				glm::mat4x4 parent_node_transform_in_world = transform_stack.back();
 				transform_stack.push_back(parent_node_transform_in_world * cur_node_transform_in_parent);
 			}
+			// draw children mesh
+			for (uint32_t child_index : cur_node.children) {
+				draw_node(child_index);
+			}
 			// draw own mesh
 			if (int32_t cur_mesh_index = cur_node.mesh_index; cur_mesh_index != -1) {
 				glm::mat4x4 WORLD_FROM_LOCAL = transform_stack.back();
-				OBB obb = AABB_transform_to_OBB(culling_view_mat * WORLD_FROM_LOCAL, mesh_AABBs[cur_mesh_index]);
+				{//cull the mesh if it is outside of the view frustum
+					CullingFrustum& cur_frustum = view_camera == SceneCamera ? scene_cam_frustum : user_cam_frustum;
+					if (!object_in_frustum_check(culling_view_mat * WORLD_FROM_LOCAL, mesh_AABBs[cur_mesh_index], cur_frustum)) {
+						return;
+					}
+				}
+
 				uint32_t texture_index = 0;
 				if (scene.meshes[cur_mesh_index].material_index != -1) {
 					texture_index = scene.materials[scene.meshes[cur_mesh_index].material_index].texture_index + 1;
@@ -1214,10 +1246,6 @@ void RTGRenderer::update(float dt) {
 					},
 					.texture = texture_index,
 				});
-			}
-			// draw children mesh
-			for (uint32_t child_index : cur_node.children) {
-				draw_node(child_index);
 			}
 			transform_stack.pop_back();
 		};
@@ -1245,9 +1273,9 @@ void RTGRenderer::on_input(InputEvent const &event) {
 				rtg.swapchain_extent.width / float(rtg.swapchain_extent.height), //aspect
 				0.1f, //near
 				1000.0f //far
-			).data());
-			FreeCamera& cam = (view_camera == InSceneCamera::UserCamera) ? user_camera : debug_camera;
-			update_free_camera(cam);
+		).data());
+		FreeCamera& cam = (view_camera == InSceneCamera::UserCamera) ? user_camera : debug_camera;
+		update_free_camera(cam);
 	}
 
 	if (view_camera == InSceneCamera::SceneCamera) {

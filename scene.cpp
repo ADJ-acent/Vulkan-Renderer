@@ -6,7 +6,8 @@
 #include <iostream>
 #include <unordered_map>
 
-Scene::Scene(std::string filename, std::optional<std::string> camera)
+Scene::Scene(std::string filename, std::optional<std::string> camera, uint8_t animation_setting_)
+:animation_setting(animation_setting_)
 {
     load(data_path(filename), camera);
 }
@@ -667,11 +668,13 @@ void Scene::debug() {
 
 void Scene::update_drivers(float dt)
 {
+    if (animation_setting == 2) return;
     for (Scene::Driver& driver : drivers) {
         if (driver.cur_time_index == driver.times.size()) continue;
         driver.cur_time += dt;
         auto found_it = std::upper_bound(driver.times.begin()+driver.cur_time_index,driver.times.end(), driver.cur_time);
 
+        //extrapolate constant value at the beginning
         if (found_it == driver.times.begin()) {
             if (driver.channel == Driver::Channel::Rotation) {
                 uint32_t cur_value_index = driver.cur_time_index * 4;
@@ -700,6 +703,7 @@ void Scene::update_drivers(float dt)
             }
             continue;
         }
+        // extrapolate constant value at the end
         if (found_it == driver.times.end()) {
             driver.cur_time_index = uint32_t(driver.times.size() - 1);
             if (driver.channel == Driver::Channel::Rotation) {
@@ -727,13 +731,14 @@ void Scene::update_drivers(float dt)
                     driver.values[cur_value_index + 2]
                 );
             }
-            if (looping_animation) {
+            // reset animation to start again
+            if (animation_setting == 1) {
                 driver.cur_time_index = 0;
                 driver.cur_time = 0.0f;
             }
             continue;
         }
-
+        // time should be between cur_time_index and cur_time_index + 1
         driver.cur_time_index = uint32_t(found_it - driver.times.begin() - 1);
         switch (driver.interpolation) {
             case Driver::InterpolationMode::STEP: {
