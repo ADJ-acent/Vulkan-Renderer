@@ -306,8 +306,6 @@ void Scene::load(std::string filename, std::optional<std::string> requested_came
                     }
                 }
 
-            } else if (type.value() == "DRIVER") {
-                //TODO add driver support
             } else if (type.value() == "MATERIAL") {
                 std::string material_name = object_i.find("name")->second.as_string().value();
                 int32_t cur_material_index;
@@ -430,11 +428,71 @@ void Scene::load(std::string filename, std::optional<std::string> requested_came
                 }
 
             } else if (type.value() == "DRIVER") {
-                //TODO implement driver
+                std::string driver_name = object_i.find("name")->second.as_string().value();
+                std::string node_name = object_i.find("node")->second.as_string().value();
+                std::string channel_str = object_i.find("channel")->second.as_string().value();
+                Driver::Channel channel;
+                if (channel_str == "translation") {
+                    channel = Driver::Channel::Translation;
+                }
+                else if (channel_str == "scale") {
+                    channel = Driver::Channel::Scale;
+                }
+                else if (channel_str == "rotation") {
+                    channel = Driver::Channel::Rotation;
+                }
+                else {
+                    throw std::runtime_error("Unrecognized channel: " + channel_str);
+                }
+                Driver::InterpolationMode interp = Driver::InterpolationMode::LINEAR;
+                if (auto interp_res = object_i.find("interpolation"); interp_res != object_i.end()) {
+                    std::string interp_str = interp_res->second.as_string().value();
+                    if (interp_str == "STEP") interp = Driver::InterpolationMode::STEP;
+                    else if (interp_str == "LINEAR") interp = Driver::InterpolationMode::LINEAR;
+                    else if (interp_str == "SLERP") interp = Driver::InterpolationMode::SLERP;
+                    else {
+                        std::cerr<<"Unrecognized interpolation mode for driver "<< driver_name<<": '"<<interp_str<<"', defaulting to LINEAR\n";
+                    }
+                }
+                uint32_t node_index = 0;
+                if (auto node_found = nodes_map.find(node_name); node_found != nodes_map.end()) {
+                    node_index = node_found->second;
+                }
+                else {
+                    Node new_node = {.name = node_name};
+                    node_index = int32_t(nodes.size());
+                    nodes.push_back(new_node);
+                    nodes_map.insert({node_name, node_index});
+                    root_nodes.push_back(node_index);
+                }
+                Driver driver = {
+                    .name = driver_name,
+                    .node_index = node_index,
+                    .channel = channel,
+                    .interpolation = interp,
+                };
+                std::vector<sejp::value> times = object_i.find("times")->second.as_array().value();
+                std::vector<sejp::value> values = object_i.find("values")->second.as_array().value();
+                if (channel == Driver::Channel::Rotation) {
+                    if (times.size() * 4 != values.size()) {
+                        std::cerr<<"Value size: "<<values.size()<< "; Time Size" << times.size()<<std::endl;
+                        throw std::runtime_error("Rotation driver " + driver_name +" does not have correct number of values (4 * time)");
+                    }
+                }
+                else if (times.size() * 3 != values.size()){
+                    std::cerr<<"Value size: "<<values.size()<< "; Time Size" << times.size()<<std::endl;
+                    throw std::runtime_error("Translation/Scaling driver " + driver_name +" does not have correct number of values (3 * time)");
+                }
+                for (uint32_t time_i = 0; time_i < times.size(); ++time_i) {
+                    driver.times.push_back(float(times[time_i].as_number().value()));
+                }
+                for (uint32_t value_i = 0; value_i < values.size(); ++value_i) {
+                    driver.values.push_back(float(values[value_i].as_number().value()));
+                }
+                drivers.push_back(driver);
             } else {
                 std::cerr << "Unknown type: " + type.value() <<std::endl;
             }
-            
         }
 
 
@@ -473,7 +531,9 @@ void Scene::load(std::string filename, std::optional<std::string> requested_came
     if (requested_camera.has_value() && requested_camera_index == -1) {
         throw std::runtime_error("Did not find camera with name: " + requested_camera.value() + ", aborting...");
     }
-    requested_camera_index = 0;
+    if (requested_camera_index == -1) {
+        requested_camera_index = 0;
+    }
 
     debug();
 }
@@ -567,6 +627,225 @@ void Scene::debug() {
         }
 
         std::cout << "-----------------------------\n";
+    }
+    // print driver info
+    for (const auto& driver: drivers) {
+        std::cout << "Driver: " << driver.name << std::endl;
+        std::cout << "  Node Index: " << driver.node_index << std::endl;
+        
+        std::cout << "  Channel: ";
+        switch (driver.channel) {
+            case Driver::Translation: std::cout << "Translation"; break;
+            case Driver::Scale: std::cout << "Scale"; break;
+            case Driver::Rotation: std::cout << "Rotation"; break;
+        }
+        std::cout << std::endl;
+
+        // std::cout << "  Times: ";
+        // for (const auto& time : driver.times) {
+        //     std::cout << time << " ";
+        // }
+        // std::cout << std::endl;
+
+        // std::cout << "  Values: ";
+        // for (const auto& value : driver.values) {
+        //     std::cout << value << " ";
+        // }
+        // std::cout << std::endl;
+
+        std::cout << "  Interpolation Mode: ";
+        switch (driver.interpolation) {
+            case Driver::STEP: std::cout << "STEP"; break;
+            case Driver::LINEAR: std::cout << "LINEAR"; break;
+            case Driver::SLERP: std::cout << "SLERP"; break;
+        }
+        std::cout << std::endl;
+
+        std::cout << "-----------------------------\n";
+    }
+}
+
+void Scene::update_drivers(float dt)
+{
+    for (Scene::Driver& driver : drivers) {
+        if (driver.cur_time_index == driver.times.size()) continue;
+        driver.cur_time += dt;
+        auto found_it = std::upper_bound(driver.times.begin()+driver.cur_time_index,driver.times.end(), driver.cur_time);
+
+        if (found_it == driver.times.begin()) {
+            if (driver.channel == Driver::Channel::Rotation) {
+                uint32_t cur_value_index = driver.cur_time_index * 4;
+                nodes[driver.node_index].transform.rotation = glm::quat(
+                    driver.values[cur_value_index + 3],
+                    driver.values[cur_value_index], 
+                    driver.values[cur_value_index + 1], 
+                    driver.values[cur_value_index + 2]
+                );
+            }
+            else if (driver.channel == Driver::Channel::Translation) {
+                uint32_t cur_value_index = driver.cur_time_index * 3;
+                nodes[driver.node_index].transform.position = glm::vec3(
+                    driver.values[cur_value_index], 
+                    driver.values[cur_value_index + 1], 
+                    driver.values[cur_value_index + 2]
+                );
+            }
+            else if (driver.channel == Driver::Channel::Scale) {
+                uint32_t cur_value_index = driver.cur_time_index * 3;
+                nodes[driver.node_index].transform.scale = glm::vec3(
+                    driver.values[cur_value_index], 
+                    driver.values[cur_value_index + 1], 
+                    driver.values[cur_value_index + 2]
+                );
+            }
+            continue;
+        }
+        if (found_it == driver.times.end()) {
+            driver.cur_time_index = uint32_t(driver.times.size() - 1);
+            if (driver.channel == Driver::Channel::Rotation) {
+                uint32_t cur_value_index = driver.cur_time_index * 4;
+                nodes[driver.node_index].transform.rotation = glm::quat(
+                    driver.values[cur_value_index + 3],
+                    driver.values[cur_value_index], 
+                    driver.values[cur_value_index + 1], 
+                    driver.values[cur_value_index + 2]
+                );
+            }
+            else if (driver.channel == Driver::Channel::Translation) {
+                uint32_t cur_value_index = driver.cur_time_index * 3;
+                nodes[driver.node_index].transform.position = glm::vec3(
+                    driver.values[cur_value_index], 
+                    driver.values[cur_value_index + 1], 
+                    driver.values[cur_value_index + 2]
+                );
+            }
+            else if (driver.channel == Driver::Channel::Scale) {
+                uint32_t cur_value_index = driver.cur_time_index * 3;
+                nodes[driver.node_index].transform.scale = glm::vec3(
+                    driver.values[cur_value_index], 
+                    driver.values[cur_value_index + 1], 
+                    driver.values[cur_value_index + 2]
+                );
+            }
+            if (looping_animation) {
+                driver.cur_time_index = 0;
+                driver.cur_time = 0.0f;
+            }
+            continue;
+        }
+
+        driver.cur_time_index = uint32_t(found_it - driver.times.begin() - 1);
+        switch (driver.interpolation) {
+            case Driver::InterpolationMode::STEP: {
+                    if (driver.channel == Driver::Channel::Rotation) {
+                        uint32_t cur_value_index = driver.cur_time_index * 4;
+                        nodes[driver.node_index].transform.rotation = glm::quat(
+                            driver.values[cur_value_index + 3],
+                            driver.values[cur_value_index], 
+                            driver.values[cur_value_index + 1], 
+                            driver.values[cur_value_index + 2]
+                        );
+                    }
+                    else if (driver.channel == Driver::Channel::Translation) {
+                        uint32_t cur_value_index = driver.cur_time_index * 3;
+                        nodes[driver.node_index].transform.position = glm::vec3(
+                            driver.values[cur_value_index], 
+                            driver.values[cur_value_index + 1], 
+                            driver.values[cur_value_index + 2]
+                        );
+                    }
+                    else if (driver.channel == Driver::Channel::Scale) {
+                        uint32_t cur_value_index = driver.cur_time_index * 3;
+                        nodes[driver.node_index].transform.scale = glm::vec3(
+                            driver.values[cur_value_index], 
+                            driver.values[cur_value_index + 1], 
+                            driver.values[cur_value_index + 2]
+                        );
+                    }
+                }
+                break;
+            case Driver::InterpolationMode::LINEAR: {
+                    float interval = driver.times[driver.cur_time_index + 1] - driver.times[driver.cur_time_index];
+                    float t = (driver.cur_time - driver.times[driver.cur_time_index]) / interval;
+                    if (driver.channel == Driver::Channel::Rotation) {
+                        uint32_t n = 4;
+                        uint32_t cur_value_index = driver.cur_time_index * n;
+                        nodes[driver.node_index].transform.rotation = glm::quat(
+                            driver.values[cur_value_index + 3],
+                            driver.values[cur_value_index], 
+                            driver.values[cur_value_index + 1], 
+                            driver.values[cur_value_index + 2]
+                        ) * (1.0f - t) + glm::quat(
+                            driver.values[cur_value_index + n + 3],
+                            driver.values[cur_value_index + n], 
+                            driver.values[cur_value_index + n + 1], 
+                            driver.values[cur_value_index + n + 2]
+                        ) * t;
+                    }
+                    else if (driver.channel == Driver::Channel::Translation) {
+                        uint32_t n = 3;
+                        uint32_t cur_value_index = driver.cur_time_index * n;
+                        nodes[driver.node_index].transform.position = glm::vec3(
+                            driver.values[cur_value_index], 
+                            driver.values[cur_value_index + 1], 
+                            driver.values[cur_value_index + 2]
+                        )* (1.0f - t) + glm::vec3(
+                            driver.values[cur_value_index + n], 
+                            driver.values[cur_value_index + n + 1], 
+                            driver.values[cur_value_index + n + 2]
+                        ) * t;
+                    }
+                    else if (driver.channel == Driver::Channel::Scale) {
+                        uint32_t n = 3;
+                        uint32_t cur_value_index = driver.cur_time_index * n;
+                        nodes[driver.node_index].transform.scale = glm::vec3(
+                            driver.values[cur_value_index], 
+                            driver.values[cur_value_index + 1], 
+                            driver.values[cur_value_index + 2]
+                        )* (1.0f - t) + glm::vec3(
+                            driver.values[cur_value_index + n], 
+                            driver.values[cur_value_index + n + 1], 
+                            driver.values[cur_value_index + n + 2]
+                        ) * t;
+                    }
+                }
+                break;
+            case Driver::InterpolationMode::SLERP: {
+                    if (driver.channel == Driver::Channel::Rotation) {
+                        float interval_slerp = driver.times[driver.cur_time_index + 1] - driver.times[driver.cur_time_index];
+                        float t_slerp = (driver.cur_time - driver.times[driver.cur_time_index]) / interval_slerp;
+
+                        // Retrieve the quaternions at the current and next time indices
+                        uint32_t n = 4;
+                        uint32_t cur_value_index = driver.cur_time_index * n;
+
+                        glm::quat q1 = glm::quat(
+                            driver.values[cur_value_index + 3],
+                            driver.values[cur_value_index],
+                            driver.values[cur_value_index + 1],
+                            driver.values[cur_value_index + 2]
+                        );
+                        
+                        glm::quat q2 = glm::quat(
+                            driver.values[cur_value_index + n + 3],
+                            driver.values[cur_value_index + n],
+                            driver.values[cur_value_index + n + 1],
+                            driver.values[cur_value_index + n + 2]
+                        );
+                        
+                        // Perform SLERP between q1 and q2 based on t
+                        nodes[driver.node_index].transform.rotation = glm::slerp(q1, q2, t_slerp);
+                    }
+                    else if (driver.channel == Driver::Channel::Translation) {
+                        throw std::runtime_error("Shouldn't call SLERP on translation");
+                    }
+                    else {
+                        throw std::runtime_error("Shouldn't call SLERP on scale");
+                    }
+                }
+                break;
+        }
+        
     }
 }
 

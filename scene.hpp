@@ -100,7 +100,9 @@ struct Scene
             STEP,
             LINEAR,
             SLERP,
-        } interpolation;
+        } interpolation = LINEAR;
+        uint32_t cur_time_index = 0;
+        float cur_time = 0.0f;
     };
 
     std::vector<Node> nodes;
@@ -114,6 +116,7 @@ struct Scene
     std::vector<Material> materials;
     std::vector<Texture> textures;
     std::vector<Driver> drivers;
+    bool looping_animation = true;
 
     std::vector<uint32_t> root_nodes;
     std::string scene_path;
@@ -122,6 +125,7 @@ struct Scene
 
     void load(std::string file_path, std::optional<std::string> requested_camera);
 
-
     void debug();
+
+    void update_drivers(float dt);
 };

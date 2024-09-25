@@ -693,8 +693,8 @@ void RTGRenderer::render(RTG &rtg_, RTG::RenderParams const &render_params) {
 	assert(render_params.workspace_index < workspaces.size());
 	assert(render_params.image_index < swapchain_framebuffers.size());
 
-	//prevent faulty attempt to render when the swapchain has no area
-	if (rtg.swapchain_extent.width == 0 || rtg.swapchain_extent.height == 0) return;
+	// //prevent faulty attempt to render when the swapchain has no area
+	// if (rtg.swapchain_extent.width == 0 || rtg.swapchain_extent.height == 0) return;
 
 	//get more convenient names for the current workspace and target framebuffer:
 	Workspace &workspace = workspaces[render_params.workspace_index];
@@ -1110,7 +1110,10 @@ void RTGRenderer::update(float dt) {
 		world.SKY_DIRECTION.y /= length;
 		world.SKY_DIRECTION.z /= length;
 
-		
+	}
+
+	{//update the animations according to the drivers
+		scene.update_drivers(dt);
 	}
 
 	// { //make a grid that is circular:
