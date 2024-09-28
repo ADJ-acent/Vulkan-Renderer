@@ -15,13 +15,13 @@ CullingFrustum make_frustum(float vfov, float aspect, float z_near, float z_far)
 
 bool object_in_frustum_check(const glm::mat4x4 &transform_mat, const AABB &aabb, const CullingFrustum &frustum)
 {
-    OBB obb = AABB_transform_to_OBB(transform_mat, aabb);
-    return SAT_visibility_test(obb, frustum);
+    return true;
+    // OBB obb = AABB_transform_to_OBB(transform_mat, aabb);
+    // return SAT_visibility_test(obb, frustum);
 }
 
 OBB AABB_transform_to_OBB(const glm::mat4x4 &transform_mat, const AABB &aabb)
 {
-   
     // Consider four adjacent corners of the ABB
     glm::vec4 corners_aabb[4] = {
                 {aabb.min.x, aabb.min.y, aabb.min.z, 1},
@@ -62,29 +62,29 @@ bool SAT_visibility_test(const OBB &obb, const CullingFrustum& frustum)
     float z_far = frustum.far_plane;
     float x_near = frustum.near_right;
     float y_near = frustum.near_top;
-    {
-        // Projected center of our OBB
-        float MoC = obb.center.z;
-        // Projected size of OBB
-        float radius = 0.0f;
-        for (uint8_t i = 0; i < 3; i++) {
-            // dot(M, axes[i]) == axes[i].z;
-            radius += fabsf(obb.axes[i].z) * obb.extents[i];
-        }
-        float obb_min = MoC - radius;
-        float obb_max = MoC + radius;
-        // We can skip calculating the projection here, it's known
-        float m0 = z_far; // Since the frustum's direction is negative z, far is smaller than near
-        float m1 = z_near;
+    // {
+    //     // Projected center of our OBB
+    //     float MoC = obb.center.z;
+    //     // Projected size of OBB
+    //     float radius = 0.0f;
+    //     for (uint8_t i = 0; i < 3; i++) {
+    //         // dot(M, axes[i]) == axes[i].z;
+    //         radius += fabsf(obb.axes[i].z) * obb.extents[i];
+    //     }
+    //     float obb_min = MoC - radius;
+    //     float obb_max = MoC + radius;
+    //     // We can skip calculating the projection here, it's known
+    //     float m0 = z_far; // Since the frustum's direction is negative z, far is smaller than near
+    //     float m1 = z_near;
 
-        if (obb_min > m1 || obb_max < m0) {
+    //     if (obb_min > m1 || obb_max < m0) {
 
             
-            std::cout<<"obb_min: "<<obb_min<<", obb_max: "<<obb_max<<", m1: "<<m1 <<", m0"<<m0<<std::endl;
-            return false;
-        }
-    }
-    return true;
+    //         //std::cout<<"obb_min: "<<obb_min<<", obb_max: "<<obb_max<<", m1: "<<m1 <<", m0"<<m0<<std::endl;
+    //         return false;
+    //     }
+    // }
+    // return true;
 
     {
         // Frustum normals

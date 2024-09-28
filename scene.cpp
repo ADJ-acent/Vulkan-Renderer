@@ -405,7 +405,8 @@ void Scene::load(std::string filename, std::optional<std::string> requested_came
                     }
                 }
                 else {
-                    throw std::runtime_error("Only 'sun' light type supported for now.");
+                    std::cerr<<"Only 'sun' light type supported for now.\n";
+                    continue;
                 }
                 int32_t light_index = -1;
                 for (int32_t j = 0; j < lights.size(); ++j) {

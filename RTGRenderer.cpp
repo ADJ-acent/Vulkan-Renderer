@@ -269,10 +269,8 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_) {
 		std::vector<PosNorTanTexVertex> vertices;
 		vertices.resize(scene.vertices_count);
 		uint32_t new_vertices_start = 0;
-		mesh_vertices.clear();
-		mesh_AABBs.clear();
-		mesh_vertices.reserve(scene.meshes.size());
-		mesh_AABBs.reserve(scene.meshes.size());
+		mesh_vertices.assign(scene.meshes.size(), ObjectVertices());
+		mesh_AABBs.assign(scene.meshes.size(),AABB());
 		for (uint32_t i = 0; i < uint32_t(scene.meshes.size()); ++i) {
 			Scene::Mesh& cur_mesh = scene.meshes[i];
 			mesh_vertices[i].count = cur_mesh.count;
@@ -755,22 +753,23 @@ void RTGRenderer::render(RTG &rtg_, RTG::RenderParams const &render_params) {
 
 			std::cout << "Re-allocated lines buffers to " << new_bytes << " bytes." << std::endl;
 
-			assert(workspace.lines_vertices_src.size == workspace.lines_vertices.size);
-			assert(workspace.lines_vertices_src.size >= needed_bytes);
-
-			// host-side copy into lines_vertices_src:
-			assert(workspace.lines_vertices_src.allocation.mapped);
-			std::memcpy(workspace.lines_vertices_src.allocation.data(), lines_vertices.data(), needed_bytes);
-
-			//device-side copy from lines_vertices_src -> lines_vertices:
-			VkBufferCopy copy_region{
-				.srcOffset = 0,
-				.dstOffset = 0,
-				.size = needed_bytes,
-			};
-
-			vkCmdCopyBuffer(workspace.command_buffer, workspace.lines_vertices_src.handle, workspace.lines_vertices.handle, 1, &copy_region);
 		}
+
+		assert(workspace.lines_vertices_src.size == workspace.lines_vertices.size);
+		assert(workspace.lines_vertices_src.size >= needed_bytes);
+
+		// host-side copy into lines_vertices_src:
+		assert(workspace.lines_vertices_src.allocation.mapped);
+		std::memcpy(workspace.lines_vertices_src.allocation.data(), lines_vertices.data(), needed_bytes);
+
+		//device-side copy from lines_vertices_src -> lines_vertices:
+		VkBufferCopy copy_region{
+			.srcOffset = 0,
+			.dstOffset = 0,
+			.size = needed_bytes,
+		};
+
+		vkCmdCopyBuffer(workspace.command_buffer, workspace.lines_vertices_src.handle, workspace.lines_vertices.handle, 1, &copy_region);
 	}
 
 	{//upload camera info:
@@ -887,7 +886,7 @@ void RTGRenderer::render(RTG &rtg_, RTG::RenderParams const &render_params) {
 			.srcAccessMask = VK_ACCESS_MEMORY_WRITE_BIT,
 			.dstAccessMask = VK_ACCESS_MEMORY_READ_BIT,
 		};
-
+		//TODO: change to 2 pipeline barrier, buffer
 		vkCmdPipelineBarrier( workspace.command_buffer,
 			VK_PIPELINE_STAGE_TRANSFER_BIT, //srcStageMask
 			VK_PIPELINE_STAGE_VERTEX_INPUT_BIT, //dstStageMask
@@ -966,33 +965,6 @@ void RTGRenderer::render(RTG &rtg_, RTG::RenderParams const &render_params) {
 		// 	vkCmdDraw(workspace.command_buffer, 3, 1, 0, 0);
 		// }
 
-		// {//draw with the lines pipeline:
-		// 	vkCmdBindPipeline(workspace.command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, lines_pipeline.handle);
-
-		// 	{//use lines_vertices (offset 0) as vertex buffer binding 0:
-		// 		std::array< VkBuffer, 1 > vertex_buffers{ workspace.lines_vertices.handle };
-		// 		std::array< VkDeviceSize, 1 > offsets{ 0 };
-		// 		vkCmdBindVertexBuffers(workspace.command_buffer, 0, uint32_t(vertex_buffers.size()), vertex_buffers.data(), offsets.data());
-		// 	}
-
-		// 	{ //bind Camera descriptor set:
-		// 		std::array< VkDescriptorSet, 1 > descriptor_sets{
-		// 			workspace.Camera_descriptors, //0: Camera
-		// 		};
-		
-		// 		vkCmdBindDescriptorSets(
-		// 			workspace.command_buffer, //command buffer
-		// 			VK_PIPELINE_BIND_POINT_GRAPHICS, //pipeline bind point
-		// 			lines_pipeline.layout, //pipeline layout
-		// 			0, //first set
-		// 			uint32_t(descriptor_sets.size()), descriptor_sets.data(), //descriptor sets count, ptr
-		// 			0, nullptr //dynamic offsets count, ptr
-		// 		);
-		// 	}
-
-		// 	//draw lines vertices:
-		// 	vkCmdDraw(workspace.command_buffer, uint32_t(lines_vertices.size()), 1, 0, 0);
-		// }
 
 		{//draw with the objects pipeline:
 			vkCmdBindPipeline(workspace.command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, objects_pipeline.handle);
@@ -1036,9 +1008,40 @@ void RTGRenderer::render(RTG &rtg_, RTG::RenderParams const &render_params) {
 
 				vkCmdDraw(workspace.command_buffer, inst.vertices.count, 1, inst.vertices.first, index);
 			}
-			vkCmdEndRenderPass(workspace.command_buffer);
+
 		}
+		
+		{//draw with the lines pipeline:
+			vkCmdBindPipeline(workspace.command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, lines_pipeline.handle);
+
+			{//use lines_vertices (offset 0) as vertex buffer binding 0:
+				std::array< VkBuffer, 1 > vertex_buffers{ workspace.lines_vertices.handle };
+				std::array< VkDeviceSize, 1 > offsets{ 0 };
+				vkCmdBindVertexBuffers(workspace.command_buffer, 0, uint32_t(vertex_buffers.size()), vertex_buffers.data(), offsets.data());
+			}
+
+			{ //bind Camera descriptor set:
+				std::array< VkDescriptorSet, 1 > descriptor_sets{
+					workspace.Camera_descriptors, //0: Camera
+				};
+		
+				vkCmdBindDescriptorSets(
+					workspace.command_buffer, //command buffer
+					VK_PIPELINE_BIND_POINT_GRAPHICS, //pipeline bind point
+					lines_pipeline.layout, //pipeline layout
+					0, //first set
+					uint32_t(descriptor_sets.size()), descriptor_sets.data(), //descriptor sets count, ptr
+					0, nullptr //dynamic offsets count, ptr
+				);
+			}
+
+			//draw lines vertices:
+			vkCmdDraw(workspace.command_buffer, uint32_t(lines_vertices.size()), 1, 0, 0);
+		}
+
+		vkCmdEndRenderPass(workspace.command_buffer);
 	}
+	
 
 	//end recording:
 	VK(vkEndCommandBuffer(workspace.command_buffer));
@@ -1131,31 +1134,6 @@ void RTGRenderer::update(float dt) {
 		scene.update_drivers(dt);
 	}
 
-	// { //make a grid that is circular:
-	// 	lines_vertices.clear();
-	// 	constexpr size_t count = 2 * 101;
-	// 	lines_vertices.reserve(count);
-	// 	//horizontal lines at z = 0.5f:
-	// 	for (uint32_t i = 0; i < 101; ++i) {
-	// 		float x = 1.0f, y = 1.0f;
-	// 		if (i < 50) {
-	// 			y -= float(i) / 25.0f;
-	// 		}
-	// 		else {
-	// 			x -= float(i-50) / 25.0f;
-	// 		}
-	// 		lines_vertices.emplace_back(PosColVertex{
-	// 			.Position{.x = x, .y = y, .z = .1f + sin(time/20.0f)},
-	// 			.Color{ .r = uint8_t((x+1) * 255.0f/2.0f), .g = uint8_t((y+1) * 255.0f/2.0f), .b = 0xff, .a = 0xff},
-	// 		});
-	// 		lines_vertices.emplace_back(PosColVertex{
-	// 			.Position{.x = -x, .y = -y, .z = .1f + cos(time/10.0f)},
-	// 			.Color{ .r = uint8_t((-x+1) * 255.0f/2.0f), .g = uint8_t((-y+1) * 255.0f/2.0f), .b = 0x00, .a = 0xff},
-	// 		});
-	// 	}
-
-	// 	assert(lines_vertices.size() == count);
-	// }
 
 	// set scene camera for animation purposes
 	if (view_camera == InSceneCamera::SceneCamera){
@@ -1204,7 +1182,9 @@ void RTGRenderer::update(float dt) {
 		}
 	}
 
-	{ //fill object instances with scene hiearchy
+	lines_vertices.clear();
+
+	{ //fill object instances with scene hiearchy, optionally draw debug lines when on debug camera
 		object_instances.clear();
 
 		std::deque<glm::mat4x4> transform_stack;
@@ -1226,8 +1206,125 @@ void RTGRenderer::update(float dt) {
 			if (int32_t cur_mesh_index = cur_node.mesh_index; cur_mesh_index != -1) {
 				glm::mat4x4 WORLD_FROM_LOCAL = transform_stack.back();
 				{//cull the mesh if it is outside of the view frustum
+					
+					{//debug draw the OBBs
+						OBB obb = AABB_transform_to_OBB(WORLD_FROM_LOCAL, mesh_AABBs[cur_mesh_index]);
+						std::array<glm::vec3,8> vertices = {
+							obb.center + obb.extents[0] * obb.axes[0] + obb.extents[1]*obb.axes[1] + obb.extents[2]*obb.axes[2],
+							obb.center + obb.extents[0] * obb.axes[0] + obb.extents[1]*obb.axes[1] - obb.extents[2]*obb.axes[2],
+							obb.center + obb.extents[0] * obb.axes[0] - obb.extents[1]*obb.axes[1] + obb.extents[2]*obb.axes[2],
+							obb.center + obb.extents[0] * obb.axes[0] - obb.extents[1]*obb.axes[1] - obb.extents[2]*obb.axes[2],
+							obb.center - obb.extents[0] * obb.axes[0] + obb.extents[1]*obb.axes[1] + obb.extents[2]*obb.axes[2],
+							obb.center - obb.extents[0] * obb.axes[0] + obb.extents[1]*obb.axes[1] - obb.extents[2]*obb.axes[2],
+							obb.center - obb.extents[0] * obb.axes[0] - obb.extents[1]*obb.axes[1] + obb.extents[2]*obb.axes[2],
+							obb.center - obb.extents[0] * obb.axes[0] - obb.extents[1]*obb.axes[1] - obb.extents[2]*obb.axes[2]
+						};
+
+						lines_vertices.emplace_back(PosColVertex{
+							.Position{.x = vertices[0].x, .y = vertices[0].y, .z = vertices[0].z},
+							.Color{ .r = 0xff, .g = 0x00, .b = 0x00, .a = 0xff},
+						});
+						lines_vertices.emplace_back(PosColVertex{
+							.Position{.x = vertices[1].x, .y = vertices[1].y, .z = vertices[1].z},
+							.Color{ .r = 0xff, .g = 0x00, .b = 0x00, .a = 0xff},
+						});
+						lines_vertices.emplace_back(PosColVertex{
+							.Position{.x = vertices[0].x, .y = vertices[0].y, .z = vertices[0].z},
+							.Color{ .r = 0xff, .g = 0x00, .b = 0x00, .a = 0xff},
+						});
+						lines_vertices.emplace_back(PosColVertex{
+							.Position{.x = vertices[2].x, .y = vertices[2].y, .z = vertices[2].z},
+							.Color{ .r = 0xff, .g = 0x00, .b = 0x00, .a = 0xff},
+						});
+						lines_vertices.emplace_back(PosColVertex{
+							.Position{.x = vertices[2].x, .y = vertices[2].y, .z = vertices[2].z},
+							.Color{ .r = 0xff, .g = 0x00, .b = 0x00, .a = 0xff},
+						});
+						lines_vertices.emplace_back(PosColVertex{
+							.Position{.x = vertices[3].x, .y = vertices[3].y, .z = vertices[3].z},
+							.Color{ .r = 0xff, .g = 0x00, .b = 0x00, .a = 0xff},
+						});
+						lines_vertices.emplace_back(PosColVertex{
+							.Position{.x = vertices[3].x, .y = vertices[3].y, .z = vertices[3].z},
+							.Color{ .r = 0xff, .g = 0x00, .b = 0x00, .a = 0xff},
+						});
+						lines_vertices.emplace_back(PosColVertex{
+							.Position{.x = vertices[1].x, .y = vertices[1].y, .z = vertices[1].z},
+							.Color{ .r = 0xff, .g = 0x00, .b = 0x00, .a = 0xff},
+						});
+						lines_vertices.emplace_back(PosColVertex{
+							.Position{.x = vertices[0].x, .y = vertices[0].y, .z = vertices[0].z},
+							.Color{ .r = 0xff, .g = 0x00, .b = 0x00, .a = 0xff},
+						});
+						lines_vertices.emplace_back(PosColVertex{
+							.Position{.x = vertices[4].x, .y = vertices[4].y, .z = vertices[4].z},
+							.Color{ .r = 0xff, .g = 0x00, .b = 0x00, .a = 0xff},
+						});
+						lines_vertices.emplace_back(PosColVertex{
+							.Position{.x = vertices[4].x, .y = vertices[4].y, .z = vertices[4].z},
+							.Color{ .r = 0xff, .g = 0x00, .b = 0x00, .a = 0xff},
+						});
+						lines_vertices.emplace_back(PosColVertex{
+							.Position{.x = vertices[6].x, .y = vertices[6].y, .z = vertices[6].z},
+							.Color{ .r = 0xff, .g = 0x00, .b = 0x00, .a = 0xff},
+						});
+						lines_vertices.emplace_back(PosColVertex{
+							.Position{.x = vertices[2].x, .y = vertices[2].y, .z = vertices[2].z},
+							.Color{ .r = 0xff, .g = 0x00, .b = 0x00, .a = 0xff},
+						});
+						lines_vertices.emplace_back(PosColVertex{
+							.Position{.x = vertices[6].x, .y = vertices[6].y, .z = vertices[6].z},
+							.Color{ .r = 0xff, .g = 0x00, .b = 0x00, .a = 0xff},
+						});
+						lines_vertices.emplace_back(PosColVertex{
+							.Position{.x = vertices[4].x, .y = vertices[4].y, .z = vertices[4].z},
+							.Color{ .r = 0xff, .g = 0x00, .b = 0x00, .a = 0xff},
+						});
+						lines_vertices.emplace_back(PosColVertex{
+							.Position{.x = vertices[5].x, .y = vertices[5].y, .z = vertices[5].z},
+							.Color{ .r = 0xff, .g = 0x00, .b = 0x00, .a = 0xff},
+						});
+						lines_vertices.emplace_back(PosColVertex{
+							.Position{.x = vertices[6].x, .y = vertices[6].y, .z = vertices[6].z},
+							.Color{ .r = 0xff, .g = 0x00, .b = 0x00, .a = 0xff},
+						});
+						lines_vertices.emplace_back(PosColVertex{
+							.Position{.x = vertices[7].x, .y = vertices[7].y, .z = vertices[7].z},
+							.Color{ .r = 0xff, .g = 0x00, .b = 0x00, .a = 0xff},
+						});
+						lines_vertices.emplace_back(PosColVertex{
+							.Position{.x = vertices[1].x, .y = vertices[1].y, .z = vertices[1].z},
+							.Color{ .r = 0xff, .g = 0x00, .b = 0x00, .a = 0xff},
+						});
+						lines_vertices.emplace_back(PosColVertex{
+							.Position{.x = vertices[5].x, .y = vertices[5].y, .z = vertices[5].z},
+							.Color{ .r = 0xff, .g = 0x00, .b = 0x00, .a = 0xff},
+						});
+						lines_vertices.emplace_back(PosColVertex{
+							.Position{.x = vertices[3].x, .y = vertices[3].y, .z = vertices[3].z},
+							.Color{ .r = 0xff, .g = 0x00, .b = 0x00, .a = 0xff},
+						});
+						lines_vertices.emplace_back(PosColVertex{
+							.Position{.x = vertices[7].x, .y = vertices[7].y, .z = vertices[7].z},
+							.Color{ .r = 0xff, .g = 0x00, .b = 0x00, .a = 0xff},
+						});
+						lines_vertices.emplace_back(PosColVertex{
+							.Position{.x = vertices[5].x, .y = vertices[5].y, .z = vertices[5].z},
+							.Color{ .r = 0xff, .g = 0x00, .b = 0x00, .a = 0xff},
+						});
+						lines_vertices.emplace_back(PosColVertex{
+							.Position{.x = vertices[7].x, .y = vertices[7].y, .z = vertices[7].z},
+							.Color{ .r = 0xff, .g = 0x00, .b = 0x00, .a = 0xff},
+						});
+					// 	if (cur_node.name == "Cube.001") {
+					// 		std::cout<<"\n\nworld from local\n"<<glm::to_string(WORLD_FROM_LOCAL)<<std::endl;
+					// 		std::cout<<"original vertices: "<<glm::to_string(vertices[0])<<std::endl;
+					// 		std::cout<<lines_vertices[begin].Position.x<<", "<<lines_vertices[begin].Position.y<<", "<<lines_vertices[begin].Position.z<<"\n";
+					// }
+					}
 					CullingFrustum& cur_frustum = view_camera == SceneCamera ? scene_cam_frustum : user_cam_frustum;
 					if (!object_in_frustum_check(culling_view_mat * WORLD_FROM_LOCAL, mesh_AABBs[cur_mesh_index], cur_frustum)) {
+						transform_stack.pop_back();
 						return;
 					}
 				}
