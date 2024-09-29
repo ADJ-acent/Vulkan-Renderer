@@ -2,13 +2,7 @@
 //ensure we have M_PI
 #define _USE_MATH_DEFINES
 #endif
-
-#ifndef GLFW_KEY_LEFT_SHIFT
-	#define GLFW_KEY_LEFT_SHIFT 340
-	#define GLFW_KEY_RIGHT 262
-	#define GLFW_KEY_LEFT 263
-	#define GLFW_KEY_C 67
-#endif
+#include <GLFW/glfw3.h>
 #include "RTGRenderer.hpp"
 
 #include "VK.hpp"
@@ -476,18 +470,21 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_) {
 			float x = user_camera.radius * std::sin(user_camera.elevation) * std::cos(user_camera.azimuth);
 			float y = user_camera.radius * std::sin(user_camera.elevation) * std::sin(user_camera.azimuth);
 			float z = user_camera.radius * std::cos(user_camera.elevation);
-			//cache culling view
-			culling_view_mat = glm::make_mat4(look_at(
+			//cache view and clip matrices
+			view_from_world[1] = glm::make_mat4(look_at(
 				x,y,z, //eye
 				0.0f, 0.0f, 0.5f, //target
 				0.0f, 0.0f, 1.0f //up
 			).data());
-			CLIP_FROM_WORLD = glm::make_mat4(perspective(
+			clip_from_view[1] = glm::make_mat4(perspective(
 				60.0f * float(M_PI) / 180.0f, //vfov
 				rtg.swapchain_extent.width / float(rtg.swapchain_extent.height), //aspect
 				0.1f, //near
 				1000.0f //far
-			).data()) * culling_view_mat;
+			).data());
+			view_from_world[2] = view_from_world[1];
+			clip_from_view[2] = clip_from_view[1];
+			CLIP_FROM_WORLD = clip_from_view[1] * view_from_world[1];
 
 			view_camera = InSceneCamera::UserCamera;
 			culling_camera = InSceneCamera::UserCamera;
@@ -502,18 +499,18 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_) {
 			glm::vec3 forward = -glm::vec3(cur_camera_transform[2]);
 			glm::vec3 target = eye + forward;
 
-			culling_view_mat = glm::make_mat4(look_at(
+			view_from_world[0] = glm::make_mat4(look_at(
 				eye.x, eye.y, eye.z, //eye
 				target.x, target.y, target.z, //target
 				0.0f, 0.0f, 1.0f //up
 			).data());
 
-			CLIP_FROM_WORLD = glm::make_mat4(perspective(
+			clip_from_view[0] = glm::make_mat4(perspective(
 				cur_camera.vfov, //vfov
 				cur_camera.aspect, //aspect
 				cur_camera.near, //near
 				cur_camera.far //far
-			).data()) * culling_view_mat;
+			).data());
 
 			scene_cam_frustum = make_frustum(
 				cur_camera.vfov, //vfov
@@ -522,16 +519,29 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_) {
 				cur_camera.far //far
 			);
 
+			clip_from_view[1] = glm::make_mat4(perspective(
+				60.0f * float(M_PI) / 180.0f, //vfov
+				rtg.swapchain_extent.width / float(rtg.swapchain_extent.height), //aspect
+				0.1f, //near
+				1000.0f //far
+			).data());
+
+			clip_from_view[2] = clip_from_view[1];
+
+			CLIP_FROM_WORLD = clip_from_view[0] * view_from_world[0];
+
 			view_camera = InSceneCamera::SceneCamera;
-			culling_camera = InSceneCamera::SceneCamera;
 		}
-		//cache scene cam frustum since it does not change
-		scene_cam_frustum = make_frustum(
+
+		user_camera.type = UserCamera;
+		debug_camera.type = DebugCamera;
+		user_cam_frustum = make_frustum(
 			60.0f * float(M_PI) / 180.0f, //vfov
 			rtg.swapchain_extent.width / float(rtg.swapchain_extent.height), //aspect
 			0.1f, //near
 			1000.0f //far
 		);
+
 	}
 }
 
@@ -965,8 +975,35 @@ void RTGRenderer::render(RTG &rtg_, RTG::RenderParams const &render_params) {
 		// 	vkCmdDraw(workspace.command_buffer, 3, 1, 0, 0);
 		// }
 
+		if (!lines_vertices.empty()) {//draw with the lines pipeline:
+			vkCmdBindPipeline(workspace.command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, lines_pipeline.handle);
 
-		{//draw with the objects pipeline:
+			{//use lines_vertices (offset 0) as vertex buffer binding 0:
+				std::array< VkBuffer, 1 > vertex_buffers{ workspace.lines_vertices.handle };
+				std::array< VkDeviceSize, 1 > offsets{ 0 };
+				vkCmdBindVertexBuffers(workspace.command_buffer, 0, uint32_t(vertex_buffers.size()), vertex_buffers.data(), offsets.data());
+			}
+
+			{ //bind Camera descriptor set:
+				std::array< VkDescriptorSet, 1 > descriptor_sets{
+					workspace.Camera_descriptors, //0: Camera
+				};
+		
+				vkCmdBindDescriptorSets(
+					workspace.command_buffer, //command buffer
+					VK_PIPELINE_BIND_POINT_GRAPHICS, //pipeline bind point
+					lines_pipeline.layout, //pipeline layout
+					0, //first set
+					uint32_t(descriptor_sets.size()), descriptor_sets.data(), //descriptor sets count, ptr
+					0, nullptr //dynamic offsets count, ptr
+				);
+			}
+
+			//draw lines vertices:
+			vkCmdDraw(workspace.command_buffer, uint32_t(lines_vertices.size()), 1, 0, 0);
+		}
+
+		if (!object_instances.empty()){//draw with the objects pipeline:
 			vkCmdBindPipeline(workspace.command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, objects_pipeline.handle);
 
 			{//use object_vertices (offset 0) as vertex buffer binding 0:
@@ -1010,35 +1047,7 @@ void RTGRenderer::render(RTG &rtg_, RTG::RenderParams const &render_params) {
 			}
 
 		}
-		
-		{//draw with the lines pipeline:
-			vkCmdBindPipeline(workspace.command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, lines_pipeline.handle);
-
-			{//use lines_vertices (offset 0) as vertex buffer binding 0:
-				std::array< VkBuffer, 1 > vertex_buffers{ workspace.lines_vertices.handle };
-				std::array< VkDeviceSize, 1 > offsets{ 0 };
-				vkCmdBindVertexBuffers(workspace.command_buffer, 0, uint32_t(vertex_buffers.size()), vertex_buffers.data(), offsets.data());
-			}
-
-			{ //bind Camera descriptor set:
-				std::array< VkDescriptorSet, 1 > descriptor_sets{
-					workspace.Camera_descriptors, //0: Camera
-				};
-		
-				vkCmdBindDescriptorSets(
-					workspace.command_buffer, //command buffer
-					VK_PIPELINE_BIND_POINT_GRAPHICS, //pipeline bind point
-					lines_pipeline.layout, //pipeline layout
-					0, //first set
-					uint32_t(descriptor_sets.size()), descriptor_sets.data(), //descriptor sets count, ptr
-					0, nullptr //dynamic offsets count, ptr
-				);
-			}
-
-			//draw lines vertices:
-			vkCmdDraw(workspace.command_buffer, uint32_t(lines_vertices.size()), 1, 0, 0);
-		}
-
+	
 		vkCmdEndRenderPass(workspace.command_buffer);
 	}
 	
@@ -1136,7 +1145,7 @@ void RTGRenderer::update(float dt) {
 
 
 	// set scene camera for animation purposes
-	if (view_camera == InSceneCamera::SceneCamera){
+	if (view_camera == InSceneCamera::SceneCamera || culling_camera == InSceneCamera::SceneCamera){
 		Scene::Camera& cur_camera = scene.cameras[scene.requested_camera_index];
 		glm::mat4x4 cur_camera_transform = scene.nodes[cur_camera.local_to_world[0]].transform.parent_from_local();
 		for (int i = 1; i < cur_camera.local_to_world.size(); ++i) {
@@ -1146,36 +1155,48 @@ void RTGRenderer::update(float dt) {
 		glm::vec3 forward = -glm::vec3(cur_camera_transform[2]);
 		glm::vec3 target = eye + forward;
 
-		culling_view_mat = glm::make_mat4(look_at(
+		view_from_world[0] = glm::make_mat4(look_at(
 			eye.x, eye.y, eye.z, //eye
 			target.x, target.y, target.z, //target
 			0.0f, 0.0f, 1.0f //up
 		).data());
 
-		CLIP_FROM_WORLD = glm::make_mat4(perspective(
+		clip_from_view[0] = glm::make_mat4(perspective(
 			cur_camera.vfov, //vfov
 			cur_camera.aspect, //aspect
 			cur_camera.near, //near
 			cur_camera.far //far
-		).data()) * culling_view_mat;
+		).data());
 
 		scene_cam_frustum = make_frustum(
-				cur_camera.vfov, //vfov
-				cur_camera.aspect, //aspect
-				cur_camera.near, //near
-				cur_camera.far //far
-			);
+			cur_camera.vfov, //vfov
+			cur_camera.aspect, //aspect
+			cur_camera.near, //near
+			cur_camera.far //far
+		);
+
+		if (view_camera == InSceneCamera::SceneCamera)
+			CLIP_FROM_WORLD = clip_from_view[0] * view_from_world[0];
+
 	} 
-	else { // check if aspect ratio changed
+	if (view_camera != InSceneCamera::SceneCamera) { // check if aspect ratio changed
 		static float last_aspect = float(rtg.swapchain_extent.width) / float(rtg.swapchain_extent.height);
 
 		if (last_aspect != float(rtg.swapchain_extent.width) / float(rtg.swapchain_extent.height)) {
-			perspective_mat = glm::make_mat4(perspective(
+			clip_from_view[1] = glm::make_mat4(perspective(
 				60.0f * float(M_PI) / 180.0f, //vfov
 				rtg.swapchain_extent.width / float(rtg.swapchain_extent.height), //aspect
 				0.1f, //near
 				1000.0f //far
 			).data());
+
+			user_cam_frustum = make_frustum(
+				60.0f * float(M_PI) / 180.0f, //vfov
+				rtg.swapchain_extent.width / float(rtg.swapchain_extent.height), //aspect
+				0.1f, //near
+				1000.0f //far
+			);
+			clip_from_view[2] = clip_from_view[1];
 			FreeCamera& cam = (view_camera == InSceneCamera::UserCamera) ? user_camera : debug_camera;
 			update_free_camera(cam);
 			last_aspect = float(rtg.swapchain_extent.width) / float(rtg.swapchain_extent.height);
@@ -1183,9 +1204,131 @@ void RTGRenderer::update(float dt) {
 	}
 
 	lines_vertices.clear();
+	std::array<glm::vec3, 8> frustum_vertices;
+	glm::mat4x4 world_from_clip = glm::inverse(culling_camera == SceneCamera ? clip_from_view[0] * view_from_world[0] : clip_from_view[1]* view_from_world[1]);
+	std::array<glm::vec4, 8> clip_space_coordinates = {
+		glm::vec4(1.0f,  1.0f, 0.0f, 1.0f),   // Near top right
+		glm::vec4(-1.0f,  1.0f, 0.0f, 1.0f),  // Near top left
+		glm::vec4(1.0f, -1.0f, 0.0f, 1.0f),   // Near bottom right
+		glm::vec4(-1.0f, -1.0f, 0.0f, 1.0f),  // Near bottom left
+		glm::vec4(1.0f,  1.0f, 1.0f, 1.0f),   // Far top right
+		glm::vec4(-1.0f,  1.0f, 1.0f, 1.0f),  // Far top left
+		glm::vec4(1.0f, -1.0f, 1.0f, 1.0f),   // Far bottom right
+		glm::vec4(-1.0f, -1.0f, 1.0f, 1.0f)   // Far bottom left
+	};
+	std::cout<<"\n\n\n\n\n\n\n";
+	// Transform clip space to world space and apply perspective divide
+	for (int j = 0; j < 8; ++j) {
+		glm::vec4 world_space_vertex = world_from_clip * clip_space_coordinates[j];
+		frustum_vertices[j] = glm::vec3(world_space_vertex) / world_space_vertex.w;
+		std::cout<<frustum_vertices[j].x<<", "<<frustum_vertices[j].y<<", "<<frustum_vertices[j].z<<std::endl;
+	}
+	{// render last active frustum if in debug mode
+		if (view_camera == DebugCamera) {
+
+			lines_vertices.emplace_back(PosColVertex{
+				.Position{.x = frustum_vertices[0].x, .y = frustum_vertices[0].y, .z = frustum_vertices[0].z},
+				.Color{ .r = 0xff, .g = 0x00, .b = 0xc9, .a = 0xff},
+			});
+			lines_vertices.emplace_back(PosColVertex{
+				.Position{.x = frustum_vertices[1].x, .y = frustum_vertices[1].y, .z = frustum_vertices[1].z},
+				.Color{ .r = 0xff, .g = 0x00, .b = 0xc9, .a = 0xff},
+			});
+			lines_vertices.emplace_back(PosColVertex{
+				.Position{.x = frustum_vertices[0].x, .y = frustum_vertices[0].y, .z = frustum_vertices[0].z},
+				.Color{ .r = 0xff, .g = 0x00, .b = 0xc9, .a = 0xff},
+			});
+			lines_vertices.emplace_back(PosColVertex{
+				.Position{.x = frustum_vertices[2].x, .y = frustum_vertices[2].y, .z = frustum_vertices[2].z},
+				.Color{ .r = 0xff, .g = 0x00, .b = 0xc9, .a = 0xff},
+			});
+			lines_vertices.emplace_back(PosColVertex{
+				.Position{.x = frustum_vertices[2].x, .y = frustum_vertices[2].y, .z = frustum_vertices[2].z},
+				.Color{ .r = 0xff, .g = 0x00, .b = 0xc9, .a = 0xff},
+			});
+			lines_vertices.emplace_back(PosColVertex{
+				.Position{.x = frustum_vertices[3].x, .y = frustum_vertices[3].y, .z = frustum_vertices[3].z},
+				.Color{ .r = 0xff, .g = 0x00, .b = 0xc9, .a = 0xff},
+			});
+			lines_vertices.emplace_back(PosColVertex{
+				.Position{.x = frustum_vertices[3].x, .y = frustum_vertices[3].y, .z = frustum_vertices[3].z},
+				.Color{ .r = 0xff, .g = 0x00, .b = 0xc9, .a = 0xff},
+			});
+			lines_vertices.emplace_back(PosColVertex{
+				.Position{.x = frustum_vertices[1].x, .y = frustum_vertices[1].y, .z = frustum_vertices[1].z},
+				.Color{ .r = 0xff, .g = 0x00, .b = 0xc9, .a = 0xff},
+			});
+			lines_vertices.emplace_back(PosColVertex{
+				.Position{.x = frustum_vertices[0].x, .y = frustum_vertices[0].y, .z = frustum_vertices[0].z},
+				.Color{ .r = 0xff, .g = 0x00, .b = 0xc9, .a = 0xff},
+			});
+			lines_vertices.emplace_back(PosColVertex{
+				.Position{.x = frustum_vertices[4].x, .y = frustum_vertices[4].y, .z = frustum_vertices[4].z},
+				.Color{ .r = 0xff, .g = 0x00, .b = 0xc9, .a = 0xff},
+			});
+			lines_vertices.emplace_back(PosColVertex{
+				.Position{.x = frustum_vertices[4].x, .y = frustum_vertices[4].y, .z = frustum_vertices[4].z},
+				.Color{ .r = 0xff, .g = 0x00, .b = 0xc9, .a = 0xff},
+			});
+			lines_vertices.emplace_back(PosColVertex{
+				.Position{.x = frustum_vertices[6].x, .y = frustum_vertices[6].y, .z = frustum_vertices[6].z},
+				.Color{ .r = 0xff, .g = 0x00, .b = 0xc9, .a = 0xff},
+			});
+			lines_vertices.emplace_back(PosColVertex{
+				.Position{.x = frustum_vertices[2].x, .y = frustum_vertices[2].y, .z = frustum_vertices[2].z},
+				.Color{ .r = 0xff, .g = 0x00, .b = 0xc9, .a = 0xff},
+			});
+			lines_vertices.emplace_back(PosColVertex{
+				.Position{.x = frustum_vertices[6].x, .y = frustum_vertices[6].y, .z = frustum_vertices[6].z},
+				.Color{ .r = 0xff, .g = 0x00, .b = 0xc9, .a = 0xff},
+			});
+			lines_vertices.emplace_back(PosColVertex{
+				.Position{.x = frustum_vertices[4].x, .y = frustum_vertices[4].y, .z = frustum_vertices[4].z},
+				.Color{ .r = 0xff, .g = 0x00, .b = 0xc9, .a = 0xff},
+			});
+			lines_vertices.emplace_back(PosColVertex{
+				.Position{.x = frustum_vertices[5].x, .y = frustum_vertices[5].y, .z = frustum_vertices[5].z},
+				.Color{ .r = 0xff, .g = 0x00, .b = 0xc9, .a = 0xff},
+			});
+			lines_vertices.emplace_back(PosColVertex{
+				.Position{.x = frustum_vertices[6].x, .y = frustum_vertices[6].y, .z = frustum_vertices[6].z},
+				.Color{ .r = 0xff, .g = 0x00, .b = 0xc9, .a = 0xff},
+			});
+			lines_vertices.emplace_back(PosColVertex{
+				.Position{.x = frustum_vertices[7].x, .y = frustum_vertices[7].y, .z = frustum_vertices[7].z},
+				.Color{ .r = 0xff, .g = 0x00, .b = 0xc9, .a = 0xff},
+			});
+			lines_vertices.emplace_back(PosColVertex{
+				.Position{.x = frustum_vertices[1].x, .y = frustum_vertices[1].y, .z = frustum_vertices[1].z},
+				.Color{ .r = 0xff, .g = 0x00, .b = 0xc9, .a = 0xff},
+			});
+			lines_vertices.emplace_back(PosColVertex{
+				.Position{.x = frustum_vertices[5].x, .y = frustum_vertices[5].y, .z = frustum_vertices[5].z},
+				.Color{ .r = 0xff, .g = 0x00, .b = 0xc9, .a = 0xff},
+			});
+			lines_vertices.emplace_back(PosColVertex{
+				.Position{.x = frustum_vertices[3].x, .y = frustum_vertices[3].y, .z = frustum_vertices[3].z},
+				.Color{ .r = 0xff, .g = 0x00, .b = 0xc9, .a = 0xff},
+			});
+			lines_vertices.emplace_back(PosColVertex{
+				.Position{.x = frustum_vertices[7].x, .y = frustum_vertices[7].y, .z = frustum_vertices[7].z},
+				.Color{ .r = 0xff, .g = 0x00, .b = 0xc9, .a = 0xff},
+			});
+			lines_vertices.emplace_back(PosColVertex{
+				.Position{.x = frustum_vertices[5].x, .y = frustum_vertices[5].y, .z = frustum_vertices[5].z},
+				.Color{ .r = 0xff, .g = 0x00, .b = 0xc9, .a = 0xff},
+			});
+			lines_vertices.emplace_back(PosColVertex{
+				.Position{.x = frustum_vertices[7].x, .y = frustum_vertices[7].y, .z = frustum_vertices[7].z},
+				.Color{ .r = 0xff, .g = 0x00, .b = 0xc9, .a = 0xff},
+			});
+		}
+	}
 
 	{ //fill object instances with scene hiearchy, optionally draw debug lines when on debug camera
 		object_instances.clear();
+		// culling resources
+		glm::mat4x4 frustum_view_from_world = culling_camera == SceneCamera ? view_from_world[0] : view_from_world[1];
 
 		std::deque<glm::mat4x4> transform_stack;
 		std::function<void(uint32_t)> draw_node = [&](uint32_t i) {
@@ -1207,8 +1350,8 @@ void RTGRenderer::update(float dt) {
 				glm::mat4x4 WORLD_FROM_LOCAL = transform_stack.back();
 				{//cull the mesh if it is outside of the view frustum
 					
-					{//debug draw the OBBs
-						OBB obb = AABB_transform_to_OBB(WORLD_FROM_LOCAL, mesh_AABBs[cur_mesh_index]);
+					OBB obb = AABB_transform_to_OBB(WORLD_FROM_LOCAL, mesh_AABBs[cur_mesh_index]);
+					if (view_camera == DebugCamera) {//debug draw the OBBs
 						std::array<glm::vec3,8> vertices = {
 							obb.center + obb.extents[0] * obb.axes[0] + obb.extents[1]*obb.axes[1] + obb.extents[2]*obb.axes[2],
 							obb.center + obb.extents[0] * obb.axes[0] + obb.extents[1]*obb.axes[1] - obb.extents[2]*obb.axes[2],
@@ -1316,14 +1459,9 @@ void RTGRenderer::update(float dt) {
 							.Position{.x = vertices[7].x, .y = vertices[7].y, .z = vertices[7].z},
 							.Color{ .r = 0xff, .g = 0x00, .b = 0x00, .a = 0xff},
 						});
-					// 	if (cur_node.name == "Cube.001") {
-					// 		std::cout<<"\n\nworld from local\n"<<glm::to_string(WORLD_FROM_LOCAL)<<std::endl;
-					// 		std::cout<<"original vertices: "<<glm::to_string(vertices[0])<<std::endl;
-					// 		std::cout<<lines_vertices[begin].Position.x<<", "<<lines_vertices[begin].Position.y<<", "<<lines_vertices[begin].Position.z<<"\n";
-					// }
 					}
-					CullingFrustum& cur_frustum = view_camera == SceneCamera ? scene_cam_frustum : user_cam_frustum;
-					if (!object_in_frustum_check(culling_view_mat * WORLD_FROM_LOCAL, mesh_AABBs[cur_mesh_index], cur_frustum)) {
+					
+					if (!check_frustum_obb_intersection(frustum_vertices, obb)) {
 						transform_stack.pop_back();
 						return;
 					}
@@ -1360,19 +1498,26 @@ void RTGRenderer::on_input(InputEvent const &event) {
 	bool update_camera = false;
 
 	// switches camera mode from scene, view, and debug
-	if (event.type == InputEvent::Type::KeyDown && event.key.key == GLFW_KEY_C) {
-		view_camera = static_cast<InSceneCamera>((view_camera + 1) % 3);
-		if (view_camera == InSceneCamera::SceneCamera) return;
+	if (event.type == InputEvent::Type::KeyDown && (event.key.key == GLFW_KEY_1 || event.key.key == GLFW_KEY_2 || event.key.key == GLFW_KEY_3)) {
+		
+		if (event.key.key == GLFW_KEY_1) {
+			if (scene.cameras.empty()) {
+				std::cerr << "There are no scene camera in the scene, unable to switch\n";
+			}
+			else {
+				view_camera = InSceneCamera::SceneCamera;
+				culling_camera = InSceneCamera::SceneCamera;
+			}
+			return;
+		}
+		else if (event.key.key == GLFW_KEY_2) {
+			view_camera = InSceneCamera::UserCamera;
+			culling_camera = InSceneCamera::UserCamera;
+		}
+		else if (event.key.key == GLFW_KEY_3) {
+			view_camera = InSceneCamera::DebugCamera;
+		}
 		update_camera = true;
-		//update perspective just in case aspect changed
-		perspective_mat = glm::make_mat4(perspective(
-				60.0f * float(M_PI) / 180.0f, //vfov
-				rtg.swapchain_extent.width / float(rtg.swapchain_extent.height), //aspect
-				0.1f, //near
-				1000.0f //far
-		).data());
-		FreeCamera& cam = (view_camera == InSceneCamera::UserCamera) ? user_camera : debug_camera;
-		update_free_camera(cam);
 	}
 
 	if (view_camera == InSceneCamera::SceneCamera) {
@@ -1456,7 +1601,7 @@ void RTGRenderer::on_input(InputEvent const &event) {
 			upside_down = (int((abs(cam.elevation) + float(M_PI) / 2) / float(M_PI)) % 2 == 1);
 			break;
 		case InputEvent::Type::MouseWheel:
-			cam.radius = std::max(cam.radius - event.wheel.y*0.5f, 0.0f);
+			cam.radius = std::max(cam.radius - event.wheel.y*0.5f, 0.001f);
 			update_camera = true;
 			break;
 	}
@@ -1469,6 +1614,7 @@ void RTGRenderer::on_input(InputEvent const &event) {
 
 void RTGRenderer::update_free_camera(FreeCamera &cam)
 {
+	assert(cam.type != SceneCamera);
 	float x = cam.radius * std::cos(cam.elevation) * std::cos(cam.azimuth);
 	float y = cam.radius * std::cos(cam.elevation) * std::sin(cam.azimuth);
 	float z = cam.radius * std::sin(cam.elevation);
@@ -1478,20 +1624,13 @@ void RTGRenderer::update_free_camera(FreeCamera &cam)
 		up =-1.0f;
 	}
 	cam.eye = glm::vec3{x,y,z} + cam.target;
-	if (view_camera != DebugCamera) {
-		culling_view_mat = glm::make_mat4(look_at(
-			cam.eye.x,cam.eye.y,cam.eye.z, //eye
-			cam.target.x,cam.target.y,cam.target.z, //target
-			0.0f, 0.0f, up //up
-		).data());
+	uint8_t type = static_cast<uint8_t>(cam.type);
+	view_from_world[type] = glm::make_mat4(look_at(
+		cam.eye.x,cam.eye.y,cam.eye.z, //eye
+		cam.target.x,cam.target.y,cam.target.z, //target
+		0.0f, 0.0f, up //up
+	).data());
 
-		CLIP_FROM_WORLD = perspective_mat * culling_view_mat;
-	}
-	else { // don't cache debug camera's view matrix
-		CLIP_FROM_WORLD = perspective_mat * glm::make_mat4(look_at(
-			cam.eye.x,cam.eye.y,cam.eye.z, //eye
-			cam.target.x,cam.target.y,cam.target.z, //target
-			0.0f, 0.0f, up //up
-		).data());
-	}
+	CLIP_FROM_WORLD = clip_from_view[type] * view_from_world[type];
+	
 }

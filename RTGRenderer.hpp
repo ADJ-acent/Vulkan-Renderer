@@ -188,8 +188,16 @@ struct RTGRenderer : RTG::Application {
 	};
 	std::vector< ObjectInstance > object_instances;
 
+	enum InSceneCamera{
+		SceneCamera = 0,
+		UserCamera = 1,
+		DebugCamera = 2
+	};
+	InSceneCamera view_camera = InSceneCamera::SceneCamera;
+
 	struct FreeCamera
 	{
+		InSceneCamera type;
 		glm::vec3 target = {0.0f, 0.0f, 0.5f};
 		float radius = 10.0f;
 		float azimuth = 0.0f;
@@ -205,24 +213,10 @@ struct RTGRenderer : RTG::Application {
 	bool shift_down = false;
 	bool upside_down = false;
 
-	enum InSceneCamera{
-		SceneCamera = 0,
-		UserCamera = 1,
-		DebugCamera = 2
-	};
-	InSceneCamera view_camera = InSceneCamera::SceneCamera;
-
-	// used for free and debug cam
-	glm::mat4x4 perspective_mat = glm::make_mat4(perspective(
-		60.0f * 3.14159265358979323846f / 180.0f, //vfov
-		rtg.swapchain_extent.width / float(rtg.swapchain_extent.height), //aspect
-		0.1f, //near
-		1000.0f //far
-	).data());
-
-	// used for frustum culling
-	glm::mat4x4 culling_view_mat;
 	CullingFrustum scene_cam_frustum, user_cam_frustum;
+	// perspective and view matrices fro scene, user, and debug cameras
+	std::array<glm::mat4x4, 3> clip_from_view;
+	std::array<glm::mat4x4, 3> view_from_world;
 
 	InSceneCamera culling_camera = InSceneCamera::SceneCamera;	
 	//--------------------------------------------------------------------

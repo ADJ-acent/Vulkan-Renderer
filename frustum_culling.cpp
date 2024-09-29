@@ -1,9 +1,10 @@
 #include "frustum_culling.hpp"
-#include<iostream>
+#include <iostream>
+
 
 CullingFrustum make_frustum(float vfov, float aspect, float z_near, float z_far)
 {
-    float half_height = z_near * tan(glm::radians(vfov) / 2.0f);
+    float half_height = z_near * tan(vfov / 2.0f);
     float half_width = half_height * aspect;
     return CullingFrustum{
         .near_right = half_width,
@@ -11,13 +12,6 @@ CullingFrustum make_frustum(float vfov, float aspect, float z_near, float z_far)
         .near_plane = z_near,
         .far_plane = z_far,
     };
-}
-
-bool object_in_frustum_check(const glm::mat4x4 &transform_mat, const AABB &aabb, const CullingFrustum &frustum)
-{
-    return true;
-    // OBB obb = AABB_transform_to_OBB(transform_mat, aabb);
-    // return SAT_visibility_test(obb, frustum);
 }
 
 OBB AABB_transform_to_OBB(const glm::mat4x4 &transform_mat, const AABB &aabb)
@@ -32,7 +26,6 @@ OBB AABB_transform_to_OBB(const glm::mat4x4 &transform_mat, const AABB &aabb)
     glm::vec3 corners[4];
 
     // Transform corners
-    // Note: I think this approach is only sufficient if our transform is non-shearing (affine)
     for (size_t corner_idx = 0; corner_idx < 4; corner_idx++) {
         glm::vec4 point = (transform_mat * corners_aabb[corner_idx]);
         corners[corner_idx] = {point.x, point.y, point.z};
@@ -56,73 +49,109 @@ OBB AABB_transform_to_OBB(const glm::mat4x4 &transform_mat, const AABB &aabb)
     return obb;
 }
 
-bool SAT_visibility_test(const OBB &obb, const CullingFrustum& frustum)
-{
-    float z_near = frustum.near_plane;
-    float z_far = frustum.far_plane;
-    float x_near = frustum.near_right;
-    float y_near = frustum.near_top;
-    // {
-    //     // Projected center of our OBB
-    //     float MoC = obb.center.z;
-    //     // Projected size of OBB
-    //     float radius = 0.0f;
-    //     for (uint8_t i = 0; i < 3; i++) {
-    //         // dot(M, axes[i]) == axes[i].z;
-    //         radius += fabsf(obb.axes[i].z) * obb.extents[i];
-    //     }
-    //     float obb_min = MoC - radius;
-    //     float obb_max = MoC + radius;
-    //     // We can skip calculating the projection here, it's known
-    //     float m0 = z_far; // Since the frustum's direction is negative z, far is smaller than near
-    //     float m1 = z_near;
+// Utility to project a point onto an axis (returns the scalar projection)
+float project_point_onto_axis(const glm::vec3& point, const glm::vec3& axis) {
+    return glm::dot(point, glm::normalize(axis));
+}
 
-    //     if (obb_min > m1 || obb_max < m0) {
+// Project OBB onto the axis
+void project_obb_onto_axis(const OBB& obb, const glm::vec3& axis, float& min_proj, float& max_proj) {
+    glm::vec3 obb_vertices[8];
 
-            
-    //         //std::cout<<"obb_min: "<<obb_min<<", obb_max: "<<obb_max<<", m1: "<<m1 <<", m0"<<m0<<std::endl;
-    //         return false;
-    //     }
-    // }
-    // return true;
+    // Create the OBB vertices based on the center, extents, and axes
+    glm::vec3 extents_x = obb.extents.x * obb.axes[0];
+    glm::vec3 extents_y = obb.extents.y * obb.axes[1];
+    glm::vec3 extents_z = obb.extents.z * obb.axes[2];
 
-    {
-        // Frustum normals
-        const glm::vec3 M[] = {
-            { 0.0, -z_near, y_near }, // Top plane
-            { 0.0, z_near, y_near }, // Bottom plane
-            { -z_near, 0.0f, x_near }, // Right plane
-            { z_near, 0.0f, x_near }, // Left Plane
-        };
-        for (uint8_t m = 0; m < 4; m++) {
-            float MoX = fabsf(M[m].x);
-            float MoY = fabsf(M[m].y);
-            float MoZ = M[m].z;
-            float MoC = dot(M[m], obb.center);
+    obb_vertices[0] = obb.center + extents_x + extents_y + extents_z;
+    obb_vertices[1] = obb.center + extents_x + extents_y - extents_z;
+    obb_vertices[2] = obb.center + extents_x - extents_y + extents_z;
+    obb_vertices[3] = obb.center + extents_x - extents_y - extents_z;
+    obb_vertices[4] = obb.center - extents_x + extents_y + extents_z;
+    obb_vertices[5] = obb.center - extents_x + extents_y - extents_z;
+    obb_vertices[6] = obb.center - extents_x - extents_y + extents_z;
+    obb_vertices[7] = obb.center - extents_x - extents_y - extents_z;
 
-            float obb_radius = 0.0f;
-            for (uint8_t i = 0; i < 3; i++) {
-                obb_radius += fabsf(dot(M[m], obb.axes[i])) * obb.extents[i];
-            }
-            float obb_min = MoC - obb_radius;
-            float obb_max = MoC + obb_radius;
+    // Project all 8 vertices and find the min/max projection values
+    min_proj = project_point_onto_axis(obb_vertices[0], axis);
+    max_proj = min_proj;
 
-            float p = x_near * MoX + y_near * MoY;
+    for (int i = 1; i < 8; ++i) {
+        float proj = project_point_onto_axis(obb_vertices[i], axis);
+        if (proj < min_proj) min_proj = proj;
+        if (proj > max_proj) max_proj = proj;
+    }
+}
 
-            float tau_0 = z_near * MoZ - p;
-            float tau_1 = z_near * MoZ + p;
+// Project frustum vertices onto the axis
+void project_frustum_onto_axis(const std::array<glm::vec3, 8>& frustum_vertices, const glm::vec3& axis, float& min_proj, float& max_proj) {
+    min_proj = project_point_onto_axis(frustum_vertices[0], axis);
+    max_proj = min_proj;
 
-            if (tau_0 < 0.0f) {
-                tau_0 *= z_far / z_near;
-            }
-            if (tau_1 > 0.0f) {
-                tau_1 *= z_far / z_near;
-            }
+    for (int i = 1; i < 8; ++i) {
+        float proj = project_point_onto_axis(frustum_vertices[i], axis);
+        if (proj < min_proj) min_proj = proj;
+        if (proj > max_proj) max_proj = proj;
+    }
+}
 
-            if (obb_min > tau_1 || obb_max < tau_0) {
-                return false;
+// Test for overlap on a given axis
+bool overlap_on_axis(const std::array<glm::vec3, 8>& frustum_vertices, const OBB& obb, const glm::vec3& axis) {
+    float min_proj_frustum, max_proj_frustum;
+    float min_proj_obb, max_proj_obb;
+
+    // Project both the frustum and OBB onto the axis
+    project_frustum_onto_axis(frustum_vertices, axis, min_proj_frustum, max_proj_frustum);
+    project_obb_onto_axis(obb, axis, min_proj_obb, max_proj_obb);
+
+    // Check for overlap (if there's no overlap, they are separated on this axis)
+    return !(max_proj_obb < min_proj_frustum || max_proj_frustum < min_proj_obb);
+}
+
+// Main function to check if the OBB intersects with the frustum
+bool check_frustum_obb_intersection(const std::array<glm::vec3, 8>& frustum_vertices, const OBB& obb) {
+    // Test axes: OBB axes (3)
+    for (int i = 0; i < 3; ++i) {
+        if (!overlap_on_axis(frustum_vertices, obb, obb.axes[i])) {
+            return false; // Separation found, so no intersection
+        }
+    }
+
+    std::array<glm::vec3, 8> frustum_edges = {
+        frustum_vertices[4] - frustum_vertices[0],
+        frustum_vertices[2] - frustum_vertices[0],
+        frustum_vertices[1] - frustum_vertices[0],
+        frustum_vertices[2] - frustum_vertices[3],
+        frustum_vertices[1] - frustum_vertices[3],
+        frustum_vertices[7] - frustum_vertices[3],
+        frustum_vertices[5] - frustum_vertices[1],
+        frustum_vertices[6] - frustum_vertices[2]
+    };
+    // Test axes: Frustum face normals (6)
+
+    std::array<glm::vec3, 5> frustum_normals = {
+        glm::cross(frustum_edges[1], frustum_edges[0]),
+        glm::cross(frustum_edges[0], frustum_edges[2]),
+        glm::cross(frustum_edges[2], frustum_edges[1]),
+        glm::cross(frustum_edges[5], frustum_edges[3]),
+        glm::cross(frustum_edges[4], frustum_edges[5])
+    };
+    for (glm::vec3& face_normal : frustum_normals) {
+        if (!overlap_on_axis(frustum_vertices, obb, face_normal)) {
+            return false; // Separation found, so no intersection
+        }
+    }
+
+    // Test axes: Cross products of OBB axes and frustum edges (9)
+    for (int i = 0; i < 3; ++i) {
+        for (int j = 0; j < 8; ++j) {
+            glm::vec3 axis = glm::cross(obb.axes[i], frustum_edges[j]);
+            if (!overlap_on_axis(frustum_vertices, obb, axis)) {
+                return false; // Separation found, so no intersection
             }
         }
     }
+
+    // If no separating axis is found, the OBB and frustum intersect
     return true;
 }
