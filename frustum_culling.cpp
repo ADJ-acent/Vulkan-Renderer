@@ -145,6 +145,7 @@ bool check_frustum_obb_intersection(const std::array<glm::vec3, 8>& frustum_vert
     // Test axes: Cross products of OBB axes and frustum edges (9)
     for (int i = 0; i < 3; ++i) {
         for (int j = 0; j < 8; ++j) {
+            if (j == 3 || j == 5) continue; // edge 1 and 2 already accounts for 3 and 5
             glm::vec3 axis = glm::cross(obb.axes[i], frustum_edges[j]);
             if (!overlap_on_axis(frustum_vertices, obb, axis)) {
                 return false; // Separation found, so no intersection

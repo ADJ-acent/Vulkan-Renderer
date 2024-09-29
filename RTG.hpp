@@ -67,6 +67,9 @@ struct RTG {
 		//animtion settings
 		uint8_t animation_settings = 0; // 0 play once, 1 loop, 2 paused
 
+		//culling settings
+		uint8_t culling_settings = 1; // 0 no culling, 1 frustum culling
+
 		//requested (priority-ranked) formats for output surface: (will use first available)
 		std::vector< VkSurfaceFormatKHR > surface_formats{
 			VkSurfaceFormatKHR{ .format = VK_FORMAT_B8G8R8A8_SRGB, .colorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR},

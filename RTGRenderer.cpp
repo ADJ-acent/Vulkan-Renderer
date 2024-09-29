@@ -1205,26 +1205,44 @@ void RTGRenderer::update(float dt) {
 
 	lines_vertices.clear();
 	std::array<glm::vec3, 8> frustum_vertices;
-	glm::mat4x4 world_from_clip = glm::inverse(culling_camera == SceneCamera ? clip_from_view[0] * view_from_world[0] : clip_from_view[1]* view_from_world[1]);
-	std::array<glm::vec4, 8> clip_space_coordinates = {
-		glm::vec4(1.0f,  1.0f, 0.0f, 1.0f),   // Near top right
-		glm::vec4(-1.0f,  1.0f, 0.0f, 1.0f),  // Near top left
-		glm::vec4(1.0f, -1.0f, 0.0f, 1.0f),   // Near bottom right
-		glm::vec4(-1.0f, -1.0f, 0.0f, 1.0f),  // Near bottom left
-		glm::vec4(1.0f,  1.0f, 1.0f, 1.0f),   // Far top right
-		glm::vec4(-1.0f,  1.0f, 1.0f, 1.0f),  // Far top left
-		glm::vec4(1.0f, -1.0f, 1.0f, 1.0f),   // Far bottom right
-		glm::vec4(-1.0f, -1.0f, 1.0f, 1.0f)   // Far bottom left
-	};
-	std::cout<<"\n\n\n\n\n\n\n";
-	// Transform clip space to world space and apply perspective divide
-	for (int j = 0; j < 8; ++j) {
-		glm::vec4 world_space_vertex = world_from_clip * clip_space_coordinates[j];
-		frustum_vertices[j] = glm::vec3(world_space_vertex) / world_space_vertex.w;
-		std::cout<<frustum_vertices[j].x<<", "<<frustum_vertices[j].y<<", "<<frustum_vertices[j].z<<std::endl;
+	if (rtg.configuration.culling_settings == 1) { // frustum culling is on
+		glm::mat4x4 world_from_clip = glm::inverse(culling_camera == SceneCamera ? clip_from_view[0] * view_from_world[0] : clip_from_view[1]* view_from_world[1]);
+		std::array<glm::vec4, 8> clip_space_coordinates = {
+			glm::vec4(1.0f,  1.0f, 0.0f, 1.0f),   // Near top right
+			glm::vec4(-1.0f,  1.0f, 0.0f, 1.0f),  // Near top left
+			glm::vec4(1.0f, -1.0f, 0.0f, 1.0f),   // Near bottom right
+			glm::vec4(-1.0f, -1.0f, 0.0f, 1.0f),  // Near bottom left
+			glm::vec4(1.0f,  1.0f, 1.0f, 1.0f),   // Far top right
+			glm::vec4(-1.0f,  1.0f, 1.0f, 1.0f),  // Far top left
+			glm::vec4(1.0f, -1.0f, 1.0f, 1.0f),   // Far bottom right
+			glm::vec4(-1.0f, -1.0f, 1.0f, 1.0f)   // Far bottom left
+		};
+		// Transform clip space to world space and apply perspective divide
+		for (int j = 0; j < 8; ++j) {
+			glm::vec4 world_space_vertex = world_from_clip * clip_space_coordinates[j];
+			frustum_vertices[j] = glm::vec3(world_space_vertex) / world_space_vertex.w;
+		}
 	}
 	{// render last active frustum if in debug mode
 		if (view_camera == DebugCamera) {
+			if (rtg.configuration.culling_settings != 1) {
+				glm::mat4x4 world_from_clip = glm::inverse(culling_camera == SceneCamera ? clip_from_view[0] * view_from_world[0] : clip_from_view[1]* view_from_world[1]);
+				std::array<glm::vec4, 8> clip_space_coordinates = {
+					glm::vec4(1.0f,  1.0f, 0.0f, 1.0f),   // Near top right
+					glm::vec4(-1.0f,  1.0f, 0.0f, 1.0f),  // Near top left
+					glm::vec4(1.0f, -1.0f, 0.0f, 1.0f),   // Near bottom right
+					glm::vec4(-1.0f, -1.0f, 0.0f, 1.0f),  // Near bottom left
+					glm::vec4(1.0f,  1.0f, 1.0f, 1.0f),   // Far top right
+					glm::vec4(-1.0f,  1.0f, 1.0f, 1.0f),  // Far top left
+					glm::vec4(1.0f, -1.0f, 1.0f, 1.0f),   // Far bottom right
+					glm::vec4(-1.0f, -1.0f, 1.0f, 1.0f)   // Far bottom left
+				};
+				// Transform clip space to world space and apply perspective divide
+				for (int j = 0; j < 8; ++j) {
+					glm::vec4 world_space_vertex = world_from_clip * clip_space_coordinates[j];
+					frustum_vertices[j] = glm::vec3(world_space_vertex) / world_space_vertex.w;
+				}
+			}
 
 			lines_vertices.emplace_back(PosColVertex{
 				.Position{.x = frustum_vertices[0].x, .y = frustum_vertices[0].y, .z = frustum_vertices[0].z},
@@ -1348,7 +1366,7 @@ void RTGRenderer::update(float dt) {
 			// draw own mesh
 			if (int32_t cur_mesh_index = cur_node.mesh_index; cur_mesh_index != -1) {
 				glm::mat4x4 WORLD_FROM_LOCAL = transform_stack.back();
-				{//cull the mesh if it is outside of the view frustum
+				{//debug draws and frustum culling
 					
 					OBB obb = AABB_transform_to_OBB(WORLD_FROM_LOCAL, mesh_AABBs[cur_mesh_index]);
 					if (view_camera == DebugCamera) {//debug draw the OBBs
@@ -1461,7 +1479,7 @@ void RTGRenderer::update(float dt) {
 						});
 					}
 					
-					if (!check_frustum_obb_intersection(frustum_vertices, obb)) {
+					if (rtg.configuration.culling_settings == 1 && !check_frustum_obb_intersection(frustum_vertices, obb)) {
 						transform_stack.pop_back();
 						return;
 					}
