@@ -72,7 +72,7 @@ struct Scene
         float shadow = 0.0f;
         float angle = 0.0f;
         float strength = 1.0f;
-
+        std::vector<uint32_t> local_to_world; // list of node indices to get from local to world (index 0 is a root node)
     };
 
     // Node 

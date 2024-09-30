@@ -1088,14 +1088,29 @@ void RTGRenderer::update(float dt) {
 	{ //static sun and static sky:
 		//guaranteed to have at most 2 lights
 		assert(scene.lights.size() <= 2);
-		bool sun_defined = false, sky_defined = false;
+		bool sun_defined = false;
+		bool sky_defined = false;
+		glm::vec3 default_directional_light_dir = {0.0f, 0.0f, 1.0f};
 		for (const Scene::Light& light : scene.lights) {
+			glm::mat4x4 cur_light_transform = scene.nodes[light.local_to_world[0]].transform.parent_from_local();
+			for (int i = 1; i < light.local_to_world.size(); ++i) {
+				cur_light_transform *= scene.nodes[light.local_to_world[i]].transform.parent_from_local();
+			}
+			glm::mat3 rotation_matrix = glm::mat3(cur_light_transform);
+			rotation_matrix[0] = glm::normalize(rotation_matrix[0]);
+			rotation_matrix[1] = glm::normalize(rotation_matrix[1]);
+			rotation_matrix[2] = glm::normalize(rotation_matrix[2]);
+			glm::vec3 new_direction = rotation_matrix * default_directional_light_dir;
+
 			if (abs(light.angle - 0.0f) < 0.001f) {
 				sun_defined = true;
 				glm::vec3 energy = light.strength * light.tint;
 				world.SUN_ENERGY.r = energy.r;
 				world.SUN_ENERGY.g = energy.g;
 				world.SUN_ENERGY.b = energy.b;
+				world.SUN_DIRECTION.x = new_direction.x;
+				world.SUN_DIRECTION.y = new_direction.y;
+				world.SUN_DIRECTION.z = new_direction.z;
 			}
 			else if (abs(light.angle - float(M_PI)) < 0.001f) {
 				sky_defined = true;
@@ -1103,6 +1118,9 @@ void RTGRenderer::update(float dt) {
 				world.SKY_ENERGY.r = energy.r;
 				world.SKY_ENERGY.g = energy.g;
 				world.SKY_ENERGY.b = energy.b;
+				world.SKY_DIRECTION.x = new_direction.x;
+				world.SKY_DIRECTION.y = new_direction.y;
+				world.SKY_DIRECTION.z = new_direction.z;
 			}
 		}
 		if (!sky_defined && !sun_defined) {
@@ -1113,24 +1131,32 @@ void RTGRenderer::update(float dt) {
 			world.SUN_ENERGY.r = 1.0f;
 			world.SUN_ENERGY.g = 1.0f;
 			world.SUN_ENERGY.b = 0.9f;
+
+			world.SKY_DIRECTION.x = 0.0f;
+			world.SKY_DIRECTION.y = 0.0f;
+			world.SKY_DIRECTION.z = 1.0f;
+
+			world.SUN_DIRECTION.x = 0.0f;
+			world.SUN_DIRECTION.y = 0.0f;
+			world.SUN_DIRECTION.z = 1.0f;
+
 		}
 		else if (!sky_defined) {
 			world.SKY_ENERGY.r = 0.0f;
 			world.SKY_ENERGY.g = 0.0f;
 			world.SKY_ENERGY.b = 0.0f;
+			world.SKY_DIRECTION.x = 0.0f;
+			world.SKY_DIRECTION.y = 0.0f;
+			world.SKY_DIRECTION.z = 1.0f;
 		}
 		else if (!sun_defined) {
 			world.SUN_ENERGY.r = 0.0f;
 			world.SUN_ENERGY.g = 0.0f;
 			world.SUN_ENERGY.b = 0.0f;
+			world.SUN_DIRECTION.x = 0.0f;
+			world.SUN_DIRECTION.y = 0.0f;
+			world.SUN_DIRECTION.z = 1.0f;
 		}
-		world.SKY_DIRECTION.x = 0.0f;
-		world.SKY_DIRECTION.y = 0.0f;
-		world.SKY_DIRECTION.z = 1.0f;
-
-		world.SUN_DIRECTION.x = 0.0f;
-		world.SUN_DIRECTION.y = 0.0f;
-		world.SUN_DIRECTION.z = 1.0f;
 
 		float length = sqrt(world.SUN_DIRECTION.x * world.SUN_DIRECTION.x + world.SUN_DIRECTION.y * world.SUN_DIRECTION.y + world.SUN_DIRECTION.z * world.SUN_DIRECTION.z);
 		world.SKY_DIRECTION.x /= length;
