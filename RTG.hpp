@@ -2,6 +2,7 @@
 
 #include "Helpers.hpp"
 #include "InputEvent.hpp"
+#include "HeadlessEvent.hpp"
 
 #include <vulkan/vulkan_core.h>
 
@@ -69,6 +70,12 @@ struct RTG {
 
 		//culling settings
 		uint8_t culling_settings = 1; // 0 no culling, 1 frustum culling
+
+		//headless mode (for benchmarking)
+		bool headless_mode = false;
+
+		//event file to read from for headless mode
+		std::string event = "";
 
 		//requested (priority-ranked) formats for output surface: (will use first available)
 		std::vector< VkSurfaceFormatKHR > surface_formats{
@@ -176,6 +183,12 @@ struct RTG {
 		//queue commands to render a frame: (called every frame)
 		virtual void render(RTG &, RenderParams const &) = 0;
 	};
+
+	// events for headless mode
+	struct {
+		std::vector<HeadlessEvent> events;
+		uint32_t cur_event_index = 0;
+	} events;
 
 	//------------------------------
 	//Structure definitions:

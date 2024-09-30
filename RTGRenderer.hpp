@@ -218,7 +218,7 @@ struct RTGRenderer : RTG::Application {
 	std::array<glm::mat4x4, 3> clip_from_view;
 	std::array<glm::mat4x4, 3> view_from_world;
 
-	InSceneCamera culling_camera = InSceneCamera::SceneCamera;	
+	InSceneCamera culling_camera = InSceneCamera::SceneCamera;
 	//--------------------------------------------------------------------
 	//Rendering function, uses all the resources above to queue work to draw a frame:
 

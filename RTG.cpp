@@ -1,6 +1,7 @@
 #include "RTG.hpp"
 
 #include "VK.hpp"
+#include "data_path.hpp"
 
 #include <vulkan/vulkan_core.h>
 #if defined(__APPLE__)
@@ -76,6 +77,9 @@ void RTG::Configuration::parse(int argc, char **argv) {
 			else {
 				throw std::runtime_error("--culling only takes none or frustum as parameters");
 			}
+		} else if (arg == "--headless"){
+			argi += 1;
+			event = argv[argi];
 		} else {
 			throw std::runtime_error("Unrecognized argument '" + arg + "'.");
 		}
@@ -94,6 +98,7 @@ void RTG::Configuration::usage(std::function< void(const char *, const char *) >
 	callback("--camera <c>", "View the scene through camera with name <c>.");
 	callback("--animation < loop | play-once | paused >", "Animate the scene with drivers starting paused, only plays once, or loops, default plays ones");
 	callback("--culling < none | frustum >", "Choose how the scene should be culled");
+	callback("--headless <event>", "Runs in headless mode with events given in the <event> path");
 }
 
 static VKAPI_ATTR VkBool32 VKAPI_CALL debug_callback(
@@ -121,6 +126,11 @@ RTG::RTG(Configuration const &configuration_) : helpers(*this) {
 	//copy input configuration:
 	configuration = configuration_;
 
+	//read the event file
+	if (configuration.event != "") {
+		events = {HeadlessEvent::load_events(data_path(configuration.event)), 0};
+	}
+
 	//fill in flags/extensions/layers information:
 
 	{ //create the `instance` (main handle to Vulkan library):
@@ -136,8 +146,6 @@ RTG::RTG(Configuration const &configuration_) : helpers(*this) {
 		instance_extensions.emplace_back(VK_KHR_SURFACE_EXTENSION_NAME);
 		instance_extensions.emplace_back(VK_EXT_METAL_SURFACE_EXTENSION_NAME);
 		#endif
-
-		//TODO: add extensions and layers for debugging
 
 		{ //add extensions needed by glfw:
 			glfwInit();

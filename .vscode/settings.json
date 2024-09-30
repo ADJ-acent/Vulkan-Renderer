@@ -72,7 +72,8 @@
         "xutility": "cpp",
         "cstdarg": "cpp",
         "random": "cpp",
-        "deque": "cpp"
+        "deque": "cpp",
+        "variant": "cpp"
     },
     "cmake.ignoreCMakeListsMissing": true
 }
