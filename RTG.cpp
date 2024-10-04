@@ -327,6 +327,9 @@ RTG::RTG(Configuration const &configuration_) : helpers(*this) {
 			throw std::runtime_error("No present mode matching requested mode(s) found.");
 		}();
 	}
+	else {
+		surface_format = configuration.surface_formats[0];
+	}
 
 	{ //create the `device` (logical interface to the GPU) and the `queue`s to which we can submit commands:
 		{ //look up queue indices:
@@ -451,6 +454,9 @@ RTG::RTG(Configuration const &configuration_) : helpers(*this) {
 		}
 	}
 
+	//run any resource creation required by Helpers structure:
+	helpers.create();
+
 	//create initial swapchain:
 	recreate_swapchain();
 
@@ -475,9 +481,6 @@ RTG::RTG(Configuration const &configuration_) : helpers(*this) {
 			VK(vkCreateSemaphore(device, &semaphore_create_info, nullptr, &workspace.image_done));
 		}
 	}
-
-	//run any resource creation required by Helpers structure:
-	helpers.create();
 }
 RTG::~RTG() {
 	//don't destroy until device is idle:
@@ -549,7 +552,6 @@ void RTG::recreate_swapchain() {
 			return;
 		}
 		swapchain_extent = configuration.surface_extent;
-		std::cout<<"here0\n";
 		//buffers used to transfer
 		for (uint8_t i = 0; i < uint8_t(configuration.workspaces); ++i) {
 			headless_image_dsts.push_back(
@@ -561,10 +563,9 @@ void RTG::recreate_swapchain() {
 				)
 			);
 		}
-		std::cout<<"here1\n";
 
 		headless_images.clear();
-		for (uint8_t i = 0; i < uint8_t(workspaces.size()); ++i) {
+		for (uint8_t i = 0; i < uint8_t(configuration.workspaces); ++i) {
 			headless_images.push_back(
 				helpers.create_image(swapchain_extent, 
 					VK_FORMAT_B8G8R8A8_SRGB, 
@@ -575,7 +576,6 @@ void RTG::recreate_swapchain() {
 				)
 			);
 		}
-		std::cout<<"here2\n";
 
 		headless_image_views.assign(headless_images.size(), VK_NULL_HANDLE);
 		for (size_t i = 0; i < headless_images.size(); ++i) {
@@ -598,7 +598,7 @@ void RTG::recreate_swapchain() {
 					.layerCount = 1
 				},
 			};
-			VK(vkCreateImageView(device, &create_info, nullptr, &swapchain_image_views[i]));
+			VK(vkCreateImageView(device, &create_info, nullptr, &headless_image_views[i]));
 		}
 
 	}
@@ -942,11 +942,18 @@ void RTG::run(Application &application) {
 
 void RTG::headless_run(Application &application) {
 	auto on_swapchain = [&,this]() {
-		application.on_swapchain(*this, SwapchainEvent{
+		std::vector<VkImage> swapchain_images;
+		swapchain_images.reserve(headless_images.size());
+		for (uint8_t i = 0; i < uint8_t(headless_images.size()); ++i) {
+			swapchain_images.push_back(headless_images[i].handle);
+		}
+		std::cout<<"Swapchain size: "<< headless_image_views.size() <<"\n";
+		SwapchainEvent event = {
 			.extent = swapchain_extent,
 			.images = swapchain_images,
-			.image_views = swapchain_image_views,
-		});
+			.image_views = headless_image_views
+		};
+		application.on_swapchain(*this, event);
 	};
 	on_swapchain();
 	if (events.events.empty()) {
@@ -960,10 +967,9 @@ void RTG::headless_run(Application &application) {
 	for (; events.cur_event_index < events.events.size(); ++events.cur_event_index) {
 		// process play, mark and elapsed time
 		const HeadlessEvent& cur_event = events.events[events.cur_event_index];
-		assert(cur_event.type != HeadlessEvent::SAVE && "Event file should not SAVE before AVAILABLE");
 		float after = float(cur_event.ts) / 1000000.0f;
 		assert(after >= before);
-		float dt = before - after;
+		float dt = after - before;
 		before = after;
 		if (dt > 0.0f) {
 			application.update(dt);
@@ -1011,7 +1017,8 @@ void RTG::headless_run(Application &application) {
 				headless_images[workspace_index], 
 				workspaces[workspace_index].image_available,
 				workspaces[workspace_index].image_done,
-				workspaces[workspace_index].workspace_available
+				workspaces[workspace_index].workspace_available,
+				uint8_t(image_index)
 			);
 		}
 		else if (cur_event.type == HeadlessEvent::SAVE){
@@ -1033,13 +1040,12 @@ void RTG::headless_run(Application &application) {
 				for (uint32_t i = 0; i < height; i++) {
 					for (uint32_t j = 0; j < width; j++) {
 						// write color
-						file.write(data++, 1);
-						file.write(data++, 1);
-						file.write(data++, 1);
-						data++; //skip alpha
+
+						file.write(data + 2, 1);
+						file.write(data + 1, 1);
+						file.write(data    , 1);
+						data += 4; //skip alpha
 					}
-					// newline for new row
-					file.write("\n", 1);
 				}
 
 				file.close();

@@ -172,30 +172,30 @@ void Helpers::transfer_to_buffer(void *data, size_t size, AllocatedBuffer &targe
 
 
 	{ //record command buffer that does CPU->GPU transfer:
-		VK(vkResetCommandBuffer(transfer_command_buffer, 0));
+		VK(vkResetCommandBuffer(transfer_command_buffers[0], 0));
 
 		VkCommandBufferBeginInfo begin_info{
 			.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
 			.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT, //will record again every submit
 		};
 
-		VK(vkBeginCommandBuffer(transfer_command_buffer, &begin_info));
+		VK(vkBeginCommandBuffer(transfer_command_buffers[0], &begin_info));
 
 		VkBufferCopy copy_region{
 			.srcOffset = 0,
 			.dstOffset = 0,
 			.size = size
 		};
-		vkCmdCopyBuffer(transfer_command_buffer, transfer_src.handle, target.handle, 1, &copy_region);
+		vkCmdCopyBuffer(transfer_command_buffers[0], transfer_src.handle, target.handle, 1, &copy_region);
 
-		VK(vkEndCommandBuffer(transfer_command_buffer));
+		VK(vkEndCommandBuffer(transfer_command_buffers[0]));
 	}
 
 	{//run command buffer
 		VkSubmitInfo submit_info{
 			.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
 			.commandBufferCount = 1,
-			.pCommandBuffers = &transfer_command_buffer
+			.pCommandBuffers = &transfer_command_buffers[0]
 		};
 
 		VK(vkQueueSubmit(rtg.graphics_queue, 1, &submit_info, VK_NULL_HANDLE));
@@ -226,14 +226,14 @@ void Helpers::transfer_to_image(void *data, size_t size, AllocatedImage &target)
 	std::memcpy(transfer_src.allocation.data(), data, size);
 
 	//begin recording a command buffer
-	VK(vkResetCommandBuffer(transfer_command_buffer, 0));
+	VK(vkResetCommandBuffer(transfer_command_buffers[0], 0));
 
 	VkCommandBufferBeginInfo begin_info{
 		.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
 		.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT, //will record again every submit
 	};
 
-	VK(vkBeginCommandBuffer(transfer_command_buffer, &begin_info));
+	VK(vkBeginCommandBuffer(transfer_command_buffers[0], &begin_info));
 
 	VkImageSubresourceRange whole_image{
 		.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
@@ -257,7 +257,7 @@ void Helpers::transfer_to_image(void *data, size_t size, AllocatedImage &target)
 		};
 
 		vkCmdPipelineBarrier(
-			transfer_command_buffer, //commandBuffer
+			transfer_command_buffers[0], //commandBuffer
 			VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, //srcStageMask
 			VK_PIPELINE_STAGE_TRANSFER_BIT, //dstStageMask
 			0, //dependencyFlags
@@ -287,7 +287,7 @@ void Helpers::transfer_to_image(void *data, size_t size, AllocatedImage &target)
 		};
 
 		vkCmdCopyBufferToImage(
-			transfer_command_buffer,
+			transfer_command_buffers[0],
 			transfer_src.handle,
 			target.handle,
 			VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
@@ -311,7 +311,7 @@ void Helpers::transfer_to_image(void *data, size_t size, AllocatedImage &target)
 		};
 
 		vkCmdPipelineBarrier(
-			transfer_command_buffer, //commandBuffer
+			transfer_command_buffers[0], //commandBuffer
 			VK_PIPELINE_STAGE_TRANSFER_BIT, //srcStageMask
 			VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, //dstStageMask
 			0, //dependencyFlags
@@ -322,12 +322,12 @@ void Helpers::transfer_to_image(void *data, size_t size, AllocatedImage &target)
 	}
 
 	//end and submit the command buffer
-	VK( vkEndCommandBuffer(transfer_command_buffer) );
+	VK( vkEndCommandBuffer(transfer_command_buffers[0]) );
 
 	VkSubmitInfo submit_info{
 		.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
 		.commandBufferCount = 1,
-		.pCommandBuffers = &transfer_command_buffer
+		.pCommandBuffers = &transfer_command_buffers[0]
 	};
 
 	VK(vkQueueSubmit(rtg.graphics_queue, 1, &submit_info, VK_NULL_HANDLE));
@@ -340,7 +340,7 @@ void Helpers::transfer_to_image(void *data, size_t size, AllocatedImage &target)
 }
 
 void Helpers::gpu_image_transfer_to_buffer(AllocatedBuffer &target, AllocatedImage &image, 
-	VkSemaphore image_available, VkSemaphore image_done, VkFence workspace_available)
+	VkSemaphore image_available, VkSemaphore image_done, VkFence workspace_available, uint8_t workspace_index)
 {
 	assert(target.handle); //target buffer should be allocated already
 	assert(image.handle); //image should be allocated
@@ -349,14 +349,14 @@ void Helpers::gpu_image_transfer_to_buffer(AllocatedBuffer &target, AllocatedIma
 	assert(target.size == image.extent.width * image.extent.height * bytes_per_pixel);
 
 	//begin recording a command buffer
-	VK(vkResetCommandBuffer(transfer_command_buffer, 0));
+	VK(vkResetCommandBuffer(transfer_command_buffers[workspace_index], 0));
 
 	VkCommandBufferBeginInfo begin_info{
 		.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
 		.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT, //will record again every submit
 	};
 
-	VK(vkBeginCommandBuffer(transfer_command_buffer, &begin_info));
+	VK(vkBeginCommandBuffer(transfer_command_buffers[workspace_index], &begin_info));
 
 	VkImageSubresourceRange whole_image{
 		.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
@@ -385,7 +385,7 @@ void Helpers::gpu_image_transfer_to_buffer(AllocatedBuffer &target, AllocatedIma
 			},
 		};
 		vkCmdCopyImageToBuffer(
-			transfer_command_buffer,
+			transfer_command_buffers[workspace_index],
 			image.handle,
 			VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
 			target.handle,
@@ -396,7 +396,7 @@ void Helpers::gpu_image_transfer_to_buffer(AllocatedBuffer &target, AllocatedIma
 	}
 
 	//end and submit the command buffer
-	VK( vkEndCommandBuffer(transfer_command_buffer) );
+	VK( vkEndCommandBuffer(transfer_command_buffers[workspace_index]) );
 	
 	std::array<VkSemaphore, 1> wait_semaphores{
 		image_done
@@ -415,7 +415,7 @@ void Helpers::gpu_image_transfer_to_buffer(AllocatedBuffer &target, AllocatedIma
 		.pWaitSemaphores = wait_semaphores.data(),
 		.pWaitDstStageMask = wait_stages.data(),
 		.commandBufferCount = 1,
-		.pCommandBuffers = &transfer_command_buffer,
+		.pCommandBuffers = &transfer_command_buffers[workspace_index],
 		.signalSemaphoreCount = uint32_t(signal_semaphores.size()),
 		.pSignalSemaphores = signal_semaphores.data(),
 	};
@@ -470,6 +470,7 @@ Helpers::~Helpers() {
 }
 
 void Helpers::create() {
+	transfer_command_buffers.resize(rtg.configuration.workspaces);
 	VkCommandPoolCreateInfo create_info{
 		.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
 		.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,
@@ -481,9 +482,9 @@ void Helpers::create() {
 		.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
 		.commandPool = transfer_command_pool,
 		.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
-		.commandBufferCount = 1,
+		.commandBufferCount = rtg.configuration.workspaces,
 	};
-	VK(vkAllocateCommandBuffers(rtg.device, &alloc_info, &transfer_command_buffer));
+	VK(vkAllocateCommandBuffers(rtg.device, &alloc_info, transfer_command_buffers.data()));
 	vkGetPhysicalDeviceMemoryProperties(rtg.physical_device, &memory_properties);
 	if (rtg.configuration.debug) {
 		std::cout << "Memory types:\n";
@@ -502,10 +503,13 @@ void Helpers::create() {
 
 void Helpers::destroy() {
 	//technically not needed since freeing the pool frees the buffers contained
-	if (transfer_command_buffer != VK_NULL_HANDLE) {
-		vkFreeCommandBuffers(rtg.device, transfer_command_pool, 1, &transfer_command_buffer);
-		transfer_command_buffer = VK_NULL_HANDLE;
+	for (VkCommandBuffer& transfer_command_buffer : transfer_command_buffers) {
+		if (transfer_command_buffer != VK_NULL_HANDLE) {
+			vkFreeCommandBuffers(rtg.device, transfer_command_pool, 1, &transfer_command_buffer);
+			transfer_command_buffer = VK_NULL_HANDLE;
+		}
 	}
+	transfer_command_buffers.clear();
 
 	if (transfer_command_pool != VK_NULL_HANDLE) {
 		vkDestroyCommandPool(rtg.device, transfer_command_pool, nullptr);
