@@ -17,6 +17,7 @@
 #include <cstring>
 #include <iostream>
 #include <set>
+#include <fstream>
 
 void RTG::Configuration::parse(int argc, char **argv) {
 	for (int argi = 1; argi < argc; ++argi) {
@@ -398,15 +399,23 @@ RTG::RTG(Configuration const &configuration_) : helpers(*this) {
 		device_extensions.emplace_back(VK_KHR_PORTABILITY_SUBSET_EXTENSION_NAME);
 		#endif
 		//Add the swapchain extension:
-		device_extensions.emplace_back(VK_KHR_SWAPCHAIN_EXTENSION_NAME);
-
+		if (!configuration.headless_mode) {
+			device_extensions.emplace_back(VK_KHR_SWAPCHAIN_EXTENSION_NAME);
+		}
 		{ //create the logical device:
 			std::vector< VkDeviceQueueCreateInfo > queue_create_infos;
-			std::set< uint32_t > unique_queue_families{
-				graphics_queue_family.value(),
-				present_queue_family.value()
-			};
-
+			std::set< uint32_t > unique_queue_families;
+			if (configuration.headless_mode) {
+				unique_queue_families = {
+					graphics_queue_family.value(),
+				};
+			}
+			else {
+				unique_queue_families = {
+					graphics_queue_family.value(),
+					present_queue_family.value()
+				};
+			}
 			float queue_priorities[1] = { 1.0f };
 			for (uint32_t queue_family : unique_queue_families) {
 				queue_create_infos.emplace_back(VkDeviceQueueCreateInfo{
@@ -436,7 +445,9 @@ RTG::RTG(Configuration const &configuration_) : helpers(*this) {
 			VK( vkCreateDevice(physical_device, &create_info, nullptr, &device) );
 
 			vkGetDeviceQueue(device, graphics_queue_family.value(), 0, &graphics_queue);
-			vkGetDeviceQueue(device, present_queue_family.value(), 0, &present_queue);
+			if (!configuration.headless_mode) {
+				vkGetDeviceQueue(device, present_queue_family.value(), 0, &present_queue);
+			}
 		}
 	}
 
@@ -538,17 +549,19 @@ void RTG::recreate_swapchain() {
 			return;
 		}
 		swapchain_extent = configuration.surface_extent;
+		std::cout<<"here0\n";
 		//buffers used to transfer
-		for (uint8_t i = 0; i < uint8_t(workspaces.size()); ++i) {
+		for (uint8_t i = 0; i < uint8_t(configuration.workspaces); ++i) {
 			headless_image_dsts.push_back(
 				helpers.create_buffer(
 					swapchain_extent.width * swapchain_extent.height * vkuFormatElementSize(VK_FORMAT_B8G8R8A8_SRGB),
-					VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-					VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+					VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+					VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
 					Helpers::Mapped
 				)
 			);
 		}
+		std::cout<<"here1\n";
 
 		headless_images.clear();
 		for (uint8_t i = 0; i < uint8_t(workspaces.size()); ++i) {
@@ -562,6 +575,7 @@ void RTG::recreate_swapchain() {
 				)
 			);
 		}
+		std::cout<<"here2\n";
 
 		headless_image_views.assign(headless_images.size(), VK_NULL_HANDLE);
 		for (size_t i = 0; i < headless_images.size(); ++i) {
@@ -940,14 +954,14 @@ void RTG::headless_run(Application &application) {
 		return;
 	}
 
-	float before = events.events[0].ts;
+	float before = float(events.events[0].ts) / 1000000.0f;
 	int32_t image_index = -1;
 
 	for (; events.cur_event_index < events.events.size(); ++events.cur_event_index) {
 		// process play, mark and elapsed time
 		const HeadlessEvent& cur_event = events.events[events.cur_event_index];
 		assert(cur_event.type != HeadlessEvent::SAVE && "Event file should not SAVE before AVAILABLE");
-		float after = cur_event.ts;
+		float after = float(cur_event.ts) / 1000000.0f;
 		assert(after >= before);
 		float dt = before - after;
 		before = after;
@@ -991,41 +1005,47 @@ void RTG::headless_run(Application &application) {
 				.image_done = workspaces[workspace_index].image_done,
 				.workspace_available = workspaces[workspace_index].workspace_available,
 			});
+			// transfer the data from the GPU to CPU
+			helpers.gpu_image_transfer_to_buffer(
+				headless_image_dsts[workspace_index], 
+				headless_images[workspace_index], 
+				workspaces[workspace_index].image_available,
+				workspaces[workspace_index].image_done,
+				workspaces[workspace_index].workspace_available
+			);
 		}
 		else if (cur_event.type == HeadlessEvent::SAVE){
 			assert(image_index != -1 && "AVAILABLE should have happened before SAVE");
 					//save image if requested
 			if (events.events[events.cur_event_index].type == HeadlessEvent::SAVE) {
-				// transfer the data from the GPU to CPU
+				// wait until the workspace is not being used:
+				VK(vkWaitForFences(device, 1, &workspaces[image_index].workspace_available, VK_TRUE, UINT64_MAX));
+				// save image
+				char* data = reinterpret_cast<char *>(headless_image_dsts[image_index].allocation.data());
 
-				// signal image_done
+				std::ofstream file(std::get<std::string>(cur_event.event_params), std::ios::out | std::ios::binary);
+				const uint32_t width = configuration.surface_extent.width;
+				const uint32_t height = configuration.surface_extent.height;
+
+				// ppm header
+				file << "P6\n" << width << "\n" << height << "\n" << 255 << "\n";
+
+				for (uint32_t i = 0; i < height; i++) {
+					for (uint32_t j = 0; j < width; j++) {
+						// write color
+						file.write(data++, 1);
+						file.write(data++, 1);
+						file.write(data++, 1);
+						data++; //skip alpha
+					}
+					// newline for new row
+					file.write("\n", 1);
+				}
+
+				file.close();
 			}
 		}
 
 	}
-
-
-	// { //queue the work for presentation:
-	// 	VkPresentInfoKHR present_info{
-	// 		.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
-	// 		.waitSemaphoreCount = 1,
-	// 		.pWaitSemaphores = &workspaces[workspace_index].image_done,
-	// 		.swapchainCount = 1,
-	// 		.pSwapchains = &swapchain,
-	// 		.pImageIndices = &image_index,
-	// 	};
-
-	// 	assert(present_queue);
-
-	// 	//note, again, the careful return handling:
-	// 	if (VkResult result = vkQueuePresentKHR(present_queue, &present_info);
-	// 		result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR) {
-	// 		std::cerr << "Recreating swapchain because vkQueuePresentKHR returned " << string_VkResult(result) << "." << std::endl;
-	// 		recreate_swapchain();
-	// 		on_swapchain();
-	// 	} else if (result != VK_SUCCESS) {
-	// 		throw std::runtime_error("failed to queue presentation of image (" + std::string(string_VkResult(result)) + ")!");
-	// 	}
-	// }
 	
 }

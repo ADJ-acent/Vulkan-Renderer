@@ -49,7 +49,12 @@ int main(int argc, char **argv) {
 		RTGRenderer application(rtg, scene);
 
 		//main loop -- handles events, renders frames, etc:
-		rtg.run(application);
+		if (configuration.headless_mode) {
+			rtg.headless_run(application);
+		}
+		else {
+			rtg.run(application);
+		}
 
 	} catch (std::exception &e) {
 		std::cerr << "Exception: " << e.what() << std::endl;

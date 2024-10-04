@@ -339,14 +339,14 @@ void Helpers::transfer_to_image(void *data, size_t size, AllocatedImage &target)
 	destroy_buffer(std::move(transfer_src));
 }
 
-void Helpers::gpu_image_transfer_to_buffer(void *data, size_t size, AllocatedBuffer &target, AllocatedImage &image, 
+void Helpers::gpu_image_transfer_to_buffer(AllocatedBuffer &target, AllocatedImage &image, 
 	VkSemaphore image_available, VkSemaphore image_done, VkFence workspace_available)
 {
 	assert(target.handle); //target buffer should be allocated already
 	assert(image.handle); //image should be allocated
-	//check data is the right size:
+	//check target is the right size:
 	size_t bytes_per_pixel = vkuFormatElementSize(image.format);
-	assert(size == image.extent.width * image.extent.height * bytes_per_pixel);
+	assert(target.size == image.extent.width * image.extent.height * bytes_per_pixel);
 
 	//begin recording a command buffer
 	VK(vkResetCommandBuffer(transfer_command_buffer, 0));
@@ -397,13 +397,7 @@ void Helpers::gpu_image_transfer_to_buffer(void *data, size_t size, AllocatedBuf
 
 	//end and submit the command buffer
 	VK( vkEndCommandBuffer(transfer_command_buffer) );
-
-	VkSubmitInfo submit_info{
-		.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
-		.commandBufferCount = 1,
-		.pCommandBuffers = &transfer_command_buffer
-	};
-
+	
 	std::array<VkSemaphore, 1> wait_semaphores{
 		image_done
 	};
