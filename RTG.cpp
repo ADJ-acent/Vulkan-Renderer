@@ -4,6 +4,7 @@
 #include "data_path.hpp"
 
 #include <vulkan/vulkan_core.h>
+#include <vulkan/utility/vk_format_utils.h> //useful for byte counting
 #if defined(__APPLE__)
 #include <vulkan/vulkan_beta.h> //for portability subset
 #include <vulkan/vulkan_metal.h> //for VK_EXT_METAL_SURFACE_EXTENSION_NAME
@@ -79,7 +80,8 @@ void RTG::Configuration::parse(int argc, char **argv) {
 			}
 		} else if (arg == "--headless"){
 			argi += 1;
-			event = argv[argi];
+			headless_event_path = argv[argi];
+			headless_mode = true;
 		} else {
 			throw std::runtime_error("Unrecognized argument '" + arg + "'.");
 		}
@@ -127,8 +129,8 @@ RTG::RTG(Configuration const &configuration_) : helpers(*this) {
 	configuration = configuration_;
 
 	//read the event file
-	if (configuration.event != "") {
-		events = {HeadlessEvent::load_events(data_path(configuration.event)), 0};
+	if (configuration.headless_mode) {
+		events = {HeadlessEvent::load_events(data_path(configuration.headless_event_path)), 0};
 	}
 
 	//fill in flags/extensions/layers information:
@@ -147,7 +149,7 @@ RTG::RTG(Configuration const &configuration_) : helpers(*this) {
 		instance_extensions.emplace_back(VK_EXT_METAL_SURFACE_EXTENSION_NAME);
 		#endif
 
-		{ //add extensions needed by glfw:
+		if (!configuration.headless_mode) { //add extensions needed by glfw:
 			glfwInit();
 			if (!glfwVulkanSupported()) {
 				throw std::runtime_error("GLFW reports Vulkan is not supported.");
@@ -207,7 +209,7 @@ RTG::RTG(Configuration const &configuration_) : helpers(*this) {
 		}
 	}
 
-	{ //create the `window` and `surface` (where things get drawn):
+	if (!configuration.headless_mode) { //create the `window` and `surface` (where things get drawn):
 		glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
 
 		window = glfwCreateWindow(configuration.surface_extent.width, configuration.surface_extent.height, configuration.application_info.pApplicationName, nullptr, nullptr);
@@ -281,7 +283,8 @@ RTG::RTG(Configuration const &configuration_) : helpers(*this) {
 		}
 	}
 
-	{ //select the `surface_format` and `present_mode` which control how colors are represented on the surface and how new images are supplied to the surface:
+	//select the `surface_format` and `present_mode` which control how colors are represented on the surface and how new images are supplied to the surface:
+	if (!configuration.headless_mode) { 
 		std::vector< VkSurfaceFormatKHR > formats;
 		std::vector< VkPresentModeKHR > present_modes;
 		
@@ -339,11 +342,13 @@ RTG::RTG(Configuration const &configuration_) : helpers(*this) {
 					if (!graphics_queue_family) graphics_queue_family = i;
 				}
 
-				//if it has present support, set the present queue family:
 				VkBool32 present_support = VK_FALSE;
-				VK( vkGetPhysicalDeviceSurfaceSupportKHR(physical_device, i, surface, &present_support) );
-				if (present_support == VK_TRUE) {
-					if (!present_queue_family) present_queue_family = i;
+				if (!configuration.headless_mode) {
+					//if it has present support, set the present queue family:
+					VK( vkGetPhysicalDeviceSurfaceSupportKHR(physical_device, i, surface, &present_support) );
+					if (present_support == VK_TRUE) {
+						if (!present_queue_family) present_queue_family = i;
+					}
 				}
 
 				if (configuration.debug) {
@@ -382,7 +387,7 @@ RTG::RTG(Configuration const &configuration_) : helpers(*this) {
 				throw std::runtime_error("No queue with graphics support.");
 			}
 
-			if (!present_queue_family) {
+			if (!configuration.headless_mode && !present_queue_family) {
 				throw std::runtime_error("No queue with present support.");
 			}
 		}
@@ -526,113 +531,190 @@ RTG::~RTG() {
 
 
 void RTG::recreate_swapchain() {
-	//clean up swapchain if it already exists
-	if (!swapchain_images.empty()) {
-		destroy_swapchain();
-	}
-
-	//determine size, image count, and transform for swapchain
-	VkSurfaceCapabilitiesKHR capabilities;
-	VK(vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physical_device, surface, &capabilities));
-
-	swapchain_extent = capabilities.currentExtent;
-	
-	uint32_t requested_count = capabilities.minImageCount + 1;
-	if (capabilities.maxImageCount != 0) {
-		requested_count = std::min(capabilities.maxImageCount, requested_count);
-	}
-
-	{//create the swapchain
-		VkSwapchainCreateInfoKHR create_info{
-			.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR,
-			.surface = surface,
-			.minImageCount = requested_count,
-			.imageFormat = surface_format.format,
-			.imageColorSpace = surface_format.colorSpace,
-			.imageExtent = swapchain_extent,
-			.imageArrayLayers = 1,
-			.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
-			.preTransform = capabilities.currentTransform,
-			.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR,
-			.presentMode = present_mode,
-			.clipped = VK_TRUE,
-			.oldSwapchain = VK_NULL_HANDLE //NOTE: could be more efficient by passing old swapchain handle here instead of destroying it
-		};
-		
-		std::vector<uint32_t> queue_family_indices{
-			graphics_queue_family.value(),
-			present_queue_family.value()
-		};
-
-		if (queue_family_indices[0] != queue_family_indices[1]) {
-			//if images will be presented on a different queue, make sure they are shared:
-			create_info.imageSharingMode = VK_SHARING_MODE_CONCURRENT;
-			create_info.queueFamilyIndexCount = uint32_t(queue_family_indices.size());
-			create_info.pQueueFamilyIndices = queue_family_indices.data();
-		} else {
-			create_info.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
+	if (configuration.headless_mode) {
+		if (!swapchain_images.empty()) {
+			// we do not need to recreate the swapchain images
+			std::cout<<"Should not recreate swapchain while in headless mode, ignoring...\n";
+			return;
+		}
+		swapchain_extent = configuration.surface_extent;
+		//buffers used to transfer
+		for (uint8_t i = 0; i < uint8_t(workspaces.size()); ++i) {
+			headless_image_dsts.push_back(
+				helpers.create_buffer(
+					swapchain_extent.width * swapchain_extent.height * vkuFormatElementSize(VK_FORMAT_B8G8R8A8_SRGB),
+					VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+					VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+					Helpers::Mapped
+				)
+			);
 		}
 
-		VK(vkCreateSwapchainKHR(device, &create_info, nullptr, &swapchain));
+		headless_images.clear();
+		for (uint8_t i = 0; i < uint8_t(workspaces.size()); ++i) {
+			headless_images.push_back(
+				helpers.create_image(swapchain_extent, 
+					VK_FORMAT_B8G8R8A8_SRGB, 
+					VK_IMAGE_TILING_OPTIMAL,
+					VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT, //will need to transfer to CPU memory
+					VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, //on the gpu
+					Helpers::Unmapped
+				)
+			);
+		}
+
+		headless_image_views.assign(headless_images.size(), VK_NULL_HANDLE);
+		for (size_t i = 0; i < headless_images.size(); ++i) {
+			VkImageViewCreateInfo create_info{
+				.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+				.image = headless_images[i].handle,
+				.viewType = VK_IMAGE_VIEW_TYPE_2D,
+				.format = surface_format.format,
+				.components{
+					.r = VK_COMPONENT_SWIZZLE_IDENTITY,
+					.g = VK_COMPONENT_SWIZZLE_IDENTITY,
+					.b = VK_COMPONENT_SWIZZLE_IDENTITY,
+					.a = VK_COMPONENT_SWIZZLE_IDENTITY
+				},
+				.subresourceRange{
+					.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+					.baseMipLevel = 0,
+					.levelCount = 1,
+					.baseArrayLayer = 0,
+					.layerCount = 1
+				},
+			};
+			VK(vkCreateImageView(device, &create_info, nullptr, &swapchain_image_views[i]));
+		}
 
 	}
+	else {
+		//clean up swapchain if it already exists
+		if (!swapchain_images.empty()) {
+			destroy_swapchain();
+		}
+
+		//determine size, image count, and transform for swapchain
+		VkSurfaceCapabilitiesKHR capabilities;
+		VK(vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physical_device, surface, &capabilities));
+
+		swapchain_extent = capabilities.currentExtent;
+		
+		uint32_t requested_count = capabilities.minImageCount + 1;
+		if (capabilities.maxImageCount != 0) {
+			requested_count = std::min(capabilities.maxImageCount, requested_count);
+		}
+
+		{//create the swapchain
+			VkSwapchainCreateInfoKHR create_info{
+				.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR,
+				.surface = surface,
+				.minImageCount = requested_count,
+				.imageFormat = surface_format.format,
+				.imageColorSpace = surface_format.colorSpace,
+				.imageExtent = swapchain_extent,
+				.imageArrayLayers = 1,
+				.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
+				.preTransform = capabilities.currentTransform,
+				.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR,
+				.presentMode = present_mode,
+				.clipped = VK_TRUE,
+				.oldSwapchain = VK_NULL_HANDLE //NOTE: could be more efficient by passing old swapchain handle here instead of destroying it
+			};
+			
+			std::vector<uint32_t> queue_family_indices{
+				graphics_queue_family.value(),
+				present_queue_family.value()
+			};
+
+			if (queue_family_indices[0] != queue_family_indices[1]) {
+				//if images will be presented on a different queue, make sure they are shared:
+				create_info.imageSharingMode = VK_SHARING_MODE_CONCURRENT;
+				create_info.queueFamilyIndexCount = uint32_t(queue_family_indices.size());
+				create_info.pQueueFamilyIndices = queue_family_indices.data();
+			} else {
+				create_info.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
+			}
+
+			VK(vkCreateSwapchainKHR(device, &create_info, nullptr, &swapchain));
+
+		}
 
 
-	{ //get the swapchain images:
-		uint32_t count = 0;
-		VK(vkGetSwapchainImagesKHR(device, swapchain, &count, nullptr));
-		swapchain_images.resize(count);
-		VK(vkGetSwapchainImagesKHR(device, swapchain, &count, swapchain_images.data()));
-	}
+		{ //get the swapchain images:
+			uint32_t count = 0;
+			VK(vkGetSwapchainImagesKHR(device, swapchain, &count, nullptr));
+			swapchain_images.resize(count);
+			VK(vkGetSwapchainImagesKHR(device, swapchain, &count, swapchain_images.data()));
+		}
 
-	//create views for swapchain images:
-	swapchain_image_views.assign(swapchain_images.size(), VK_NULL_HANDLE);
-	for (size_t i = 0; i < swapchain_images.size(); ++i) {
-		VkImageViewCreateInfo create_info{
-			.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
-			.image = swapchain_images[i],
-			.viewType = VK_IMAGE_VIEW_TYPE_2D,
-			.format = surface_format.format,
-			.components{
-				.r = VK_COMPONENT_SWIZZLE_IDENTITY,
-				.g = VK_COMPONENT_SWIZZLE_IDENTITY,
-				.b = VK_COMPONENT_SWIZZLE_IDENTITY,
-				.a = VK_COMPONENT_SWIZZLE_IDENTITY
-			},
-			.subresourceRange{
-				.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
-				.baseMipLevel = 0,
-				.levelCount = 1,
-				.baseArrayLayer = 0,
-				.layerCount = 1
-			},
-		};
-		VK(vkCreateImageView(device, &create_info, nullptr, &swapchain_image_views[i]));
-	}
-	if (configuration.debug) {
-		std::cout << "Swapchain is now " << swapchain_images.size() << " images of size " << swapchain_extent.width << "x" << swapchain_extent.height << "." << std::endl;
-		std::cout << "min image count is " << capabilities.minImageCount << " , max image count is " << ((capabilities.maxImageCount == 0) ? "infinite" : std::to_string(capabilities.maxImageCount)) << std::endl;
+		//create views for swapchain images:
+		swapchain_image_views.assign(swapchain_images.size(), VK_NULL_HANDLE);
+		for (size_t i = 0; i < swapchain_images.size(); ++i) {
+			VkImageViewCreateInfo create_info{
+				.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+				.image = swapchain_images[i],
+				.viewType = VK_IMAGE_VIEW_TYPE_2D,
+				.format = surface_format.format,
+				.components{
+					.r = VK_COMPONENT_SWIZZLE_IDENTITY,
+					.g = VK_COMPONENT_SWIZZLE_IDENTITY,
+					.b = VK_COMPONENT_SWIZZLE_IDENTITY,
+					.a = VK_COMPONENT_SWIZZLE_IDENTITY
+				},
+				.subresourceRange{
+					.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+					.baseMipLevel = 0,
+					.levelCount = 1,
+					.baseArrayLayer = 0,
+					.layerCount = 1
+				},
+			};
+			VK(vkCreateImageView(device, &create_info, nullptr, &swapchain_image_views[i]));
+		}
+		if (configuration.debug) {
+			std::cout << "Swapchain is now " << swapchain_images.size() << " images of size " << swapchain_extent.width << "x" << swapchain_extent.height << "." << std::endl;
+			std::cout << "min image count is " << capabilities.minImageCount << " , max image count is " << ((capabilities.maxImageCount == 0) ? "infinite" : std::to_string(capabilities.maxImageCount)) << std::endl;
+		}
 	}
 }
 
 
 void RTG::destroy_swapchain() {
 	VK(vkDeviceWaitIdle(device)); //wait for any rendering to old swapchain to finish
+	if (configuration.headless_mode) {
+		for (VkImageView &view : headless_image_views) {
+			vkDestroyImageView(device, view, nullptr);
+			view = VK_NULL_HANDLE;
+		}
+		headless_image_views.clear();
 
-	//clean up image views referencing the swapchain:
-	for (auto &image_view : swapchain_image_views) {
-		vkDestroyImageView(device, image_view, nullptr);
-		image_view = VK_NULL_HANDLE;
+		for (auto &image : headless_images) {
+			helpers.destroy_image(std::move(image));
+		}
+		headless_images.clear();
+		for (auto &buffer : headless_image_dsts) {
+			helpers.destroy_buffer(std::move(buffer));
+		}
+		headless_image_dsts.clear();
 	}
-	swapchain_image_views.clear();
+	else {
 
-	//forget handles to swapchain images (will destroy by deallocating the swapchain itself):
-	swapchain_images.clear();
+		//clean up image views referencing the swapchain:
+		for (auto &image_view : swapchain_image_views) {
+			vkDestroyImageView(device, image_view, nullptr);
+			image_view = VK_NULL_HANDLE;
+		}
+		swapchain_image_views.clear();
 
-	//deallocate the swapchain and (thus) its images:
-	if (swapchain != VK_NULL_HANDLE) {
-		vkDestroySwapchainKHR(device, swapchain, nullptr);
-		swapchain = VK_NULL_HANDLE;
+		//forget handles to swapchain images (will destroy by deallocating the swapchain itself):
+		swapchain_images.clear();
+
+		//deallocate the swapchain and (thus) its images:
+		if (swapchain != VK_NULL_HANDLE) {
+			vkDestroySwapchainKHR(device, swapchain, nullptr);
+			swapchain = VK_NULL_HANDLE;
+		}
 	}
 }
 
@@ -842,4 +924,108 @@ void RTG::run(Application &application) {
 	glfwSetKeyCallback(window, nullptr);
 
 	glfwSetWindowUserPointer(window, nullptr);
+}
+
+void RTG::headless_run(Application &application) {
+	auto on_swapchain = [&,this]() {
+		application.on_swapchain(*this, SwapchainEvent{
+			.extent = swapchain_extent,
+			.images = swapchain_images,
+			.image_views = swapchain_image_views,
+		});
+	};
+	on_swapchain();
+	if (events.events.empty()) {
+		std::cout<< "No events in the event file, exiting..."<<std::endl;
+		return;
+	}
+
+	float before = events.events[0].ts;
+	int32_t image_index = -1;
+
+	for (; events.cur_event_index < events.events.size(); ++events.cur_event_index) {
+		// process play, mark and elapsed time
+		const HeadlessEvent& cur_event = events.events[events.cur_event_index];
+		assert(cur_event.type != HeadlessEvent::SAVE && "Event file should not SAVE before AVAILABLE");
+		float after = cur_event.ts;
+		assert(after >= before);
+		float dt = before - after;
+		before = after;
+		if (dt > 0.0f) {
+			application.update(dt);
+		}
+		if (configuration.debug) {
+			cur_event.print();
+		}
+		if (cur_event.type == HeadlessEvent::MARK) {
+			if (!configuration.debug) // prevents the debug mode to print MARK twice
+				std::cout << "MARK" << std::get<std::string>(cur_event.event_params)<<std::endl;
+		}
+		else if (cur_event.type == HeadlessEvent::PLAY) {
+			HeadlessEvent::AnimationParams params = std::get<HeadlessEvent::AnimationParams>(cur_event.event_params);
+			configuration.animation_settings = params.animation_rate == 0.0f ? 2 : 0;
+			application.set_animation_time(params.animation_playback_time);
+		}
+		else if (cur_event.type == HeadlessEvent::AVAILABLE) {
+			uint32_t workspace_index;
+			{ //acquire a workspace:
+				assert(next_workspace < workspaces.size());
+				workspace_index = next_workspace;
+				next_workspace = (next_workspace + 1) % workspaces.size();
+
+				//wait until the workspace is not being used:
+				VK(vkWaitForFences(device, 1, &workspaces[workspace_index].workspace_available, VK_TRUE, UINT64_MAX));
+
+				//mark the workspace as in use:
+				VK(vkResetFences(device, 1, &workspaces[workspace_index].workspace_available));
+			}
+
+			image_index = workspace_index;
+
+			//signal workspaces[workspace_index].image_available
+			//call render function:
+			application.render(*this, RenderParams{
+				.workspace_index = workspace_index,
+				.image_index = uint32_t(image_index),
+				.image_available = workspaces[workspace_index].image_available,
+				.image_done = workspaces[workspace_index].image_done,
+				.workspace_available = workspaces[workspace_index].workspace_available,
+			});
+		}
+		else if (cur_event.type == HeadlessEvent::SAVE){
+			assert(image_index != -1 && "AVAILABLE should have happened before SAVE");
+					//save image if requested
+			if (events.events[events.cur_event_index].type == HeadlessEvent::SAVE) {
+				// transfer the data from the GPU to CPU
+
+				// signal image_done
+			}
+		}
+
+	}
+
+
+	// { //queue the work for presentation:
+	// 	VkPresentInfoKHR present_info{
+	// 		.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
+	// 		.waitSemaphoreCount = 1,
+	// 		.pWaitSemaphores = &workspaces[workspace_index].image_done,
+	// 		.swapchainCount = 1,
+	// 		.pSwapchains = &swapchain,
+	// 		.pImageIndices = &image_index,
+	// 	};
+
+	// 	assert(present_queue);
+
+	// 	//note, again, the careful return handling:
+	// 	if (VkResult result = vkQueuePresentKHR(present_queue, &present_info);
+	// 		result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR) {
+	// 		std::cerr << "Recreating swapchain because vkQueuePresentKHR returned " << string_VkResult(result) << "." << std::endl;
+	// 		recreate_swapchain();
+	// 		on_swapchain();
+	// 	} else if (result != VK_SUCCESS) {
+	// 		throw std::runtime_error("failed to queue presentation of image (" + std::string(string_VkResult(result)) + ")!");
+	// 	}
+	// }
+	
 }

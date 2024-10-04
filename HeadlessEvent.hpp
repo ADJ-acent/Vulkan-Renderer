@@ -34,7 +34,7 @@ struct HeadlessEvent
 
     static std::vector<HeadlessEvent> load_events(std::string filename);
 
-    void print();
+    void print() const;
 };
 
 // void write_ppm();

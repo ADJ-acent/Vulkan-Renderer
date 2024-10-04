@@ -339,6 +339,97 @@ void Helpers::transfer_to_image(void *data, size_t size, AllocatedImage &target)
 	destroy_buffer(std::move(transfer_src));
 }
 
+void Helpers::gpu_image_transfer_to_buffer(void *data, size_t size, AllocatedBuffer &target, AllocatedImage &image, 
+	VkSemaphore image_available, VkSemaphore image_done, VkFence workspace_available)
+{
+	assert(target.handle); //target buffer should be allocated already
+	assert(image.handle); //image should be allocated
+	//check data is the right size:
+	size_t bytes_per_pixel = vkuFormatElementSize(image.format);
+	assert(size == image.extent.width * image.extent.height * bytes_per_pixel);
+
+	//begin recording a command buffer
+	VK(vkResetCommandBuffer(transfer_command_buffer, 0));
+
+	VkCommandBufferBeginInfo begin_info{
+		.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+		.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT, //will record again every submit
+	};
+
+	VK(vkBeginCommandBuffer(transfer_command_buffer, &begin_info));
+
+	VkImageSubresourceRange whole_image{
+		.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+		.baseMipLevel = 0,
+		.levelCount = 1,
+		.baseArrayLayer = 0,
+		.layerCount = 1,
+	};
+
+	{ // copy the source buffer to the image
+		VkBufferImageCopy region{
+			.bufferOffset = 0,
+			.bufferRowLength = image.extent.width,
+			.bufferImageHeight = image.extent.height,
+			.imageSubresource{
+				.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+				.mipLevel = 0,
+				.baseArrayLayer = 0,
+				.layerCount = 1,
+			},
+			.imageOffset{ .x = 0, .y = 0, .z = 0 },
+			.imageExtent{
+				.width = image.extent.width,
+				.height = image.extent.height,
+				.depth = 1
+			},
+		};
+		vkCmdCopyImageToBuffer(
+			transfer_command_buffer,
+			image.handle,
+			VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+			target.handle,
+			1,
+			&region
+		);
+
+	}
+
+	//end and submit the command buffer
+	VK( vkEndCommandBuffer(transfer_command_buffer) );
+
+	VkSubmitInfo submit_info{
+		.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+		.commandBufferCount = 1,
+		.pCommandBuffers = &transfer_command_buffer
+	};
+
+	std::array<VkSemaphore, 1> wait_semaphores{
+		image_done
+	};
+	std::array<VkPipelineStageFlags,1> wait_stages{
+		VK_PIPELINE_STAGE_TRANSFER_BIT
+	};
+	static_assert(wait_semaphores.size() == wait_stages.size(), "every semaphore needs a stage");
+
+	std::array<VkSemaphore, 1>signal_semaphores{
+		image_available
+	};
+	VkSubmitInfo submit_info{
+		.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+		.waitSemaphoreCount = uint32_t(wait_semaphores.size()),
+		.pWaitSemaphores = wait_semaphores.data(),
+		.pWaitDstStageMask = wait_stages.data(),
+		.commandBufferCount = 1,
+		.pCommandBuffers = &transfer_command_buffer,
+		.signalSemaphoreCount = uint32_t(signal_semaphores.size()),
+		.pSignalSemaphores = signal_semaphores.data(),
+	};
+
+	VK(vkQueueSubmit(rtg.graphics_queue, 1, &submit_info, workspace_available));
+
+}
+
 //----------------------------
 
 uint32_t Helpers::find_memory_type(uint32_t type_filter, VkMemoryPropertyFlags flags) const {

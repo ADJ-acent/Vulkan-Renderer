@@ -72,13 +72,13 @@ std::vector<HeadlessEvent> HeadlessEvent::load_events(std::string filename)
         }
         event_file.close();
     }
-    for (auto& event : events) {
-        event.print();
-    }
+    // for (auto& event : events) {
+    //     event.print();
+    // }
     return events;
 }
 
-void HeadlessEvent::print()
+void HeadlessEvent::print() const
 {
     if (type == EventType::AVAILABLE) {
         std::cout << ts << " AVAILABLE\n";

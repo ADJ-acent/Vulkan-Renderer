@@ -46,7 +46,7 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_) {
 				.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
 				.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
 				.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
-				.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+				.finalLayout = rtg.configuration.headless_mode ? VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL : VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
 			},
 			VkAttachmentDescription{//1 - depth attachment:
 				.format = depth_format,
@@ -1077,13 +1077,23 @@ void RTGRenderer::render(RTG &rtg_, RTG::RenderParams const &render_params) {
 			.signalSemaphoreCount = uint32_t(signal_semaphores.size()),
 			.pSignalSemaphores = signal_semaphores.data(),
 		};
-		VK(vkQueueSubmit(rtg.graphics_queue, 1, &submit_info, render_params.workspace_available))
+		if (rtg.configuration.headless_mode) {
+			VK(vkQueueSubmit(rtg.graphics_queue, 1, &submit_info, VK_NULL_HANDLE))
+		}
+		else {
+			VK(vkQueueSubmit(rtg.graphics_queue, 1, &submit_info, render_params.workspace_available))
+		}
 	}
 }
 
 
 void RTGRenderer::update(float dt) {
 	time = std::fmod(time + dt, 60.0f);
+
+	{//update the animations according to the drivers
+		scene.animation_setting = rtg.configuration.animation_settings;
+		scene.update_drivers(dt);
+	}
 
 	{ //static sun and static sky:
 		//guaranteed to have at most 2 lights
@@ -1092,6 +1102,7 @@ void RTGRenderer::update(float dt) {
 		bool sky_defined = false;
 		glm::vec3 default_directional_light_dir = {0.0f, 0.0f, 1.0f};
 		for (const Scene::Light& light : scene.lights) {
+			//TODO: create method to only extract the rotation instead of needing to normalize
 			glm::mat4x4 cur_light_transform = scene.nodes[light.local_to_world[0]].transform.parent_from_local();
 			for (int i = 1; i < light.local_to_world.size(); ++i) {
 				cur_light_transform *= scene.nodes[light.local_to_world[i]].transform.parent_from_local();
@@ -1164,11 +1175,6 @@ void RTGRenderer::update(float dt) {
 		world.SKY_DIRECTION.z /= length;
 
 	}
-
-	{//update the animations according to the drivers
-		scene.update_drivers(dt);
-	}
-
 
 	// set scene camera for animation purposes
 	if (view_camera == InSceneCamera::SceneCamera || culling_camera == InSceneCamera::SceneCamera){
@@ -1654,6 +1660,11 @@ void RTGRenderer::on_input(InputEvent const &event) {
 		update_free_camera(cam);
 	}
 
+}
+
+void RTGRenderer::set_animation_time(float t)
+{
+	scene.set_driver_time(t);
 }
 
 void RTGRenderer::update_free_camera(FreeCamera &cam)

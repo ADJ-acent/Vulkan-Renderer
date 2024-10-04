@@ -171,6 +171,7 @@ struct RTGRenderer : RTG::Application {
 
 	virtual void update(float dt) override;
 	virtual void on_input(InputEvent const &) override;
+	virtual void set_animation_time(float t) override;
 	void update_free_camera(FreeCamera& camera);
 
 	float time = 0.0f;

@@ -75,7 +75,7 @@ struct RTG {
 		bool headless_mode = false;
 
 		//event file to read from for headless mode
-		std::string event = "";
+		std::string headless_event_path = "";
 
 		//requested (priority-ranked) formats for output surface: (will use first available)
 		std::vector< VkSurfaceFormatKHR > surface_formats{
@@ -142,6 +142,11 @@ struct RTG {
 	std::vector< VkImage > swapchain_images; //images in the swapchain
 	std::vector< VkImageView > swapchain_image_views; //image views of the images in the swapchain
 
+	// Headless resources
+	std::vector<Helpers::AllocatedBuffer> headless_image_dsts;
+	std::vector<Helpers::AllocatedImage> headless_images;
+	std::vector< VkImageView > headless_image_views;
+
 	//swapchain management: (used from RTG::RTG(), RTG::~RTG(), and RTG::run() [on resize])
 	void recreate_swapchain();
 	void destroy_swapchain(); //NOTE: swapchain must exist
@@ -166,6 +171,9 @@ struct RTG {
 	//run an application (calls 'update', 'resize', 'handle_event', and 'render' functions on application):
 	void run(Application &);
 
+	//run application in headless mode
+	void headless_run(Application &);
+
 	struct SwapchainEvent;
 	struct RenderParams;
 
@@ -182,6 +190,9 @@ struct RTG {
 
 		//queue commands to render a frame: (called every frame)
 		virtual void render(RTG &, RenderParams const &) = 0;
+
+		//sets the animation time stamp, only used in headless mode (PLAY event)
+		virtual void set_animation_time(float t) = 0;
 	};
 
 	// events for headless mode

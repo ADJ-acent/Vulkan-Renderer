@@ -857,6 +857,15 @@ void Scene::update_drivers(float dt)
     }
 }
 
+void Scene::set_driver_time(float time)
+{
+    for (Scene::Driver& driver : drivers) {
+        driver.cur_time_index = 0;
+        driver.cur_time = time;
+    }
+    update_drivers(0.0f);
+}
+
 glm::mat4x4 Scene::Transform::parent_from_local() const
 {
     //compute:

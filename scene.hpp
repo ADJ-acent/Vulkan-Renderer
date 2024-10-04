@@ -128,4 +128,6 @@ struct Scene
     void debug();
 
     void update_drivers(float dt);
+
+    void set_driver_time(float time);
 };
