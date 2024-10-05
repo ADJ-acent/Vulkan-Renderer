@@ -963,6 +963,7 @@ void RTG::headless_run(Application &application) {
 
 	float before = float(events.events[0].ts) / 1000000.0f;
 	int32_t image_index = -1;
+	std::chrono::high_resolution_clock::time_point before_debug = std::chrono::high_resolution_clock::now();
 
 	for (; events.cur_event_index < events.events.size(); ++events.cur_event_index) {
 		// process play, mark and elapsed time
@@ -978,8 +979,12 @@ void RTG::headless_run(Application &application) {
 			cur_event.print();
 		}
 		if (cur_event.type == HeadlessEvent::MARK) {
+			//TODO: robust debug system 
 			if (!configuration.debug) // prevents the debug mode to print MARK twice
 				std::cout << "MARK" << std::get<std::string>(cur_event.event_params)<<std::endl;
+			std::chrono::high_resolution_clock::time_point after_debug = std::chrono::high_resolution_clock::now();
+			float dt_debug = float(std::chrono::duration< double >(after_debug - before_debug).count());
+			std::cout<<dt_debug<<std::endl;
 		}
 		else if (cur_event.type == HeadlessEvent::PLAY) {
 			HeadlessEvent::AnimationParams params = std::get<HeadlessEvent::AnimationParams>(cur_event.event_params);
