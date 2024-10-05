@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<!-- saved from url=(0069)http://graphics.cs.cmu.edu/courses/15-472-f24/A1/report-template.html -->
+<html lang="en"><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+
+<title>15-472-s24: A1 - Scene Graph</title>
+<style>
+/* feel free to style your report in a fancier way! */
+
+@import url('https://fonts.googleapis.com/css2?family=Quicksand:wght@300;400;700&Anonymous+Pro&display=swap');
+
+html {
+	background:#505055;
+}
+
+body {
+	font-family: 'Quicksand', sans-serif;
+	color:#000;
+	background:#eeeee8;
+	font-size:15px;
+	margin: 1em auto 50vh auto;
+	padding: 1em 2em 1em 2em;
+	max-width:45em;
+	border-radius:4px;
+	box-shadow:0 0 10px #0008;
+}
+
+h1 { font-size: 20px; font-weight: 700; }
+h2 { font-size: 16px; font-weight: 700; }
+h3 { font-size: 16px; font-weight: 400; }
+h4 { font-size: 14px; font-weight: 400; }
+
+h1, h2, h3, h4 {
+	margin: 15px 0 0 -10px;
+}
+
+p {
+	margin: 5px 0 0 0;
+}
+
+.subtitle {
+	display:block;
+	font-size:16px;
+	font-weight:400;
+}
+
+.placeholder {
+	color:#800;
+	font-style:italic;
+}
+
+kbd {
+	display:inline-block;
+	background:#ccc;
+	color:#444;
+	font-style:normal;
+	font-weight:700;
+	border-radius:8px;
+	padding:1px 6px;
+	margin:1px;
+	border:1.5px solid #aaa;
+}
+
+code {
+	font-family: 'Anonymous Pro', monospace;
+	background: #222;
+	color:#fff;
+	border-radius:4px;
+	padding:2px 4px;
+	margin:1px;
+}
+
+code var {
+	color:#ef5;
+	font-style:italic;
+}
+
+.atag {
+	font-family: 'Calistoga', serif;
+	font-size:90%;
+	color:#000;
+	background:#b00;
+
+	display:inline-block;
+	padding:1px 4px;
+	border-radius: 4px;
+	line-height:120%;
+}
+.atag:before {
+	content:'»';
+}
+.atag.extra {
+	background:#b08;
+}
+.atag.creative {
+	/* thanks, shout.horse! */
+	background:linear-gradient(0.4turn, #ffe680, #916f6f);
+}
+
+</style>
+<style>/* Copyright (C) Microsoft Corporation. All rights reserved. */
+
+.msreadout-word-highlight:not(.msreadout-inactive-highlight) {
+    background: #ffff00 !important;
+    color: black !important;
+}
+
+.msreadout-line-highlight:not(.msreadout-inactive-highlight) {
+    background: #b2d6f3 !important;
+    color: black !important;
+}
+
+@media screen and (-ms-high-contrast: active) {
+    .msreadout-word-highlight:not(.msreadout-inactive-highlight) {
+        -ms-high-contrast-adjust: none;
+        background-color: Highlight !important;
+        color: HighlightText !important;
+    }
+
+    .msreadout-line-highlight:not(.msreadout-inactive-highlight) {
+        -ms-high-contrast-adjust: none;
+        background: yellow !important;
+        color: black !important;
+    }
+}
+/*# sourceMappingURL=data:application/json;base64,eyJ2ZXJzaW9uIjozLCJzb3VyY2VzIjpbIndlYnBhY2s6Ly8uLy4uLy4uL2Nzcy9yZWFkX291dF9sb3VkX3dlYi5jc3MiXSwibmFtZXMiOltdLCJtYXBwaW5ncyI6IkFBQUEsOERBQThEOztBQUU5RDtJQUNJLDhCQUE4QjtJQUM5Qix1QkFBdUI7QUFDM0I7O0FBRUE7SUFDSSw4QkFBOEI7SUFDOUIsdUJBQXVCO0FBQzNCOztBQUVBO0lBQ0k7UUFDSSw4QkFBOEI7UUFDOUIsc0NBQXNDO1FBQ3RDLCtCQUErQjtJQUNuQzs7SUFFQTtRQUNJLDhCQUE4QjtRQUM5Qiw2QkFBNkI7UUFDN0IsdUJBQXVCO0lBQzNCO0FBQ0oiLCJzb3VyY2VzQ29udGVudCI6WyIvKiBDb3B5cmlnaHQgKEMpIE1pY3Jvc29mdCBDb3Jwb3JhdGlvbi4gQWxsIHJpZ2h0cyByZXNlcnZlZC4gKi9cclxuXHJcbi5tc3JlYWRvdXQtd29yZC1oaWdobGlnaHQ6bm90KC5tc3JlYWRvdXQtaW5hY3RpdmUtaGlnaGxpZ2h0KSB7XHJcbiAgICBiYWNrZ3JvdW5kOiAjZmZmZjAwICFpbXBvcnRhbnQ7XHJcbiAgICBjb2xvcjogYmxhY2sgIWltcG9ydGFudDtcclxufVxyXG5cclxuLm1zcmVhZG91dC1saW5lLWhpZ2hsaWdodDpub3QoLm1zcmVhZG91dC1pbmFjdGl2ZS1oaWdobGlnaHQpIHtcclxuICAgIGJhY2tncm91bmQ6ICNiMmQ2ZjMgIWltcG9ydGFudDtcclxuICAgIGNvbG9yOiBibGFjayAhaW1wb3J0YW50O1xyXG59XHJcblxyXG5AbWVkaWEgc2NyZWVuIGFuZCAoLW1zLWhpZ2gtY29udHJhc3Q6IGFjdGl2ZSkge1xyXG4gICAgLm1zcmVhZG91dC13b3JkLWhpZ2hsaWdodDpub3QoLm1zcmVhZG91dC1pbmFjdGl2ZS1oaWdobGlnaHQpIHtcclxuICAgICAgICAtbXMtaGlnaC1jb250cmFzdC1hZGp1c3Q6IG5vbmU7XHJcbiAgICAgICAgYmFja2dyb3VuZC1jb2xvcjogSGlnaGxpZ2h0ICFpbXBvcnRhbnQ7XHJcbiAgICAgICAgY29sb3I6IEhpZ2hsaWdodFRleHQgIWltcG9ydGFudDtcclxuICAgIH1cclxuXHJcbiAgICAubXNyZWFkb3V0LWxpbmUtaGlnaGxpZ2h0Om5vdCgubXNyZWFkb3V0LWluYWN0aXZlLWhpZ2hsaWdodCkge1xyXG4gICAgICAgIC1tcy1oaWdoLWNvbnRyYXN0LWFkanVzdDogbm9uZTtcclxuICAgICAgICBiYWNrZ3JvdW5kOiB5ZWxsb3cgIWltcG9ydGFudDtcclxuICAgICAgICBjb2xvcjogYmxhY2sgIWltcG9ydGFudDtcclxuICAgIH1cclxufSJdLCJzb3VyY2VSb290IjoiIn0= */</style></head>
+<body data-new-gr-c-s-check-loaded="14.1085.0" data-gr-ext-installed="">
+<h1>A1: Scene Viewer
+<span class="subtitle">by <span class="placeholder">Weiwen Jiang (weiwenj)</span></span>
+</h1>
+
+<!-- of course, delete these placeholder notes in your report: -->
+
+<p class="placeholder">
+Summarize, in about one paragraph, your approach to the scene graph assignment.
+How did you structure your code?
+What's cool about it? Are there parts you weren't able to complete? 
+
+I separated scene loading into Scene.hpp where I use sejp to parse the scene, 
+creating vectors of each resource and linking the resources together using their indices in the vector. Everything within
+the scene is contained in the scene object which is passed into the application.
+Frustum culling is seperated into frustum_culling.hpp, and headless event loading is seperated into HeadlessEvent.hpp
+which parses the .events file and returns a vector of HeadlessEvents.
+There isn't anything too fancy in my implementation.
+</p>
+
+<h2>My Animation <span class="atag creative">A1-create</span></h2>
+
+<p class="placeholder">
+Describe your animation and include a screen recording showing it running in real-time:
+</p>
+
+<video>
+<!--
+  you can use the 'video' element to show your code running
+  Learn more at:
+    https://developer.mozilla.org/en-US/docs/Web/HTML/Element/video
+-->
+</video>
+
+<p class="placeholder">
+Describe how you created your animation.
+</p>
+
+<h2>Using the Scene Viewer</h2>
+
+<p class="placeholder">Provide a short overview of how to use your viewer.</p>
+
+<h3>Command-line Arguments</h3>
+
+<p class="placeholder">
+Document the command-line arguments that can be used to control your viewer.
+Include both the command-line arguments required by the assignment statement and any additional arguments you decided to add.
+</p>
+
+<ul>
+<li class="placeholder"><code>--scene <var>scene.s72</var></code> -- required -- load scene from <code><var>scene.s72</var></code></li>
+<li class="placeholder">...</li>
+</ul>
+
+<h3>Controls</h3>
+
+<p class="placeholder">
+Document the keyboard and mouse controls used to control your viewer when run interactively.
+Note that the controls below are placeholders not requirements.
+</p>
+
+<ul>
+<li class="placeholder"><kbd>LMB+Drag</kbd> orbit the camera.</li>
+<li class="placeholder"><kbd>F5</kbd> switch to/from the debug camera.</li>
+<li class="placeholder">...</li>
+</ul>
+
+
+<h2>My Code</h2>
+
+<p class="placeholder">
+For each of the following sections, describe the overall structure of your code, and reference the specific files/functions/data structures that you used.
+For any parts that are incomplete, discuss what you were able to do and what you tried but couldn't get working.
+</p>
+
+<p class="placeholder">
+The purpose of this section is to get you to think critically about your code by explaining it to course staff; these thoughts may help you improve the code as you work on it in A2 and beyond.
+This section also forms a road map to your code that we can use while grading.
+</p>
+
+<h3>Loading scenes, Mesh data <span class="atag">A1-load</span></h3> 
+
+<p class="placeholder">
+Cover, at least:
+how your viewer stores mesh data;
+how your viewer stores the scene graph.
+</p>
+
+<h3>Drawing the scene. <span class="atag">A1-show</span></h3>
+
+<p class="placeholder">
+Cover, at least:
+how your code computes camera transformations;
+how your code get transformation, vertex, and texture data to your shaders.
+</p>
+<p class="placeholder">
+Include a screenshot of your viewer drawing an example scene.
+</p>
+
+<h3>Handling interactive camera and debug camera movement. <span class="atag">A1-show</span></h3>
+
+<p class="placeholder">
+Cover, at least:
+what camera controls you decided to implement;
+where the camera controls are implemented.
+</p>
+<p class="placeholder">
+Include a screen recording of you moving the camera in a scene.
+</p>
+
+<h3>Frustum culling <span class="atag">A1-cull</span></h3>
+
+<p class="placeholder">
+Cover, at least:
+where your culling test is implemented;
+what approach you used to test a bounding box against the frustum.
+</p>
+<p class="placeholder">
+Include a screenshot or recording showing that culling is working (e.g., by using a debug camera to show that meshes outside the user camera's view aren't being drawn).
+</p>
+
+<h3>Animating the scene <span class="atag">A1-move</span></h3>
+
+<p class="placeholder">
+Cover, at least:
+how your viewer stores keyframes;
+where your code updates animations;
+how your code computes elapsed time (if it isn't running in headless mode!).
+</p>
+
+<p class="placeholder">
+Include a screen recording showing an animation being played back by your viewer.
+</p>
+
+<h3>Handling headless mode <span class="atag">A1-hide</span></h3>
+
+<p class="placeholder">
+Cover, at least:
+how your code deals with not having a window and surface;
+how you deal with getting the timestamps from the events file to (e.g.) animation updates;
+any extra events you decided to support.
+</p>
+
+<h3>Performance improvements <span class="atag extra">A1x-fast</span></h3>
+<p class="placeholder">
+Discuss which performance improvements you chose to pursue and how you implemented them.
+</p>
+
+<p class="placeholder">
+NOTE: you will demonstrate your performance improvements in the next section.
+</p>
+
+<h2>Performance Tests</h2>
+
+<p class="placeholder">
+This section demonstrates that you have tested your code, including finding its limits.
+</p>
+
+<p class="placeholder">
+Before getting into the tests, describe here the relevant information about your testing system(s).
+(CPU, GPU, Memory, driver versions, OS version, ...  -- anything you think might be relevant!)
+</p>
+
+<h3>Culling</h3>
+<p class="placeholder">
+Demonstrate a scene / camera angle where your culling code improves performance; and demonstrate one where it does not improve performance.
+(If you developed more than one culling method, demonstrate the performance gain/loss from each of them in this section.)
+</p>
+
+<p class="placeholder">
+Use charts to summarize performance and graphs to show overall performance.
+Include screenshots of test scenes.
+</p>
+
+<h3>Bottlenecks</h3>
+<p class="placeholder">
+Demonstrate your code bottlenecking on scene traversal (CPU), vertex processing/assembly (GPU), and fragment processing/write-back (GPU).
+</p>
+
+
+<p class="placeholder">
+Use graphs to demonstrate sensitivity to test scene complexity.
+Include screenshots of test scenes.
+</p>
+
+<!-- For example:
+<h4>CPU Bottleneck</h4>
+<p class="placeholder">
+The scenes <a href="#">traversal-*.s72</a> causes my viewer to bottleneck on scene traversal.
+This plot shows the ...
+</p>
+-->
+
+<h3>Performance Improvements</h3>
+
+<p class="placeholder">
+For any other performance improvements you attempted, include comparisons showing them working (or not working).
+Include screenshots of any test scenes and graphs or charts showing performance differences.
+</p>
+
+<h2>Feedback</h2>
+<p class="placeholder">
+This is the end of the structured report. Feel free to add feedback about A1 to this section.
+</p>
+
+
+
+</body><grammarly-desktop-integration data-grammarly-shadow-root="true"><template shadowrootmode="open"><style>
+      div.grammarly-desktop-integration {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        padding: 0;
+        margin: -1px;
+        overflow: hidden;
+        clip: rect(0, 0, 0, 0);
+        white-space: nowrap;
+        border: 0;
+        -moz-user-select: none;
+        -webkit-user-select: none;
+        -ms-user-select:none;
+        user-select:none;
+      }
+
+      div.grammarly-desktop-integration:before {
+        content: attr(data-content);
+      }
+    </style><div aria-label="grammarly-integration" role="group" tabindex="-1" class="grammarly-desktop-integration" data-content="{&quot;mode&quot;:&quot;full&quot;,&quot;isActive&quot;:true,&quot;isUserDisabled&quot;:false}"></div></template></grammarly-desktop-integration></html>

@@ -319,9 +319,10 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_) {
 			Scene::Texture& cur_texture = scene.textures[i];
 			if (cur_texture.has_src) {
 				int width,height,n;
+				// Flip the image vertically in-place as s72 file format has the image origin at bottom left while stbi load is top left
+				stbi_set_flip_vertically_on_load(true);
 				unsigned char *image = stbi_load((scene.scene_path +"/"+ cur_texture.source).c_str(), &width, &height, &n, 4);
-				if (image == NULL) throw std::runtime_error("Error loading texture " + scene.scene_path + cur_texture.source);
-				assert(n == 3); // should only be 3 channel per .s72 spec
+				if (image == NULL) throw std::runtime_error("Error loading texture " + scene.scene_path + cur_texture.source);		
 				//make a place for the texture to live on the GPU:
 				textures.emplace_back(rtg.helpers.create_image(
 					VkExtent2D{ .width = uint32_t(width) , .height = uint32_t(height) }, //size of image
