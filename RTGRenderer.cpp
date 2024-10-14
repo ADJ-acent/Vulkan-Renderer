@@ -298,59 +298,67 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_) {
 	}
 
 	{//make some textures
-		textures.reserve(scene.textures.size() + 1); // index 0 is the default texture
-		{//default material
-			uint8_t data[4] = {255,255,255,255};
-			//make a place for the texture to live on the GPU:
-			textures.emplace_back(rtg.helpers.create_image(
-				VkExtent2D{ .width = 1 , .height = 1 }, //size of image
-				VK_FORMAT_R8G8B8A8_UNORM, //how to interpret image data (in this case, SRGB-encoded 8-bit RGBA)
-				VK_IMAGE_TILING_OPTIMAL,
-				VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, //will sample and upload
-				VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, //should be device-local
-				Helpers::Unmapped
-			));
-
-			//transfer data:
-			rtg.helpers.transfer_to_image(&data, sizeof(uint8_t) * 4, textures.back());
-		}
+		textures.reserve(scene.textures.size()); // index 0-4 is the default textures
 
 		for (uint32_t i = 0; i < scene.textures.size(); ++i) {
 			Scene::Texture& cur_texture = scene.textures[i];
 			if (cur_texture.has_src) {
 				int width,height,n;
-				// Flip the image vertically in-place as s72 file format has the image origin at bottom left while stbi load is top left
+				unsigned char* image;
+				std::string source = std::get<std::string>(cur_texture.value);
+				// Flip the image vertically as s72 file format has the image origin at bottom left while stbi load is top left
 				stbi_set_flip_vertically_on_load(true);
-				unsigned char *image = stbi_load((scene.scene_path +"/"+ cur_texture.source).c_str(), &width, &height, &n, 4);
-				if (image == NULL) throw std::runtime_error("Error loading texture " + scene.scene_path + cur_texture.source);		
-				//make a place for the texture to live on the GPU:
-				textures.emplace_back(rtg.helpers.create_image(
-					VkExtent2D{ .width = uint32_t(width) , .height = uint32_t(height) }, //size of image
-					VK_FORMAT_R8G8B8A8_UNORM, //how to interpret image data (in this case, linearly-encoded 8-bit RGBA) TODO: double check format
-					VK_IMAGE_TILING_OPTIMAL,
-					VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, //will sample and upload
-					VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, //should be device-local
-					Helpers::Unmapped
-				));
-				std::cout<<width<<", "<<height<<", "<< n <<std::endl;
-				rtg.helpers.transfer_to_image(image, sizeof(image[0]) * width*height*4, textures.back());
+				if (cur_texture.single_channel) { // just read the r value
+					image = stbi_load((scene.scene_path +"/"+ source).c_str(), &width, &height, &n, 1);
+					if (image == NULL) throw std::runtime_error("Error loading texture " + scene.scene_path + source);
+					textures.emplace_back(rtg.helpers.create_image(
+						VkExtent2D{ .width = uint32_t(width) , .height = uint32_t(height) }, //size of image
+						VK_FORMAT_R8_UNORM, //how to interpret image data (in this case, linearly-encoded 8-bit RGBA) TODO: double check format
+						VK_IMAGE_TILING_OPTIMAL,
+						VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, //will sample and upload
+						VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, //should be device-local
+						Helpers::Unmapped
+					));
+					
+					rtg.helpers.transfer_to_image(image, sizeof(image[0]) * width*height*1, textures.back());
+				}
+				else {
+					image = stbi_load((scene.scene_path +"/"+ source).c_str(), &width, &height, &n, 4);
+					if (image == NULL) throw std::runtime_error("Error loading texture " + scene.scene_path + source);		
+					textures.emplace_back(rtg.helpers.create_image(
+						VkExtent2D{ .width = uint32_t(width) , .height = uint32_t(height) }, //size of image
+						VK_FORMAT_R8G8B8A8_UNORM, //how to interpret image data (in this case, linearly-encoded 8-bit RGBA) TODO: double check format
+						VK_IMAGE_TILING_OPTIMAL,
+						VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, //will sample and upload
+						VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, //should be device-local
+						Helpers::Unmapped
+					));
+					
+					rtg.helpers.transfer_to_image(image, sizeof(image[0]) * width*height*4, textures.back());
+				}
 				//free image:
 				stbi_image_free(image);
 			}
 			else {
-				uint8_t data[4] = {uint8_t(cur_texture.value.x*255.0f), uint8_t(cur_texture.value.y*255.0f), uint8_t(cur_texture.value.z*255.0f),255};
-				//make a place for the texture to live on the GPU:
-				textures.emplace_back(rtg.helpers.create_image(
-					VkExtent2D{ .width = 1 , .height = 1 }, //size of image
-					VK_FORMAT_R8G8B8A8_UNORM, //how to interpret image data (in this case, SRGB-encoded 8-bit RGBA)
-					VK_IMAGE_TILING_OPTIMAL,
-					VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, //will sample and upload
-					VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, //should be device-local
-					Helpers::Unmapped
-				));
+				if (cur_texture.single_channel) {
+					float value = std::get<float>(cur_texture.value);
+				}
+				else {
+					glm::vec3 value = std::get<glm::vec3>(cur_texture.value);
+					uint8_t data[4] = {uint8_t(value.x*255.0f), uint8_t(value.y*255.0f), uint8_t(value.z*255.0f),255};
+					//make a place for the texture to live on the GPU:
+					textures.emplace_back(rtg.helpers.create_image(
+						VkExtent2D{ .width = 1 , .height = 1 }, //size of image
+						VK_FORMAT_R8G8B8A8_UNORM, //how to interpret image data (in this case, SRGB-encoded 8-bit RGBA)
+						VK_IMAGE_TILING_OPTIMAL,
+						VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, //will sample and upload
+						VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, //should be device-local
+						Helpers::Unmapped
+					));
 
-				//transfer data:
-				rtg.helpers.transfer_to_image(&data, sizeof(uint8_t) * 4, textures.back());
+					//transfer data:
+					rtg.helpers.transfer_to_image(&data, sizeof(uint8_t) * 4, textures.back());
+				}
 			}
 		}
 	}
@@ -1519,8 +1527,17 @@ void RTGRenderer::update(float dt) {
 				}
 
 				uint32_t texture_index = 0;
-				if (scene.meshes[cur_mesh_index].material_index != -1) {
-					texture_index = scene.materials[scene.meshes[cur_mesh_index].material_index].texture_index + 1;
+				if (scene.meshes[cur_mesh_index].material_index != -1) { /// has some material
+					const Scene::Material& cur_material = scene.materials[scene.meshes[cur_mesh_index].material_index];
+					if (cur_material.material_type == Scene::Material::MaterialType::Environment) {
+
+					}
+					else if (cur_material.material_type == Scene::Material::MaterialType::Mirror) {
+						
+					}
+				}
+				else {
+					// use lambertian pipeline to render the default albedo, displacement and normal maps
 				}
 
 				object_instances.emplace_back(ObjectInstance{

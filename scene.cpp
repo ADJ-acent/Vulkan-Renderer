@@ -31,6 +31,13 @@ void Scene::load(std::string filename, std::optional<std::string> requested_came
         std::unordered_map<std::string, uint32_t> textures_map;
         std::unordered_map<std::string, uint32_t> cameras_map;
 
+        // insert the default 5 textures: 0 for albedo, 1 for roughness, 2 for metalness, 3 for normal, 4 for displacement
+        textures.push_back(Texture(glm::vec3(1.0f,1.0f,1.0f)));
+        textures.push_back(Texture(1.0f));
+        textures.push_back(Texture(0.0f));
+        textures.push_back(Texture(glm::vec3(0.0f,0.0f,1.0f)));
+        textures.push_back(Texture(0.0f));
+
         for (int32_t i = 1; i < int32_t(object.size()); ++i) {
             auto object_i = object[i].as_object().value();
             std::optional<std::string> type = object_i.find("type")->second.as_string();
@@ -320,65 +327,239 @@ void Scene::load(std::string filename, std::optional<std::string> requested_came
                     materials.push_back(new_material);
                     materials_map.insert({material_name, cur_material_index});
                 }
-                //find lambertian
-                if (auto res = object_i.find("lambertian"); res != object_i.end()) {
-                    if (auto albeto_res = res->second.as_object().value().find("albedo"); albeto_res != res->second.as_object().value().end()) {
-                        auto albedo_vals = albeto_res->second.as_array();
-                        if (albedo_vals) {
-                            std::vector<sejp::value> albedo_vector = albedo_vals.value();
-                            assert(albedo_vector.size() == 3);
-                            Texture new_texture = Texture(glm::vec3(float(albedo_vector[0].as_number().value()), float(albedo_vector[1].as_number().value()), float(albedo_vector[2].as_number().value())));
-                            std::string tex_name = material_name;
-                            if (auto tex_map_entry = textures_map.find(tex_name); tex_map_entry != textures_map.end()) {
-                                materials[cur_material_index].texture_index = tex_map_entry->second;
-                            } else {
-                                uint32_t index = uint32_t(textures.size());
-                                textures.push_back(new_texture);
-                                textures_map.insert({tex_name, index});
-                                materials[cur_material_index].texture_index = index;
-                            }
-                        } else {
-                            // check whether or not the albedo has a texture
-                            if (auto tex_res = albeto_res->second.as_object().value().find("src"); tex_res != albeto_res->second.as_object().value().end()) {
-                                std::string tex_name = tex_res->second.as_string().value();
-                                if (auto tex_map_entry = textures_map.find(tex_name); tex_map_entry != textures_map.end()) {
-                                    materials[cur_material_index].texture_index = tex_map_entry->second;
-                                } else {
-                                    Texture new_texture = Texture(tex_name);
-                                    // find type, uncomment when we support cubemap and environment
-                                    // if (auto type_res = albeto_res->second.as_object().value().find("type"); type_res != albeto_res->second.as_object().value().end()) {
-                                    //     std::string tex_type = type_res->second.as_string().value();
-                                    //     if (tex_type == "2D") new_texture.is_2D = true;
-                                    //     else if (tex_type == "cube") new_texture.is_2D = false;
-                                    //     else {
-                                    //         throw std::runtime_error("unrecognizable type for texture " + tex_name);
-                                    //     }
-                                    // }
-                                    uint32_t index = uint32_t(textures.size());
-                                    textures.push_back(new_texture);
-                                    textures_map.insert({tex_name, index});
-                                    materials[cur_material_index].texture_index = index;
-                                }
-                            }
-                            else {
-                                Texture new_texture = Texture();
-                                std::string tex_name = material_name;
-                                if (auto tex_map_entry = textures_map.find(tex_name); tex_map_entry != textures_map.end()) {
-                                    materials[cur_material_index].texture_index = tex_map_entry->second;
-                                } else {
-                                    uint32_t index = uint32_t(textures.size());
-                                    textures.push_back(new_texture);
-                                    textures_map.insert({tex_name, index});
-                                    materials[cur_material_index].texture_index = index;
-                                }
-                            }
 
+                materials[cur_material_index].normal_index = DefaultNormal;
+                materials[cur_material_index].displacement_index = DefaultDisplacement;
+                if (auto res = object_i.find("normalMap"); res != object_i.end()) {
+                    if (auto source = res->second.as_object().value().find("src"); source != res->second.as_object().value().end()) {
+                        std::string tex_name = source->second.as_string().value();
+                        if (auto tex_map_entry = textures_map.find(tex_name); tex_map_entry != textures_map.end()) {
+                                materials[cur_material_index].normal_index = tex_map_entry->second;
+                        } else {
+                            Texture new_texture = Texture(tex_name);
+                            uint32_t index = uint32_t(textures.size());
+                            textures.push_back(new_texture);
+                            textures_map.insert({tex_name, index});
+                            materials[cur_material_index].normal_index = index;
                         }
                     }
                 }
 
+                if (auto res = object_i.find("displacementMap"); res != object_i.end()) {
+                    if (auto source = res->second.as_object().value().find("src"); source != res->second.as_object().value().end()) {
+                        std::string tex_name = source->second.as_string().value();
+                        if (auto tex_map_entry = textures_map.find(tex_name); tex_map_entry != textures_map.end()) {
+                                materials[cur_material_index].displacement_index = tex_map_entry->second;
+                        } else {
+                            Texture new_texture = Texture(tex_name, true);
+                            uint32_t index = uint32_t(textures.size());
+                            textures.push_back(new_texture);
+                            textures_map.insert({tex_name, index});
+                            materials[cur_material_index].displacement_index = index;
+                        }
+                    }
+
+                }
+
+
+                //lambertian material
+                if (auto res = object_i.find("lambertian"); res != object_i.end()) {
+                    materials[cur_material_index].material_type = Material::Lambertian;
+
+                    if (auto albedo_res = res->second.as_object().value().find("albedo"); albedo_res != res->second.as_object().value().end()) {
+                        auto albedo_vals = albedo_res->second.as_array();
+                        // stored as a const value
+                        if (albedo_vals) {
+                            std::vector<sejp::value> albedo_vector = albedo_vals.value();
+                            assert(albedo_vector.size() == 3);
+                            std::string tex_name = material_name;
+                            if (auto tex_map_entry = textures_map.find(tex_name); tex_map_entry != textures_map.end()) {
+                                materials[cur_material_index].material_textures = Material::MatLambertian(tex_map_entry->second);
+                            } else {
+                                Texture new_texture = Texture(glm::vec3(float(albedo_vector[0].as_number().value()), float(albedo_vector[1].as_number().value()), float(albedo_vector[2].as_number().value())));
+                                uint32_t index = uint32_t(textures.size());
+                                textures.push_back(new_texture);
+                                textures_map.insert({tex_name, index});
+                                materials[cur_material_index].material_textures = Material::MatLambertian(index);
+                            }
+                        } 
+                        // stored as a texture
+                        else {
+                            // check whether or not the albedo has a texture
+                            if (auto tex_res = albedo_res->second.as_object().value().find("src"); tex_res != albedo_res->second.as_object().value().end()) {
+                                std::string tex_name = tex_res->second.as_string().value();
+                                if (auto tex_map_entry = textures_map.find(tex_name); tex_map_entry != textures_map.end()) {
+                                    materials[cur_material_index].material_textures = Material::MatLambertian(tex_map_entry->second);
+                                } else {
+                                    Texture new_texture = Texture(tex_name);
+                                    uint32_t index = uint32_t(textures.size());
+                                    textures.push_back(new_texture);
+                                    textures_map.insert({tex_name, index});
+                                    materials[cur_material_index].material_textures = Material::MatLambertian(index);
+                                }
+                            }
+                            // somehow has no source texture
+                            else {
+                                materials[cur_material_index].material_textures = Material::MatLambertian(DefaultAlbedo);
+                            }
+                        }
+                    }
+                    // no albedo field, use the fall back texture
+                    else {
+                        materials[cur_material_index].material_textures = Material::MatLambertian(DefaultAlbedo);
+                    }
+                }
+                //mirror 
+                else if (auto res = object_i.find("mirror"); res != object_i.end()) {
+                    materials[cur_material_index].material_type = Material::Mirror;
+                }
+                //environment
+                else if (auto res = object_i.find("environment"); res != object_i.end()) {
+                    materials[cur_material_index].material_type = Material::Environment;
+                }
+                //pbr
+                else if (auto res = object_i.find("pbr"); res != object_i.end()) {
+                    materials[cur_material_index].material_type = Material::PBR;
+                    Material::MatPBR new_material = Material::MatPBR();
+                    if (auto albedo_res = res->second.as_object().value().find("albedo"); albedo_res != res->second.as_object().value().end()) {
+                        auto albedo_vals = albedo_res->second.as_array();
+                        // stored as a const value
+                        if (albedo_vals) {
+                            std::vector<sejp::value> albedo_vector = albedo_vals.value();
+                            assert(albedo_vector.size() == 3);
+                            std::string tex_name = material_name;
+                            if (auto tex_map_entry = textures_map.find(tex_name); tex_map_entry != textures_map.end()) {
+                                new_material.albedo_index = tex_map_entry->second;
+                            } else {
+                                Texture new_texture = Texture(glm::vec3(float(albedo_vector[0].as_number().value()), float(albedo_vector[1].as_number().value()), float(albedo_vector[2].as_number().value())));
+                                uint32_t index = uint32_t(textures.size());
+                                textures.push_back(new_texture);
+                                textures_map.insert({tex_name, index});
+                                new_material.albedo_index = index;
+                            }
+                        } 
+                        // stored as a texture
+                        else {
+                            // check whether or not the albedo has a texture
+                            if (auto tex_res = albedo_res->second.as_object().value().find("src"); tex_res != albedo_res->second.as_object().value().end()) {
+                                std::string tex_name = tex_res->second.as_string().value();
+                                if (auto tex_map_entry = textures_map.find(tex_name); tex_map_entry != textures_map.end()) {
+                                    new_material.albedo_index = tex_map_entry->second;
+                                } else {
+                                    Texture new_texture = Texture(tex_name);
+                                    uint32_t index = uint32_t(textures.size());
+                                    textures.push_back(new_texture);
+                                    textures_map.insert({tex_name, index});
+                                    new_material.albedo_index = index;
+                                }
+                            }
+                            // somehow has no source texture
+                            else {
+                                new_material.albedo_index = DefaultAlbedo;
+                            }
+                        }
+                    }
+                    // no albedo field, use the fall back texture
+                    else {
+                        new_material.albedo_index = DefaultAlbedo;
+                    }
+
+                    if (auto roughness_res = res->second.as_object().value().find("roughness"); roughness_res != res->second.as_object().value().end()) {
+                        auto roughness_vals = roughness_res->second.as_number();
+                        // stored as a const value
+                        if (roughness_vals) {
+                            float roughness_value = float(roughness_vals.value());
+                            std::string tex_name = material_name + " roughness";
+                            if (auto tex_map_entry = textures_map.find(tex_name); tex_map_entry != textures_map.end()) {
+                                new_material.roughness_index = tex_map_entry->second;
+                            } else {
+                                uint32_t index = uint32_t(textures.size());
+                                Texture new_texture = Texture(roughness_value);
+                                textures.push_back(new_texture);
+                                textures_map.insert({tex_name, index});
+                                new_material.roughness_index = index;
+                            }
+                        } 
+                        // stored as a texture
+                        else {
+                            // check whether or not the roughness has a texture
+                            if (auto tex_res = roughness_res->second.as_object().value().find("src"); tex_res != roughness_res->second.as_object().value().end()) {
+                                std::string tex_name = tex_res->second.as_string().value();
+                                if (auto tex_map_entry = textures_map.find(tex_name); tex_map_entry != textures_map.end()) {
+                                    new_material.roughness_index = tex_map_entry->second;
+                                } else {
+                                    Texture new_texture = Texture(tex_name, true);
+                                    uint32_t index = uint32_t(textures.size());
+                                    textures.push_back(new_texture);
+                                    textures_map.insert({tex_name, index});
+                                    new_material.roughness_index = index;
+                                }
+                            }
+                            // somehow has no source texture
+                            else {
+                                new_material.roughness_index = DefaultRoughness;
+                            }
+                        }
+                    }
+                    // no roughness field, use the fall back texture
+                    else {
+                        new_material.roughness_index = DefaultRoughness;
+                    }
+
+                    if (auto metalness_res = res->second.as_object().value().find("metalness"); metalness_res != res->second.as_object().value().end()) {
+                        auto metalness_vals = metalness_res->second.as_number();
+                        // stored as a const value
+                        if (metalness_vals) {
+                            float metalness_value = float(metalness_vals.value());
+                            std::string tex_name = material_name + "metalness";
+                            if (auto tex_map_entry = textures_map.find(tex_name); tex_map_entry != textures_map.end()) {
+                                new_material.metalness_index = tex_map_entry->second;
+                            } else {
+                                uint32_t index = uint32_t(textures.size());
+                                Texture new_texture = Texture(metalness_value);
+                                textures.push_back(new_texture);
+                                textures_map.insert({tex_name, index});
+                                new_material.metalness_index = index;
+                            }
+                        } 
+                        // stored as a texture
+                        else {
+                            // check whether or not the metalness has a texture
+                            if (auto tex_res = metalness_res->second.as_object().value().find("src"); tex_res != metalness_res->second.as_object().value().end()) {
+                                std::string tex_name = tex_res->second.as_string().value();
+                                if (auto tex_map_entry = textures_map.find(tex_name); tex_map_entry != textures_map.end()) {
+                                    new_material.metalness_index = tex_map_entry->second;
+                                } else {
+                                    Texture new_texture = Texture(tex_name, true);
+                                    uint32_t index = uint32_t(textures.size());
+                                    textures.push_back(new_texture);
+                                    textures_map.insert({tex_name, index});
+                                    new_material.metalness_index = index;
+                                }
+                            }
+                            // somehow has no source texture
+                            else {
+                                new_material.metalness_index = DefaultMetalness;
+                            }
+                        }
+                    }
+                    // no metalness field, use the fall back texture
+                    else {
+                        new_material.metalness_index = DefaultMetalness;
+                    }
+
+                    materials[cur_material_index].material_textures = new_material;
+                }
+
             } else if (type.value() == "ENVIRONMENT") {
-                std::cout << "Ignoring Environment Objects" <<std::endl;
+                assert(environment.source == "" && "environment should not be instantiated already");
+                std::string environment_name = object_i.find("name")->second.as_string().value();
+                auto radiance_res = object_i.find("radiance")->second.as_object().value();
+                std::string environment_source = radiance_res.find("src")->second.as_string().value();
+                assert(radiance_res.find("type")->second.as_string().value() == "cube");
+                assert(radiance_res.find("format")->second.as_string().value() == "rgbe");
+                environment.name = environment_name;
+                environment.source = environment_source;
             } else if (type.value() == "LIGHT") {
                 std::string light_name = object_i.find("name")->second.as_string().value();
                 glm::vec3 tint = glm::vec3(1.0f,1.0f,1.0f);
@@ -599,18 +780,55 @@ void Scene::debug() {
 
             // Print material associated with the mesh
             if (mesh.material_index != -1) {
+
+                auto debug_texture = [&](const Texture& texture, std::string texture_name) {
+                    if (texture.has_src) {
+                        std::cout << texture_name + " Source: " << std::get<std::string>(texture.value) << "\n";
+                    } else {
+                        if (texture.single_channel) {
+                            float val = std::get<float>(texture.value);
+                            std::cout << texture_name +" Value: " 
+                                    << val << "\n";
+                        }
+                        else {
+                            glm::vec3 val = std::get<glm::vec3>(texture.value);
+                            std::cout << texture_name +" Color: (" 
+                                    << val.r << ", "
+                                    << val.g << ", "
+                                    << val.b << ")\n";
+                        }
+                    }
+                };
+
                 const Material& material = materials[mesh.material_index];
                 std::cout << "Material Name: " << material.name << "\n";
 
-                // Print texture associated with the material (if available)
-                const Texture& texture = textures[material.texture_index];
-                if (texture.has_src) {
-                    std::cout << "Texture Source: " << texture.source << "\n";
-                } else {
-                    std::cout << "Albedo Color: (" 
-                            << texture.value.r << ", "
-                            << texture.value.g << ", "
-                            << texture.value.b << ")\n";
+                const Texture& normal_texture = textures[material.normal_index];
+                debug_texture(normal_texture, "Normal");
+                const Texture& displacement_texture = textures[material.displacement_index];
+                debug_texture(displacement_texture, "Displacement");
+
+
+                // Print texture associated with the material
+                if (material.material_type == Material::MaterialType::Environment) {
+                    std::cout << "  Environment Material"<<std::endl;
+                }
+                else if (material.material_type == Material::MaterialType::Mirror) {
+                    std::cout << "  Mirror Material"<<std::endl;
+                }
+                else if (material.material_type == Material::MaterialType::Lambertian) {
+                    const Texture& texture = textures[std::get<Material::MatLambertian>(material.material_textures).albedo_index];
+                    std::cout << "  Lambertian Material"<<std::endl;
+                    debug_texture(texture, "Albedo");
+                }
+                else {
+                    std::cout << "  pbr Material"<<std::endl;
+                    const Texture& albedo_texture = textures[std::get<Material::MatPBR>(material.material_textures).albedo_index];
+                    const Texture& roughness_texture = textures[std::get<Material::MatPBR>(material.material_textures).roughness_index];
+                    const Texture& metalness_texture = textures[std::get<Material::MatPBR>(material.material_textures).metalness_index];
+                    debug_texture(albedo_texture, "Albedo");
+                    debug_texture(roughness_texture, "Roughness");
+                    debug_texture(metalness_texture, "Metalness");
                 }
             }
             else {

@@ -4,6 +4,7 @@
 #include <string>
 #include <vector>
 #include <optional>
+#include <variant>
 
 /**
  *  Loads from .s72 format and manages a hiearchy of transformations
@@ -34,20 +35,52 @@ struct Scene
     };
 
     struct Texture {
-        std::string source = "";
-        glm::vec3 value;
-        bool is_2D = true;
+        std::variant<float, glm::vec3, std::string> value;
+        bool is_2D = true; // if not 2D, it is Cube
         bool has_src = false;
-        //TODO: store texture here
-        Texture(std::string source_) : source(source_), is_2D(true), has_src(true) {};
-        Texture(glm::vec3 value_) : value(value_), is_2D(true), has_src(false) {};
-        Texture() : value({1,1,1}), is_2D(true), has_src(false) {};
+        bool single_channel = false;
+        enum Format {
+            Linear,
+            SRGB,
+            RGBE,
+        } format = Format::Linear;
+        Texture(std::string value_, bool single_channel_) : value(value_), is_2D(true), has_src(true), single_channel(single_channel_) {};
+        Texture(float value_) : value(value_), is_2D(true), has_src(false), single_channel(true) {};
+        Texture(std::string value_) : value(value_), is_2D(true), has_src(true), single_channel(false) {};
+        Texture(glm::vec3 value_) : value(value_), is_2D(true), has_src(false), single_channel(false) {};
+        Texture() : value(glm::vec3{1,1,1}), is_2D(true), has_src(false), single_channel(false) {};
+
+        enum struct DefaultTexture: uint8_t {
+            DefaultAlbedo = 0,
+            DefaultRoughness = 1,
+            DefaultMetalness = 2,
+            DefaultNormal = 3,
+            DefaultDisplacement = 4,
+        };
 
     };
 
-    struct Material { // assuming all material is lambertian
+    struct Material {        
+        enum MaterialType : uint8_t {
+            Lambertian,
+            PBR,
+            Mirror,
+            Environment
+        } material_type;
         std::string name;
-        uint32_t texture_index;
+        uint32_t normal_index = 3;
+        uint32_t displacement_index = 4;
+        struct MatLambertian {
+            uint32_t albedo_index = 0;
+        };
+
+        struct MatPBR {
+            uint32_t albedo_index = 0;
+            uint32_t roughness_index = 1;
+            uint32_t metalness_index = 2;
+        };
+        
+        std::variant<std::monostate, MatLambertian, MatPBR> material_textures;
     };
 
     struct Mesh {
@@ -75,6 +108,11 @@ struct Scene
         std::vector<uint32_t> local_to_world; // list of node indices to get from local to world (index 0 is a root node)
     };
 
+    struct Environment {
+        std::string name;
+        std::string source = "";
+    };
+
     // Node 
     struct Node {
         std::string name;
@@ -83,7 +121,7 @@ struct Scene
         int32_t cameras_index = -1;
         int32_t mesh_index = -1;
         int32_t light_index = -1;
-        // ignoring environment
+        bool environment = false;
     };
 
     struct Driver {
@@ -115,8 +153,10 @@ struct Scene
 
     std::vector<Material> materials;
     std::vector<Texture> textures;
+
     std::vector<Driver> drivers;
     uint8_t animation_setting;
+    Environment environment = Environment();
 
     std::vector<uint32_t> root_nodes;
     std::string scene_path;

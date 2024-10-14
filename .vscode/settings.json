@@ -73,7 +73,8 @@
         "cstdarg": "cpp",
         "random": "cpp",
         "deque": "cpp",
-        "variant": "cpp"
+        "variant": "cpp",
+        "cassert": "cpp"
     },
     "cmake.ignoreCMakeListsMissing": true
 }
