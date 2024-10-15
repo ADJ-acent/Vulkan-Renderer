@@ -65,7 +65,13 @@ const objects_shaders = [
 ];
 main_objs.push( maek.CPP('Tutorial-ObjectsPipeline.cpp', undefined, { depends:[...objects_shaders] } ) );
 
-const main_exe = maek.LINK([...main_objs], 'bin/main');
+const environment_shaders = [
+	maek.GLSLC('environment.vert'),
+	maek.GLSLC('environment.frag'),
+];
+main_objs.push( maek.CPP('EnvironmentPipeline.cpp', undefined, { depends:[...environment_shaders] } ) );
+
+const main_exe = maek.LINK([...main_objs], 'bin/viewer');
 
 //default targets:
 maek.TARGETS = [main_exe];

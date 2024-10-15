@@ -6,6 +6,7 @@
 #include "RTGRenderer.hpp"
 
 #include "VK.hpp"
+#include "rgbe.hpp"
 
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
@@ -115,14 +116,19 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_) {
 	background_pipeline.create(rtg, render_pass, 0);
 	lines_pipeline.create(rtg, render_pass, 0);
 	objects_pipeline.create(rtg, render_pass, 0);
+	environment_pipeline.create(rtg, render_pass, 0);
 
 	{//create descriptor pool:
 		uint32_t per_workspace = uint32_t(rtg.workspaces.size()); //for easier-to-read counting
 
-		std::array< VkDescriptorPoolSize, 2> pool_sizes{
+		std::array< VkDescriptorPoolSize, 3> pool_sizes{
 			VkDescriptorPoolSize{
 				.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
 				.descriptorCount = 2 * per_workspace, //one descriptor per set, two sets per workspace
+			},
+			VkDescriptorPoolSize{
+				.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+				.descriptorCount = 1 * per_workspace, //one descriptor per set, one set per workspace
 			},
 			VkDescriptorPoolSize{
 				.type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
@@ -140,6 +146,9 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_) {
 
 		VK(vkCreateDescriptorPool(rtg.device, &create_info, nullptr, &descriptor_pool));
 	}
+
+	// all images loaded should be flipped as s72 file format has the image origin at bottom left while stbi load is top left
+	stbi_set_flip_vertically_on_load(true);
 
 	workspaces.resize(rtg.workspaces.size());
 	for (Workspace &workspace : workspaces) {
@@ -210,7 +219,7 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_) {
 				.pSetLayouts = &objects_pipeline.set1_Transforms,
 			};
 
-			VK( vkAllocateDescriptorSets(rtg.device, &alloc_info, &workspace.Transforms_descriptors) );
+			VK(vkAllocateDescriptorSets(rtg.device, &alloc_info, &workspace.Transforms_descriptors));
 			//NOTE: will fill in this descriptor set in render when buffers are [re-]allocated
 		}
 
@@ -227,7 +236,7 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_) {
 				.range = workspace.World.size,
 			};
 
-			std::array< VkWriteDescriptorSet, 2 > writes{
+			std::array< VkWriteDescriptorSet, 3 > writes{
 				VkWriteDescriptorSet{
 					.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
 					.dstSet = workspace.Camera_descriptors,
@@ -247,6 +256,16 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_) {
 					.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
 					.pBufferInfo = &World_info,
 				},
+
+				VkWriteDescriptorSet{
+					.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+					.dstSet = workspace.World_descriptors,
+					.dstBinding = 1,
+					.dstArrayElement = 0,
+					.descriptorCount = 1,
+					.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+					.pBufferInfo = &World_info,
+				},
 			};
 
 			vkUpdateDescriptorSets(
@@ -256,6 +275,80 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_) {
 				0, //descriptorCopyCount
 				nullptr //pDescriptorCopies
 			);
+		}
+	
+	}
+	
+	//create environment texture
+	if (scene.environment.source != ""){
+		int width,height,n;
+		unsigned char* image;
+		image = stbi_load((scene.scene_path +"/"+ scene.environment.source).c_str(), &width, &height, &n, 4);
+		if (image == NULL) throw std::runtime_error("Error loading texture " + scene.scene_path + scene.environment.source);
+		// convert rgbe to rgb values
+		std::vector<glm::vec3> rgb_image(width * height); // Store the converted RGB data
+
+		for (int i = 0; i < width * height; ++i) {
+			glm::u8vec4 rgbe_pixel = glm::u8vec4(image[4*i], image[4*i + 1], image[4*i + 2], image[4*i + 3]);
+			rgb_image[i] = rgbe_to_float(rgbe_pixel);
+		}
+
+		World_environment = rtg.helpers.create_image(
+			VkExtent2D{ .width = uint32_t(width) , .height = uint32_t(height) }, //size of image
+			VK_FORMAT_R8G8B8A8_UNORM, //how to interpret image data (in this case, linearly-encoded 8-bit RGBA) TODO: double check format
+			VK_IMAGE_TILING_OPTIMAL,
+			VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, //will sample and upload
+			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, //should be device-local
+			Helpers::Unmapped
+		);
+		
+		rtg.helpers.transfer_to_image(rgb_image.data(), sizeof(rgb_image[0]) * width*height*4, World_environment);
+	
+		//free image:
+		stbi_image_free(image);
+
+		{//make image view for environment
+
+			VkImageViewCreateInfo create_info{
+				.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+				.flags = 0,
+				.image = World_environment.handle,
+				.viewType = VK_IMAGE_VIEW_TYPE_CUBE,
+				.format = World_environment.format,
+				// .components sets swizzling and is fine when zero-initialized
+				.subresourceRange{
+					.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+					.baseMipLevel = 0,
+					.levelCount = 1,
+					.baseArrayLayer = 0,
+					.layerCount = 1,
+				},
+			};
+
+			VK(vkCreateImageView(rtg.device, &create_info, nullptr, &World_environment_view));
+		}
+
+		{//make a sampler for the environment
+			VkSamplerCreateInfo create_info{
+				.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
+				.flags = 0,
+				.magFilter = VK_FILTER_LINEAR,
+				.minFilter = VK_FILTER_LINEAR,
+				.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST,
+				.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+				.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+				.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+				.mipLodBias = 0.0f,
+				.anisotropyEnable = VK_FALSE,
+				.maxAnisotropy = 0.0f, //doesn't matter if anisotropy isn't enabled
+				.compareEnable = VK_FALSE,
+				.compareOp = VK_COMPARE_OP_ALWAYS, //doesn't matter if compare isn't enabled
+				.minLod = 0.0f,
+				.maxLod = 0.0f,
+				.borderColor = VK_BORDER_COLOR_FLOAT_TRANSPARENT_BLACK,
+				.unnormalizedCoordinates = VK_FALSE,
+			};
+			VK(vkCreateSampler(rtg.device, &create_info, nullptr, &World_environment_sampler));
 		}
 	}
 
@@ -306,8 +399,7 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_) {
 				int width,height,n;
 				unsigned char* image;
 				std::string source = std::get<std::string>(cur_texture.value);
-				// Flip the image vertically as s72 file format has the image origin at bottom left while stbi load is top left
-				stbi_set_flip_vertically_on_load(true);
+				
 				if (cur_texture.single_channel) { // just read the r value
 					image = stbi_load((scene.scene_path +"/"+ source).c_str(), &width, &height, &n, 1);
 					if (image == NULL) throw std::runtime_error("Error loading texture " + scene.scene_path + source);
@@ -588,6 +680,7 @@ RTGRenderer::~RTGRenderer() {
 	background_pipeline.destroy(rtg);
 	lines_pipeline.destroy(rtg);
 	objects_pipeline.destroy(rtg);
+	environment_pipeline.destroy(rtg);
 
 	rtg.helpers.destroy_buffer(std::move(object_vertices));
 
@@ -1407,6 +1500,8 @@ void RTGRenderer::update(float dt) {
 			// draw own mesh
 			if (int32_t cur_mesh_index = cur_node.mesh_index; cur_mesh_index != -1) {
 				glm::mat4x4 WORLD_FROM_LOCAL = transform_stack.back();
+				glm::mat3 rotationMatrix = glm::mat3(WORLD_FROM_LOCAL); 
+				glm::mat3 WORLD_FROM_LOCAL_NORMAL = glm::transpose(glm::inverse(rotationMatrix));
 				{//debug draws and frustum culling
 					
 					OBB obb = AABB_transform_to_OBB(WORLD_FROM_LOCAL, mesh_AABBs[cur_mesh_index]);
@@ -1545,7 +1640,7 @@ void RTGRenderer::update(float dt) {
 					.transform{
 						.CLIP_FROM_LOCAL = CLIP_FROM_WORLD * WORLD_FROM_LOCAL,
 						.WORLD_FROM_LOCAL = WORLD_FROM_LOCAL,
-						.WORLD_FROM_LOCAL_NORMAL = WORLD_FROM_LOCAL,
+						.WORLD_FROM_LOCAL_NORMAL = WORLD_FROM_LOCAL_NORMAL,
 					},
 					.texture = texture_index,
 				});

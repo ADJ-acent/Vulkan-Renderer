@@ -90,9 +90,9 @@ struct RTGRenderer : RTG::Application {
         struct Transform {
             glm::mat4x4 CLIP_FROM_LOCAL;
             glm::mat4x4 WORLD_FROM_LOCAL;
-            glm::mat4x4 WORLD_FROM_LOCAL_NORMAL;
+            glm::mat3 WORLD_FROM_LOCAL_NORMAL;
         };
-        static_assert(sizeof(Transform) == 16*4 + 16*4 + 16*4, "Transform is the expected size.");
+        static_assert(sizeof(Transform) == 16*4 + 16*4 + 12*3, "Transform is the expected size.");
 
 		//no push constants
 
@@ -105,6 +105,41 @@ struct RTGRenderer : RTG::Application {
 		void create(RTG &, VkRenderPass render_pass, uint32_t subpass);
 		void destroy(RTG &);
 	} objects_pipeline;
+
+	struct EnvironmentPipeline {
+		//descriptor set layouts:
+		VkDescriptorSetLayout set0_World = VK_NULL_HANDLE;
+        VkDescriptorSetLayout set1_Transforms = VK_NULL_HANDLE;
+        VkDescriptorSetLayout set2_TEXTURE = VK_NULL_HANDLE;
+
+		//types for descriptors:
+
+        struct World {
+            struct { float x, y, z, padding_; } SKY_DIRECTION;
+            struct { float r, g, b, padding_; } SKY_ENERGY;
+            struct { float x, y, z, padding_; } SUN_DIRECTION;
+            struct { float r, g, b, padding_; } SUN_ENERGY;
+        };
+        static_assert(sizeof(World) == 4*4 + 4*4 + 4*4 + 4*4, "World is the expected size.");
+		
+        struct Transform {
+            glm::mat4x4 CLIP_FROM_LOCAL;
+            glm::mat4x4 WORLD_FROM_LOCAL;
+            glm::mat3 WORLD_FROM_LOCAL_NORMAL;
+        };
+        static_assert(sizeof(Transform) == 16*4 + 16*4 + 12*3, "Transform is the expected size.");
+
+		//no push constants
+
+		VkPipelineLayout layout = VK_NULL_HANDLE;
+
+		using Vertex = PosNorTanTexVertex;
+
+		VkPipeline handle = VK_NULL_HANDLE;
+
+		void create(RTG &, VkRenderPass render_pass, uint32_t subpass);
+		void destroy(RTG &);
+	} environment_pipeline;
 
 	//pools from which per-workspace things are allocated:
 	VkCommandPool command_pool = VK_NULL_HANDLE;
@@ -148,6 +183,9 @@ struct RTGRenderer : RTG::Application {
 	std::vector<ObjectVertices> mesh_vertices; // indexed the same as scene.meshes
 	std::vector<AABB> mesh_AABBs; // also indexed the same as scene.meshes
 
+	Helpers::AllocatedImage World_environment;
+	VkImageView World_environment_view;
+	VkSampler World_environment_sampler;
     std::vector< Helpers::AllocatedImage > textures;
 	std::vector< VkImageView > texture_views;
 	VkSampler texture_sampler = VK_NULL_HANDLE;

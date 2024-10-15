@@ -5,14 +5,14 @@
 #include "VK.hpp"
 
 static uint32_t vert_code[] = 
-#include "spv/objects.vert.inl"
+#include "spv/environment.vert.inl"
 ;
 
 static uint32_t frag_code[] = 
-#include "spv/objects.frag.inl"
+#include "spv/environment.frag.inl"
 ;
 
-void RTGRenderer::ObjectsPipeline::create(RTG &rtg, VkRenderPass render_pass, uint32_t subpass) {
+void RTGRenderer::EnvironmentPipeline::create(RTG &rtg, VkRenderPass render_pass, uint32_t subpass) {
     VkShaderModule vert_module = rtg.helpers.create_shader_module(vert_code);
     VkShaderModule frag_module = rtg.helpers.create_shader_module(frag_code);
 
@@ -208,7 +208,7 @@ void RTGRenderer::ObjectsPipeline::create(RTG &rtg, VkRenderPass render_pass, ui
     }
 }
 
-void RTGRenderer::ObjectsPipeline::destroy(RTG &rtg) {
+void RTGRenderer::EnvironmentPipeline::destroy(RTG &rtg) {
     if (set0_World != VK_NULL_HANDLE) {
 		vkDestroyDescriptorSetLayout(rtg.device, set0_World, nullptr);
 		set0_World = VK_NULL_HANDLE;
