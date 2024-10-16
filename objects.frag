@@ -6,6 +6,7 @@ layout(set=0,binding=0,std140) uniform World {
 	vec3 SUN_DIRECTION;
 	vec3 SUN_ENERGY; //energy supplied by sun to a surface patch with normal = SUN_DIRECTION
 };
+layout(set=0, binding=1) uniform samplerCube ENVIRONMENT;
 layout(set=2, binding=0) uniform sampler2D TEXTURE;
 
 layout(location=0) in vec3 position;

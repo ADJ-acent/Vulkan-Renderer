@@ -118,9 +118,6 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_) {
 	objects_pipeline.create(rtg, render_pass, 0);
 	environment_pipeline.create(rtg, render_pass, 0);
 
-	// all images loaded should be flipped as s72 file format has the image origin at bottom left while stbi load is top left
-	stbi_set_flip_vertically_on_load(true);
-
 	//create environment texture
 	if (scene.environment.source != ""){
 		int width,height,n;
@@ -151,7 +148,7 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_) {
 			Helpers::Unmapped, 6
 		);
 		
-		rtg.helpers.transfer_to_image_cube(rgb_image.data(), 4 * width*height, World_environment);
+		rtg.helpers.transfer_to_image_cube(image, 4 * width * height, World_environment);
 	
 		//free image:
 		stbi_image_free(image);
@@ -406,6 +403,9 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_) {
 
 	{//make some textures
 		textures.reserve(scene.textures.size()); // index 0-4 is the default textures
+
+		// all images loaded should be flipped as s72 file format has the image origin at bottom left while stbi load is top left
+		stbi_set_flip_vertically_on_load(true);
 
 		for (uint32_t i = 0; i < scene.textures.size(); ++i) {
 			Scene::Texture& cur_texture = scene.textures[i];
@@ -684,6 +684,20 @@ RTGRenderer::~RTGRenderer() {
 
 		//this also frees the descriptor sets allocated from the pool:
 		texture_descriptors.clear();
+	}
+
+	if (World_environment_sampler) {
+		vkDestroySampler(rtg.device, World_environment_sampler, nullptr);
+		World_environment_sampler = VK_NULL_HANDLE;
+	}
+
+	if (World_environment_view) {
+		vkDestroyImageView(rtg.device, World_environment_view, nullptr);
+		World_environment_view = VK_NULL_HANDLE;
+	}
+
+	if (World_environment.handle) {
+		rtg.helpers.destroy_image(std::move(World_environment));
 	}
 
 	if (texture_sampler) {
@@ -1525,8 +1539,7 @@ void RTGRenderer::update(float dt) {
 			// draw own mesh
 			if (int32_t cur_mesh_index = cur_node.mesh_index; cur_mesh_index != -1) {
 				glm::mat4x4 WORLD_FROM_LOCAL = transform_stack.back();
-				glm::mat3 rotationMatrix = glm::mat3(WORLD_FROM_LOCAL); 
-				glm::mat3 WORLD_FROM_LOCAL_NORMAL = glm::transpose(glm::inverse(rotationMatrix));
+				glm::mat4x4 WORLD_FROM_LOCAL_NORMAL = glm::mat4x4(glm::transpose(glm::inverse(glm::mat3(WORLD_FROM_LOCAL))));
 				{//debug draws and frustum culling
 					
 					OBB obb = AABB_transform_to_OBB(WORLD_FROM_LOCAL, mesh_AABBs[cur_mesh_index]);

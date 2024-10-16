@@ -90,9 +90,9 @@ struct RTGRenderer : RTG::Application {
         struct Transform {
             glm::mat4x4 CLIP_FROM_LOCAL;
             glm::mat4x4 WORLD_FROM_LOCAL;
-            glm::mat3 WORLD_FROM_LOCAL_NORMAL;
+            glm::mat4x4 WORLD_FROM_LOCAL_NORMAL;
         };
-        static_assert(sizeof(Transform) == 16*4 + 16*4 + 12*3, "Transform is the expected size.");
+        static_assert(sizeof(Transform) == 16*4 + 16*4 + 16*4, "Transform is the expected size.");
 
 		//no push constants
 
@@ -184,8 +184,8 @@ struct RTGRenderer : RTG::Application {
 	std::vector<AABB> mesh_AABBs; // also indexed the same as scene.meshes
 
 	Helpers::AllocatedImage World_environment;
-	VkImageView World_environment_view;
-	VkSampler World_environment_sampler;
+	VkImageView World_environment_view = VK_NULL_HANDLE;
+	VkSampler World_environment_sampler = VK_NULL_HANDLE;
     std::vector< Helpers::AllocatedImage > textures;
 	std::vector< VkImageView > texture_views;
 	VkSampler texture_sampler = VK_NULL_HANDLE;
