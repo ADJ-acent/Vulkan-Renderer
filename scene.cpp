@@ -328,8 +328,8 @@ void Scene::load(std::string filename, std::optional<std::string> requested_came
                     materials_map.insert({material_name, cur_material_index});
                 }
 
-                materials[cur_material_index].normal_index = DefaultNormal;
-                materials[cur_material_index].displacement_index = DefaultDisplacement;
+                materials[cur_material_index].normal_index = static_cast<uint32_t>(Texture::DefaultTexture::DefaultNormal);
+                materials[cur_material_index].displacement_index = static_cast<uint32_t>(Texture::DefaultTexture::DefaultDisplacement);
                 if (auto res = object_i.find("normalMap"); res != object_i.end()) {
                     if (auto source = res->second.as_object().value().find("src"); source != res->second.as_object().value().end()) {
                         std::string tex_name = source->second.as_string().value();
@@ -400,28 +400,28 @@ void Scene::load(std::string filename, std::optional<std::string> requested_came
                             }
                             // somehow has no source texture
                             else {
-                                materials[cur_material_index].material_textures = Material::MatLambertian(DefaultAlbedo);
+                                materials[cur_material_index].material_textures = Material::MatLambertian(static_cast<uint32_t>(Texture::DefaultTexture::DefaultAlbedo));
                             }
                         }
                     }
                     // no albedo field, use the fall back texture
                     else {
-                        materials[cur_material_index].material_textures = Material::MatLambertian(DefaultAlbedo);
+                        materials[cur_material_index].material_textures = Material::MatLambertian(static_cast<uint32_t>(Texture::DefaultTexture::DefaultAlbedo));
                     }
                 }
                 //mirror 
-                else if (auto res = object_i.find("mirror"); res != object_i.end()) {
+                else if (auto mirror_res = object_i.find("mirror"); mirror_res != object_i.end()) {
                     materials[cur_material_index].material_type = Material::Mirror;
                 }
                 //environment
-                else if (auto res = object_i.find("environment"); res != object_i.end()) {
+                else if (auto environment_res = object_i.find("environment"); environment_res != object_i.end()) {
                     materials[cur_material_index].material_type = Material::Environment;
                 }
                 //pbr
-                else if (auto res = object_i.find("pbr"); res != object_i.end()) {
+                else if (auto pbr_res = object_i.find("pbr"); pbr_res != object_i.end()) {
                     materials[cur_material_index].material_type = Material::PBR;
                     Material::MatPBR new_material = Material::MatPBR();
-                    if (auto albedo_res = res->second.as_object().value().find("albedo"); albedo_res != res->second.as_object().value().end()) {
+                    if (auto albedo_res = pbr_res->second.as_object().value().find("albedo"); albedo_res != pbr_res->second.as_object().value().end()) {
                         auto albedo_vals = albedo_res->second.as_array();
                         // stored as a const value
                         if (albedo_vals) {
@@ -455,16 +455,16 @@ void Scene::load(std::string filename, std::optional<std::string> requested_came
                             }
                             // somehow has no source texture
                             else {
-                                new_material.albedo_index = DefaultAlbedo;
+                                new_material.albedo_index = static_cast<uint32_t>(Texture::DefaultTexture::DefaultAlbedo);
                             }
                         }
                     }
                     // no albedo field, use the fall back texture
                     else {
-                        new_material.albedo_index = DefaultAlbedo;
+                        new_material.albedo_index = static_cast<uint32_t>(Texture::DefaultTexture::DefaultAlbedo);
                     }
 
-                    if (auto roughness_res = res->second.as_object().value().find("roughness"); roughness_res != res->second.as_object().value().end()) {
+                    if (auto roughness_res = pbr_res->second.as_object().value().find("roughness"); roughness_res != pbr_res->second.as_object().value().end()) {
                         auto roughness_vals = roughness_res->second.as_number();
                         // stored as a const value
                         if (roughness_vals) {
@@ -497,16 +497,16 @@ void Scene::load(std::string filename, std::optional<std::string> requested_came
                             }
                             // somehow has no source texture
                             else {
-                                new_material.roughness_index = DefaultRoughness;
+                                new_material.roughness_index = static_cast<uint32_t>(Texture::DefaultTexture::DefaultRoughness);
                             }
                         }
                     }
                     // no roughness field, use the fall back texture
                     else {
-                        new_material.roughness_index = DefaultRoughness;
+                        new_material.roughness_index = static_cast<uint32_t>(Texture::DefaultTexture::DefaultRoughness);
                     }
 
-                    if (auto metalness_res = res->second.as_object().value().find("metalness"); metalness_res != res->second.as_object().value().end()) {
+                    if (auto metalness_res = pbr_res->second.as_object().value().find("metalness"); metalness_res != pbr_res->second.as_object().value().end()) {
                         auto metalness_vals = metalness_res->second.as_number();
                         // stored as a const value
                         if (metalness_vals) {
@@ -539,13 +539,13 @@ void Scene::load(std::string filename, std::optional<std::string> requested_came
                             }
                             // somehow has no source texture
                             else {
-                                new_material.metalness_index = DefaultMetalness;
+                                new_material.metalness_index = static_cast<uint32_t>(Texture::DefaultTexture::DefaultMetalness);
                             }
                         }
                     }
                     // no metalness field, use the fall back texture
                     else {
-                        new_material.metalness_index = DefaultMetalness;
+                        new_material.metalness_index = static_cast<uint32_t>(Texture::DefaultTexture::DefaultMetalness);
                     }
 
                     materials[cur_material_index].material_textures = new_material;

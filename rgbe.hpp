@@ -5,15 +5,16 @@
 
 //from https://github.com/ixchow/15-466-ibl/blob/master/rgbe.hpp
 
-inline glm::vec3 rgbe_to_float(glm::u8vec4 col) {
+inline glm::vec4 rgbe_to_float(glm::u8vec4 col) {
 	//map pure black to pure black
-	if (col == glm::u8vec4(0,0,0,0)) return glm::vec3(0.0f);
+	if (col == glm::u8vec4(0,0,0,0)) return glm::vec4(0.0f);
 
 	int exp = int(col.a) - 128;
-	return glm::vec3(
+	return glm::vec4(
 		std::ldexp((col.r + 0.5f) / 256.0f, exp),
 		std::ldexp((col.g + 0.5f) / 256.0f, exp),
-		std::ldexp((col.b + 0.5f) / 256.0f, exp)
+		std::ldexp((col.b + 0.5f) / 256.0f, exp),
+		1.0f
 	);
 }
 
