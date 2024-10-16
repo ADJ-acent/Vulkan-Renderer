@@ -8,7 +8,7 @@ layout(set=0,binding=0,std140) uniform World {
 };
 
 layout(set=0, binding=1) uniform samplerCube ENVIRONMENT;
-layout(set=2, binding=0) uniform sampler2D TEXTURE;
+// layout(set=2, binding=0) uniform sampler2D TEXTURE;
 
 layout(location=0) in vec3 position;
 layout(location=1) in vec3 normal;

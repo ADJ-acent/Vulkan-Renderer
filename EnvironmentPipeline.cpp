@@ -60,30 +60,30 @@ void RTGRenderer::EnvironmentPipeline::create(RTG &rtg, VkRenderPass render_pass
 		VK(vkCreateDescriptorSetLayout(rtg.device, &create_info, nullptr, &set1_Transforms));
 	}
 
-    { //the set2_TEXTURE layout has a single descriptor for a sampler2D used in the fragment shader:
-		std::array< VkDescriptorSetLayoutBinding, 1 > bindings{
-			VkDescriptorSetLayoutBinding{
-				.binding = 0,
-				.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-				.descriptorCount = 1,
-				.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT
-			},
-		};
+    // { //the set2_TEXTURE layout has a single descriptor for a sampler2D used in the fragment shader:
+	// 	std::array< VkDescriptorSetLayoutBinding, 1 > bindings{
+	// 		VkDescriptorSetLayoutBinding{
+	// 			.binding = 0,
+	// 			.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+	// 			.descriptorCount = 1,
+	// 			.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT
+	// 		},
+	// 	};
 		
-		VkDescriptorSetLayoutCreateInfo create_info{
-			.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
-			.bindingCount = uint32_t(bindings.size()),
-			.pBindings = bindings.data(),
-		};
+	// 	VkDescriptorSetLayoutCreateInfo create_info{
+	// 		.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+	// 		.bindingCount = uint32_t(bindings.size()),
+	// 		.pBindings = bindings.data(),
+	// 	};
 
-		VK(vkCreateDescriptorSetLayout(rtg.device, &create_info, nullptr, &set2_TEXTURE));
-    }
+	// 	VK(vkCreateDescriptorSetLayout(rtg.device, &create_info, nullptr, &set2_TEXTURE));
+    // }
 
     {//create pipeline layout:
-		std::array<VkDescriptorSetLayout, 3> layouts{
+		std::array<VkDescriptorSetLayout, 2> layouts{
 			set0_World, //we'd like to say "VK_NULL_HANDLE" here, but that's not valid without an extension
             set1_Transforms,
-            set2_TEXTURE,
+            // set2_TEXTURE,
         };
 
 		VkPipelineLayoutCreateInfo create_info{

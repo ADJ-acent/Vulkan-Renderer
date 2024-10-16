@@ -219,13 +219,27 @@ struct RTGRenderer : RTG::Application {
 	std::vector<LinesPipeline::Vertex> lines_vertices;
 
     ObjectsPipeline::World world;
+
+	using Transform = ObjectsPipeline::Transform;
     
-    struct ObjectInstance {
+    struct LambertianInstance {
 		ObjectVertices vertices;
-		ObjectsPipeline::Transform transform;
+		Transform transform;
         uint32_t texture = 0;
 	};
-	std::vector< ObjectInstance > object_instances;
+	std::vector< LambertianInstance > lambertian_instances;
+
+	struct EnvironmentInstance {
+		ObjectVertices vertices;
+		Transform transform;
+	};
+	std::vector< EnvironmentInstance > environment_instances;
+
+	struct MirrorInstance {
+		ObjectVertices vertices;
+		Transform transform;
+	};
+	std::vector< MirrorInstance > mirror_instances;
 
 	enum InSceneCamera{
 		SceneCamera = 0,

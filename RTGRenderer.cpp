@@ -958,8 +958,8 @@ void RTGRenderer::render(RTG &rtg_, RTG::RenderParams const &render_params) {
 		vkCmdCopyBuffer(workspace.command_buffer, workspace.World_src.handle, workspace.World.handle, 1, &copy_region);
 	}
 
-	if (!object_instances.empty()) { //upload object transforms:
-		size_t needed_bytes = object_instances.size() * sizeof(ObjectsPipeline::Transform);
+	if (!lambertian_instances.empty() || !environment_instances.empty()) { //upload object transforms:
+		size_t needed_bytes = (lambertian_instances.size()+environment_instances.size()) * sizeof(ObjectsPipeline::Transform);
 		if (workspace.Transforms_src.handle == VK_NULL_HANDLE || workspace.Transforms_src.size < needed_bytes) {
 			//round to next multiple of 4k to avoid re-allocating continuously if vertex count grows slowly:
 			size_t new_bytes = ((needed_bytes + 4096) / 4096) * 4096;
@@ -1016,7 +1016,11 @@ void RTGRenderer::render(RTG &rtg_, RTG::RenderParams const &render_params) {
 		{ //copy transforms into Transforms_src:
 			assert(workspace.Transforms_src.allocation.mapped);
 			ObjectsPipeline::Transform *out = reinterpret_cast< ObjectsPipeline::Transform * >(workspace.Transforms_src.allocation.data()); // Strict aliasing violation, but it doesn't matter
-			for (ObjectInstance const &inst : object_instances) {
+			for (LambertianInstance const &inst : lambertian_instances) {
+				*out = inst.transform;
+				++out;
+			}
+			for (EnvironmentInstance const &inst : environment_instances) {
 				*out = inst.transform;
 				++out;
 			}
@@ -1144,7 +1148,7 @@ void RTGRenderer::render(RTG &rtg_, RTG::RenderParams const &render_params) {
 			vkCmdDraw(workspace.command_buffer, uint32_t(lines_vertices.size()), 1, 0, 0);
 		}
 
-		if (!object_instances.empty()){//draw with the objects pipeline:
+		if (!lambertian_instances.empty()){//draw with the objects pipeline:
 			vkCmdBindPipeline(workspace.command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, objects_pipeline.handle);
 
 			{//use object_vertices (offset 0) as vertex buffer binding 0:
@@ -1172,8 +1176,8 @@ void RTGRenderer::render(RTG &rtg_, RTG::RenderParams const &render_params) {
 			//Camera descriptor set is still bound, but unused
 
 			//draw all instances:
-			for (ObjectInstance const &inst : object_instances) {
-				uint32_t index = uint32_t(&inst - &object_instances[0]);
+			for (LambertianInstance const &inst : lambertian_instances) {
+				uint32_t index = uint32_t(&inst - &lambertian_instances[0]);
 				//bind texture descriptor set:
 				vkCmdBindDescriptorSets(
 					workspace.command_buffer, //command buffer
@@ -1183,6 +1187,43 @@ void RTGRenderer::render(RTG &rtg_, RTG::RenderParams const &render_params) {
 					1, &texture_descriptors[inst.texture], //descriptor sets count, ptr
 					0, nullptr //dynamic offsets count, ptr
 				);
+
+				vkCmdDraw(workspace.command_buffer, inst.vertices.count, 1, inst.vertices.first, index);
+			}
+
+		}
+	
+
+	if (!environment_instances.empty()) {//draw with the objects pipeline:
+			vkCmdBindPipeline(workspace.command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, environment_pipeline.handle);
+
+			{//use object_vertices (offset 0) as vertex buffer binding 0:
+				std::array<VkBuffer, 1>vertex_buffers{object_vertices.handle};
+				std::array< VkDeviceSize, 1 > offsets{ lambertian_instances.size() };
+				vkCmdBindVertexBuffers(workspace.command_buffer, 0, uint32_t(vertex_buffers.size()), vertex_buffers.data(), offsets.data());
+
+			}
+
+			{ //bind Transforms descriptor set:
+				std::array< VkDescriptorSet, 2 > descriptor_sets{
+					workspace.World_descriptors, //0: World
+					workspace.Transforms_descriptors, //1: Transforms
+				};
+				vkCmdBindDescriptorSets(
+					workspace.command_buffer, //command buffer
+					VK_PIPELINE_BIND_POINT_GRAPHICS, //pipeline bind point
+					environment_pipeline.layout, //pipeline layout
+					0, //first set
+					uint32_t(descriptor_sets.size()), descriptor_sets.data(), //descriptor sets count, ptr
+					0, nullptr //dynamic offsets count, ptr
+				);
+			}
+
+			//Camera descriptor set is still bound, but unused
+
+			//draw all instances:
+			for (EnvironmentInstance const &inst : environment_instances) {
+				uint32_t index = uint32_t(&inst - &environment_instances[0]);
 
 				vkCmdDraw(workspace.command_buffer, inst.vertices.count, 1, inst.vertices.first, index);
 			}
@@ -1517,7 +1558,8 @@ void RTGRenderer::update(float dt) {
 	}
 
 	{ //fill object instances with scene hiearchy, optionally draw debug lines when on debug camera
-		object_instances.clear();
+		lambertian_instances.clear();
+		environment_instances.clear();
 		// culling resources
 		glm::mat4x4 frustum_view_from_world = culling_camera == SceneCamera ? view_from_world[0] : view_from_world[1];
 
@@ -1663,25 +1705,46 @@ void RTGRenderer::update(float dt) {
 				if (scene.meshes[cur_mesh_index].material_index != -1) { /// has some material
 					const Scene::Material& cur_material = scene.materials[scene.meshes[cur_mesh_index].material_index];
 					if (cur_material.material_type == Scene::Material::MaterialType::Environment) {
-
+						environment_instances.emplace_back(EnvironmentInstance{
+							.vertices = mesh_vertices[cur_mesh_index],
+							.transform{
+								.CLIP_FROM_LOCAL = CLIP_FROM_WORLD * WORLD_FROM_LOCAL,
+								.WORLD_FROM_LOCAL = WORLD_FROM_LOCAL,
+								.WORLD_FROM_LOCAL_NORMAL = WORLD_FROM_LOCAL_NORMAL,
+							},
+						});
 					}
 					else if (cur_material.material_type == Scene::Material::MaterialType::Mirror) {
 						
 					}
+					else if (cur_material.material_type == Scene::Material::MaterialType::Lambertian) {
+						lambertian_instances.emplace_back(LambertianInstance{
+							.vertices = mesh_vertices[cur_mesh_index],
+							.transform{
+								.CLIP_FROM_LOCAL = CLIP_FROM_WORLD * WORLD_FROM_LOCAL,
+								.WORLD_FROM_LOCAL = WORLD_FROM_LOCAL,
+								.WORLD_FROM_LOCAL_NORMAL = WORLD_FROM_LOCAL_NORMAL,
+							},
+							.texture = texture_index,
+						});
+					}
+					else if (cur_material.material_type == Scene::Material::MaterialType::PBR) {
+
+					}
 				}
 				else {
 					// use lambertian pipeline to render the default albedo, displacement and normal maps
+					lambertian_instances.emplace_back(LambertianInstance{
+						.vertices = mesh_vertices[cur_mesh_index],
+						.transform{
+							.CLIP_FROM_LOCAL = CLIP_FROM_WORLD * WORLD_FROM_LOCAL,
+							.WORLD_FROM_LOCAL = WORLD_FROM_LOCAL,
+							.WORLD_FROM_LOCAL_NORMAL = WORLD_FROM_LOCAL_NORMAL,
+						},
+						.texture = texture_index,
+					});
 				}
 
-				object_instances.emplace_back(ObjectInstance{
-					.vertices = mesh_vertices[cur_mesh_index],
-					.transform{
-						.CLIP_FROM_LOCAL = CLIP_FROM_WORLD * WORLD_FROM_LOCAL,
-						.WORLD_FROM_LOCAL = WORLD_FROM_LOCAL,
-						.WORLD_FROM_LOCAL_NORMAL = WORLD_FROM_LOCAL_NORMAL,
-					},
-					.texture = texture_index,
-				});
 			}
 			transform_stack.pop_back();
 		};
