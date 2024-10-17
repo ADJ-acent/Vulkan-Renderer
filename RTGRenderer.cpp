@@ -117,13 +117,14 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_) {
 	lines_pipeline.create(rtg, render_pass, 0);
 	objects_pipeline.create(rtg, render_pass, 0);
 	environment_pipeline.create(rtg, render_pass, 0);
+	mirror_pipeline.create(rtg, render_pass, 0);
 
 	//create environment texture
 	if (scene.environment.source != ""){
 		int width,height,n;
 		unsigned char* image;
 		image = stbi_load((scene.scene_path +"/"+ scene.environment.source).c_str(), &width, &height, &n, 4);
-		if (image == NULL) throw std::runtime_error("Error loading texture " + scene.scene_path + scene.environment.source);
+		if (image == NULL) throw std::runtime_error("Error loading texture " + scene.scene_path +"/" + scene.environment.source);
 		 // cube map must have 6 sides and stacked vertically
 		if (height % 6 != 0 || width != height / 6) {
 			throw std::runtime_error("Invalid image dimensions for a cubemap");
@@ -416,7 +417,7 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_) {
 				
 				if (cur_texture.single_channel) { // just read the r value
 					image = stbi_load((scene.scene_path +"/"+ source).c_str(), &width, &height, &n, 1);
-					if (image == NULL) throw std::runtime_error("Error loading texture " + scene.scene_path + source);
+					if (image == NULL) throw std::runtime_error("Error loading texture " + scene.scene_path + "/" + source);
 					textures.emplace_back(rtg.helpers.create_image(
 						VkExtent2D{ .width = uint32_t(width) , .height = uint32_t(height) }, //size of image
 						VK_FORMAT_R8_UNORM, //how to interpret image data (in this case, linearly-encoded 8-bit RGBA) TODO: double check format
@@ -430,7 +431,7 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_) {
 				}
 				else {
 					image = stbi_load((scene.scene_path +"/"+ source).c_str(), &width, &height, &n, 4);
-					if (image == NULL) throw std::runtime_error("Error loading texture " + scene.scene_path + source);		
+					if (image == NULL) throw std::runtime_error("Error loading texture " + scene.scene_path + "/" + source);		
 					textures.emplace_back(rtg.helpers.create_image(
 						VkExtent2D{ .width = uint32_t(width) , .height = uint32_t(height) }, //size of image
 						VK_FORMAT_R8G8B8A8_UNORM, //how to interpret image data (in this case, linearly-encoded 8-bit RGBA) TODO: double check format
@@ -720,6 +721,7 @@ RTGRenderer::~RTGRenderer() {
 	lines_pipeline.destroy(rtg);
 	objects_pipeline.destroy(rtg);
 	environment_pipeline.destroy(rtg);
+	mirror_pipeline.destroy(rtg);
 
 	rtg.helpers.destroy_buffer(std::move(object_vertices));
 
@@ -943,7 +945,7 @@ void RTGRenderer::render(RTG &rtg_, RTG::RenderParams const &render_params) {
 	}
 
 	{ //upload world info:
-		assert(workspace.Camera_src.size == sizeof(world));
+		assert(workspace.World_src.size == sizeof(world));
 
 		//host-side copy into World_src:
 		memcpy(workspace.World_src.allocation.data(), &world, sizeof(world));
@@ -958,8 +960,8 @@ void RTGRenderer::render(RTG &rtg_, RTG::RenderParams const &render_params) {
 		vkCmdCopyBuffer(workspace.command_buffer, workspace.World_src.handle, workspace.World.handle, 1, &copy_region);
 	}
 
-	if (!lambertian_instances.empty() || !environment_instances.empty()) { //upload object transforms:
-		size_t needed_bytes = (lambertian_instances.size()+environment_instances.size()) * sizeof(ObjectsPipeline::Transform);
+	if (!lambertian_instances.empty() || !environment_instances.empty() || !mirror_instances.empty()) { //upload object transforms:
+		size_t needed_bytes = (lambertian_instances.size() + environment_instances.size() + mirror_instances.size()) * sizeof(ObjectsPipeline::Transform);
 		if (workspace.Transforms_src.handle == VK_NULL_HANDLE || workspace.Transforms_src.size < needed_bytes) {
 			//round to next multiple of 4k to avoid re-allocating continuously if vertex count grows slowly:
 			size_t new_bytes = ((needed_bytes + 4096) / 4096) * 4096;
@@ -1021,6 +1023,10 @@ void RTGRenderer::render(RTG &rtg_, RTG::RenderParams const &render_params) {
 				++out;
 			}
 			for (EnvironmentInstance const &inst : environment_instances) {
+				*out = inst.transform;
+				++out;
+			}
+			for (MirrorInstance const &inst : mirror_instances) {
 				*out = inst.transform;
 				++out;
 			}
@@ -1193,42 +1199,50 @@ void RTGRenderer::render(RTG &rtg_, RTG::RenderParams const &render_params) {
 
 		}
 	
-
-	if (!environment_instances.empty()) {//draw with the objects pipeline:
+		if (!environment_instances.empty()) {//draw with the objects pipeline:
 			vkCmdBindPipeline(workspace.command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, environment_pipeline.handle);
 
-			{//use object_vertices (offset 0) as vertex buffer binding 0:
+			{//use object_vertices as vertex buffer binding 0:
 				std::array<VkBuffer, 1>vertex_buffers{object_vertices.handle};
-				std::array< VkDeviceSize, 1 > offsets{ lambertian_instances.size() };
+				std::array< VkDeviceSize, 1 > offsets{ 0 };
 				vkCmdBindVertexBuffers(workspace.command_buffer, 0, uint32_t(vertex_buffers.size()), vertex_buffers.data(), offsets.data());
 
 			}
 
-			{ //bind Transforms descriptor set:
-				std::array< VkDescriptorSet, 2 > descriptor_sets{
-					workspace.World_descriptors, //0: World
-					workspace.Transforms_descriptors, //1: Transforms
-				};
-				vkCmdBindDescriptorSets(
-					workspace.command_buffer, //command buffer
-					VK_PIPELINE_BIND_POINT_GRAPHICS, //pipeline bind point
-					environment_pipeline.layout, //pipeline layout
-					0, //first set
-					uint32_t(descriptor_sets.size()), descriptor_sets.data(), //descriptor sets count, ptr
-					0, nullptr //dynamic offsets count, ptr
-				);
-			}
-
-			//Camera descriptor set is still bound, but unused
+			//World descriptor still bound
 
 			//draw all instances:
+			uint32_t index_offset = uint32_t(lambertian_instances.size());// account for lambertian size
 			for (EnvironmentInstance const &inst : environment_instances) {
-				uint32_t index = uint32_t(&inst - &environment_instances[0]);
+				uint32_t index = uint32_t(&inst - &environment_instances[0]) + index_offset; 
 
 				vkCmdDraw(workspace.command_buffer, inst.vertices.count, 1, inst.vertices.first, index);
 			}
 
 		}
+
+		if (!mirror_instances.empty()) {//draw with the objects pipeline:
+				vkCmdBindPipeline(workspace.command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, mirror_pipeline.handle);
+
+				{//use object_vertices as vertex buffer binding 0:
+					std::array<VkBuffer, 1>vertex_buffers{object_vertices.handle};
+					std::array< VkDeviceSize, 1 > offsets{ 0 };
+					vkCmdBindVertexBuffers(workspace.command_buffer, 0, uint32_t(vertex_buffers.size()), vertex_buffers.data(), offsets.data());
+				}
+
+				//World descriptor still bound
+
+				//Camera descriptor set is still bound, but unused
+
+				//draw all instances:
+				uint32_t index_offset = uint32_t(lambertian_instances.size() + environment_instances.size());// account for lambertian and environment size
+				for (MirrorInstance const &inst : mirror_instances) {
+					uint32_t index = uint32_t(&inst - &mirror_instances[0]) + index_offset;
+
+					vkCmdDraw(workspace.command_buffer, inst.vertices.count, 1, inst.vertices.first, index);
+				}
+
+			}
 	
 		vkCmdEndRenderPass(workspace.command_buffer);
 	}
@@ -1389,8 +1403,10 @@ void RTGRenderer::update(float dt) {
 			cur_camera.far //far
 		);
 
-		if (view_camera == InSceneCamera::SceneCamera)
+		if (view_camera == InSceneCamera::SceneCamera) {
 			CLIP_FROM_WORLD = clip_from_view[0] * view_from_world[0];
+			world.CAMERA_POSITION = glm::vec4(eye, 1.0f);
+		}
 
 	} 
 	if (view_camera != InSceneCamera::SceneCamera) { // check if aspect ratio changed
@@ -1415,6 +1431,9 @@ void RTGRenderer::update(float dt) {
 			update_free_camera(cam);
 			last_aspect = float(rtg.swapchain_extent.width) / float(rtg.swapchain_extent.height);
 		}
+
+		FreeCamera& cur_camera = view_camera == InSceneCamera::UserCamera ? user_camera : debug_camera;
+		world.CAMERA_POSITION = glm::vec4(cur_camera.eye, 1.0f);
 	}
 
 	lines_vertices.clear();
@@ -1560,6 +1579,7 @@ void RTGRenderer::update(float dt) {
 	{ //fill object instances with scene hiearchy, optionally draw debug lines when on debug camera
 		lambertian_instances.clear();
 		environment_instances.clear();
+		mirror_instances.clear();
 		// culling resources
 		glm::mat4x4 frustum_view_from_world = culling_camera == SceneCamera ? view_from_world[0] : view_from_world[1];
 
@@ -1581,7 +1601,7 @@ void RTGRenderer::update(float dt) {
 			// draw own mesh
 			if (int32_t cur_mesh_index = cur_node.mesh_index; cur_mesh_index != -1) {
 				glm::mat4x4 WORLD_FROM_LOCAL = transform_stack.back();
-				glm::mat4x4 WORLD_FROM_LOCAL_NORMAL = glm::mat4x4(glm::transpose(glm::inverse(glm::mat3(WORLD_FROM_LOCAL))));
+				glm::mat4x4 WORLD_FROM_LOCAL_NORMAL = glm::mat4x4(glm::inverse(glm::transpose(glm::mat3(WORLD_FROM_LOCAL))));
 				{//debug draws and frustum culling
 					
 					OBB obb = AABB_transform_to_OBB(WORLD_FROM_LOCAL, mesh_AABBs[cur_mesh_index]);
@@ -1715,7 +1735,14 @@ void RTGRenderer::update(float dt) {
 						});
 					}
 					else if (cur_material.material_type == Scene::Material::MaterialType::Mirror) {
-						
+						mirror_instances.emplace_back(MirrorInstance{
+							.vertices = mesh_vertices[cur_mesh_index],
+							.transform{
+								.CLIP_FROM_LOCAL = CLIP_FROM_WORLD * WORLD_FROM_LOCAL,
+								.WORLD_FROM_LOCAL = WORLD_FROM_LOCAL,
+								.WORLD_FROM_LOCAL_NORMAL = WORLD_FROM_LOCAL_NORMAL,
+							},
+						});
 					}
 					else if (cur_material.material_type == Scene::Material::MaterialType::Lambertian) {
 						lambertian_instances.emplace_back(LambertianInstance{

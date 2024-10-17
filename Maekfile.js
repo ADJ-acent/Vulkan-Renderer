@@ -71,6 +71,12 @@ const environment_shaders = [
 ];
 main_objs.push( maek.CPP('EnvironmentPipeline.cpp', undefined, { depends:[...environment_shaders] } ) );
 
+const mirror_shaders = [
+	maek.GLSLC('mirror.vert'),
+	maek.GLSLC('mirror.frag'),
+];
+main_objs.push( maek.CPP('MirrorPipeline.cpp', undefined, { depends:[...mirror_shaders] } ) );
+
 const main_exe = maek.LINK([...main_objs], 'bin/viewer');
 
 //default targets:

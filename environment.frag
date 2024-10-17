@@ -5,6 +5,7 @@ layout(set=0,binding=0,std140) uniform World {
 	vec3 SKY_ENERGY; //energy supplied by sky to a surface patch with normal = SKY_DIRECTION
 	vec3 SUN_DIRECTION;
 	vec3 SUN_ENERGY; //energy supplied by sun to a surface patch with normal = SUN_DIRECTION
+	vec3 CAMERA_POSITION;
 };
 
 layout(set=0, binding=1) uniform samplerCube ENVIRONMENT;
@@ -19,6 +20,5 @@ layout(location=0) out vec4 outColor;
 
 void main() {
 	vec3 n = normalize(normal);
-
 	outColor = texture(ENVIRONMENT, n);
 }
