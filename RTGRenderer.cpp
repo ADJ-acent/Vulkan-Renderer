@@ -142,14 +142,14 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_) {
 
 		World_environment = rtg.helpers.create_image(
 			VkExtent2D{ .width = uint32_t(face_length), .height = uint32_t(face_length) }, // size of each face
-			VK_FORMAT_R8G8B8A8_UNORM,
+			VK_FORMAT_R32G32B32A32_SFLOAT,
 			VK_IMAGE_TILING_OPTIMAL,
 			VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
 			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
 			Helpers::Unmapped, 6
 		);
 		
-		rtg.helpers.transfer_to_image_cube(image, 4 * width * height, World_environment);
+		rtg.helpers.transfer_to_image_cube(rgb_image.data(), 4 * 4 * width * height, World_environment);
 	
 		//free image:
 		stbi_image_free(image);

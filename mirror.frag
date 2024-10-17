@@ -1,5 +1,7 @@
 #version 450
-
+#ifndef TONEMAP
+	#include "tonemap.glsl"
+#endif
 layout(set=0,binding=0,std140) uniform World {
 	vec3 SKY_DIRECTION;
 	vec3 SKY_ENERGY; //energy supplied by sky to a surface patch with normal = SKY_DIRECTION
@@ -21,5 +23,6 @@ layout(location=0) out vec4 outColor;
 void main() {
 	vec3 n = normalize(normal);
 	vec3 viewDir = normalize(position - CAMERA_POSITION);
-	outColor = texture(ENVIRONMENT, reflect(viewDir,n));
+	vec3 radiance = vec3(texture(ENVIRONMENT, reflect(viewDir,n)));
+	outColor = vec4(ACESFitted(radiance), 1.0f);
 }
