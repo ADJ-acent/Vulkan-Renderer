@@ -15,18 +15,26 @@ layout(set=2, binding=3) uniform sampler2D ROUGHNESS;
 layout(set=2, binding=4) uniform sampler2D METALNESS;
 
 layout(location=0) in vec3 position;
-layout(location=1) in vec3 normal;
-layout(location=2) in vec2 texCoord;
+layout(location=1) in vec2 texCoord;
+layout(location=2) in mat3 TBN;
 
 layout(location=0) out vec4 outColor;
 
+#define PI 3.1415926538
+
 void main() {
-	vec3 n = normalize(normal);
+	// Sample the normal map and convert from [0,1] to [-1,1]
+    vec3 normal_rgb = texture(NORMAL, texCoord).rgb; 
+    vec3 tangentNormal = normalize(normal_rgb * 2.0 - 1.0); 
+
+    // Transform the normal from tangent space to world space
+    vec3 worldNormal = TBN * tangentNormal; 
+
 	vec3 albedo = texture(ALBEDO, texCoord).rgb;
 
 	//hemisphere lighting from direction l:
-	vec3 e = SKY_ENERGY * (0.5 * dot(n,SKY_DIRECTION) + 0.5)
-	       + SUN_ENERGY * max(0.0, dot(n,SUN_DIRECTION)) ;
+	vec3 e = SKY_ENERGY * (0.5 * dot(worldNormal,SKY_DIRECTION) + 0.5)
+	       + SUN_ENERGY * max(0.0, dot(worldNormal,SUN_DIRECTION)) ;
 
-	outColor = vec4(e * albedo, 1.0);
+	outColor = vec4(e * albedo / PI, 1.0);
 }
