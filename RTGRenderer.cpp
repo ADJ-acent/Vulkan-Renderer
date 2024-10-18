@@ -118,6 +118,7 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_) {
 	objects_pipeline.create(rtg, render_pass, 0);
 	environment_pipeline.create(rtg, render_pass, 0);
 	mirror_pipeline.create(rtg, render_pass, 0);
+	pbr_pipeline.create(rtg, render_pass, 0);
 
 	//create environment texture
 	if (scene.environment.source != ""){
@@ -530,68 +531,131 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_) {
 		};
 		VK(vkCreateSampler(rtg.device, &create_info, nullptr, &texture_sampler));
 	}
-		
-	{//create the texture descriptor pool
-		uint32_t per_texture = uint32_t(textures.size()); //for easier-to-read counting
 
+	{//create the material descriptor pool
+		uint32_t per_material = uint32_t(scene.materials.size());
+		uint32_t per_pbr_material = uint32_t(scene.MatPBR_count);
+		uint32_t per_lambertian_material = uint32_t(scene.MatLambertian_count);
+		uint32_t per_envmirror_material = uint32_t(scene.MatEnvMirror_count);
 		std::array< VkDescriptorPoolSize, 1> pool_sizes{
 			VkDescriptorPoolSize{
 				.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-				.descriptorCount = 1 * 1 * per_texture, //one descriptor per set, one set per texture
+				.descriptorCount = 1 * 5 * per_pbr_material + 1 * 3 * per_lambertian_material + 1 * 2 * per_envmirror_material,
 			},
 		};
 		
 		VkDescriptorPoolCreateInfo create_info{
 			.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
 			.flags = 0, //because CREATE_FREE_DESCRIPTOR_SET_BIT isn't included, *can't* free individual descriptors allocated from this pool
-			.maxSets = 1 * per_texture, //one set per texture
+			.maxSets = 1 * per_material, //one set per material
 			.poolSizeCount = uint32_t(pool_sizes.size()),
 			.pPoolSizes = pool_sizes.data(),
 		};
 
-		VK(vkCreateDescriptorPool(rtg.device, &create_info, nullptr, &texture_descriptor_pool));
+		VK(vkCreateDescriptorPool(rtg.device, &create_info, nullptr, &material_descriptor_pool));
+		
 	}
 
 	{//allocate and write the texture descriptor sets
-		//allocate the descriptors (using the same alloc_info):
-		VkDescriptorSetAllocateInfo alloc_info{
+		//allocate the descriptors (use the material type's alloc info)
+		VkDescriptorSetAllocateInfo mat_lambertian_alloc_info{
 			.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
-			.descriptorPool = texture_descriptor_pool,
+			.descriptorPool = material_descriptor_pool,
 			.descriptorSetCount = 1,
 			.pSetLayouts = &objects_pipeline.set2_TEXTURE,
 		};
-		texture_descriptors.assign(textures.size(), VK_NULL_HANDLE);
+		VkDescriptorSetAllocateInfo mat_pbr_alloc_info{
+			.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+			.descriptorPool = material_descriptor_pool,
+			.descriptorSetCount = 1,
+			.pSetLayouts = &pbr_pipeline.set2_TEXTURE,
+		};
+		VkDescriptorSetAllocateInfo mat_envmirror_alloc_info{
+			.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+			.descriptorPool = material_descriptor_pool,
+			.descriptorSetCount = 1,
+			.pSetLayouts = &environment_pipeline.set2_TEXTURE,
+		};
+		material_descriptors.assign(scene.materials.size(), VK_NULL_HANDLE);
 
-		for (VkDescriptorSet &descriptor_set : texture_descriptors) {
-			VK(vkAllocateDescriptorSets(rtg.device, &alloc_info, &descriptor_set));
+		for (uint32_t material_index = 0; material_index < scene.materials.size(); ++material_index) {
+			VkDescriptorSet &descriptor_set = material_descriptors[material_index];
+			if (scene.materials[material_index].material_type == Scene::Material::Lambertian) {
+				VK(vkAllocateDescriptorSets(rtg.device, &mat_lambertian_alloc_info, &descriptor_set));
+			}
+			else if (scene.materials[material_index].material_type == Scene::Material::PBR) {
+				VK(vkAllocateDescriptorSets(rtg.device, &mat_pbr_alloc_info, &descriptor_set));
+			}
+			else {
+				VK(vkAllocateDescriptorSets(rtg.device, &mat_envmirror_alloc_info, &descriptor_set));
+			}
 		}
+		//write descriptors for materials:
+		std::vector< VkWriteDescriptorSet > writes(scene.materials.size());
 
-		//write descriptors for textures:
-		std::vector< VkDescriptorImageInfo > infos(textures.size());
-		std::vector< VkWriteDescriptorSet > writes(textures.size());
+		constexpr uint8_t pbr_tex_count = 5;
+		constexpr uint8_t lambertian_tex_count = 3;
+		constexpr uint8_t envmirror_tex_count = 2;
 
-		for (Helpers::AllocatedImage const &image : textures) {
-			size_t i = &image - &textures[0];
-			
-			infos[i] = VkDescriptorImageInfo{
+		for (uint32_t material_index = 0; material_index < scene.materials.size(); ++material_index) {
+			const Scene::Material& material = scene.materials[material_index];
+			uint8_t cur_material_tex_count = 0;
+			VkDescriptorImageInfo infos[5];
+			infos[0] = VkDescriptorImageInfo{
 				.sampler = texture_sampler,
-				.imageView = texture_views[i],
+				.imageView = texture_views[material.normal_index],
 				.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
 			};
-			writes[i] = VkWriteDescriptorSet{
+			infos[1] = VkDescriptorImageInfo{
+				.sampler = texture_sampler,
+				.imageView = texture_views[material.displacement_index],
+				.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+			};
+			if (material.material_type == Scene::Material::Lambertian) {
+				cur_material_tex_count = lambertian_tex_count;
+				infos[2] = VkDescriptorImageInfo{
+					.sampler = texture_sampler,
+					.imageView = texture_views[std::get<Scene::Material::MatLambertian>(material.material_textures).albedo_index],
+					.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+				};
+			}
+			else if (material.material_type == Scene::Material::PBR) {
+				cur_material_tex_count = pbr_tex_count;
+				const Scene::Material::MatPBR& pbr_textures = std::get<Scene::Material::MatPBR>(material.material_textures);
+				infos[2] = VkDescriptorImageInfo{
+					.sampler = texture_sampler,
+					.imageView = texture_views[pbr_textures.albedo_index],
+					.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+				};
+				infos[3] = VkDescriptorImageInfo{
+					.sampler = texture_sampler,
+					.imageView = texture_views[pbr_textures.roughness_index],
+					.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+				};
+				infos[4] = VkDescriptorImageInfo{
+					.sampler = texture_sampler,
+					.imageView = texture_views[pbr_textures.metalness_index],
+					.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+				};
+			}
+			else {
+				cur_material_tex_count = envmirror_tex_count;
+			}
+
+			writes[material_index] = VkWriteDescriptorSet{
 				.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-				.dstSet = texture_descriptors[i],
+				.dstSet = material_descriptors[material_index],
 				.dstBinding = 0,
 				.dstArrayElement = 0,
-				.descriptorCount = 1,
+				.descriptorCount = cur_material_tex_count,
 				.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-				.pImageInfo = &infos[i],
+				.pImageInfo = &infos[0],
 			};
 		}
 
 		vkUpdateDescriptorSets(rtg.device, uint32_t(writes.size()), writes.data(), 0, nullptr);
 	}
-	
+
 	{ //setup camera if no --camera in the command line, scene camera is set in update
 		if (!rtg_.configuration.scene_camera.has_value()) {
 			float x = user_camera.radius * std::sin(user_camera.elevation) * std::cos(user_camera.azimuth);
@@ -679,12 +743,12 @@ RTGRenderer::~RTGRenderer() {
 		std::cerr << "Failed to vkDeviceWaitIdle in RTGRenderer::~RTGRenderer [" << string_VkResult(result) << "]; continuing anyway." << std::endl;
 	}
 
-	if (texture_descriptor_pool) {
-		vkDestroyDescriptorPool(rtg.device, texture_descriptor_pool, nullptr);
-		texture_descriptor_pool = nullptr;
+	if (material_descriptor_pool) {
+		vkDestroyDescriptorPool(rtg.device, material_descriptor_pool, nullptr);
+		material_descriptor_pool = nullptr;
 
-		//this also frees the descriptor sets allocated from the pool:
-		texture_descriptors.clear();
+		//the above also frees the descriptor sets allocated from the pool:
+		material_descriptors.clear();
 	}
 
 	if (World_environment_sampler) {
@@ -722,7 +786,8 @@ RTGRenderer::~RTGRenderer() {
 	objects_pipeline.destroy(rtg);
 	environment_pipeline.destroy(rtg);
 	mirror_pipeline.destroy(rtg);
-
+	pbr_pipeline.destroy(rtg);
+	
 	rtg.helpers.destroy_buffer(std::move(object_vertices));
 
 	if (swapchain_depth_image.handle != VK_NULL_HANDLE) {
@@ -960,8 +1025,8 @@ void RTGRenderer::render(RTG &rtg_, RTG::RenderParams const &render_params) {
 		vkCmdCopyBuffer(workspace.command_buffer, workspace.World_src.handle, workspace.World.handle, 1, &copy_region);
 	}
 
-	if (!lambertian_instances.empty() || !environment_instances.empty() || !mirror_instances.empty()) { //upload object transforms:
-		size_t needed_bytes = (lambertian_instances.size() + environment_instances.size() + mirror_instances.size()) * sizeof(ObjectsPipeline::Transform);
+	if (!lambertian_instances.empty() || !environment_instances.empty() || !mirror_instances.empty() || !pbr_instances.empty()) { //upload object transforms:
+		size_t needed_bytes = (lambertian_instances.size() + environment_instances.size() + mirror_instances.size() + pbr_instances.size()) * sizeof(ObjectsPipeline::Transform);
 		if (workspace.Transforms_src.handle == VK_NULL_HANDLE || workspace.Transforms_src.size < needed_bytes) {
 			//round to next multiple of 4k to avoid re-allocating continuously if vertex count grows slowly:
 			size_t new_bytes = ((needed_bytes + 4096) / 4096) * 4096;
@@ -1018,15 +1083,19 @@ void RTGRenderer::render(RTG &rtg_, RTG::RenderParams const &render_params) {
 		{ //copy transforms into Transforms_src:
 			assert(workspace.Transforms_src.allocation.mapped);
 			ObjectsPipeline::Transform *out = reinterpret_cast< ObjectsPipeline::Transform * >(workspace.Transforms_src.allocation.data()); // Strict aliasing violation, but it doesn't matter
-			for (LambertianInstance const &inst : lambertian_instances) {
+			for (ObjectInstance const &inst : lambertian_instances) {
 				*out = inst.transform;
 				++out;
 			}
-			for (EnvironmentInstance const &inst : environment_instances) {
+			for (ObjectInstance const &inst : environment_instances) {
 				*out = inst.transform;
 				++out;
 			}
-			for (MirrorInstance const &inst : mirror_instances) {
+			for (ObjectInstance const &inst : mirror_instances) {
+				*out = inst.transform;
+				++out;
+			}
+			for (ObjectInstance const &inst : pbr_instances) {
 				*out = inst.transform;
 				++out;
 			}
@@ -1182,7 +1251,7 @@ void RTGRenderer::render(RTG &rtg_, RTG::RenderParams const &render_params) {
 			//Camera descriptor set is still bound, but unused
 
 			//draw all instances:
-			for (LambertianInstance const &inst : lambertian_instances) {
+			for (ObjectInstance const &inst : lambertian_instances) {
 				uint32_t index = uint32_t(&inst - &lambertian_instances[0]);
 				//bind texture descriptor set:
 				vkCmdBindDescriptorSets(
@@ -1190,7 +1259,7 @@ void RTGRenderer::render(RTG &rtg_, RTG::RenderParams const &render_params) {
 					VK_PIPELINE_BIND_POINT_GRAPHICS, //pipeline bind point
 					objects_pipeline.layout, //pipeline layout
 					2, //second set
-					1, &texture_descriptors[inst.texture], //descriptor sets count, ptr
+					1, &material_descriptors[inst.material_index], //descriptor sets count, ptr
 					0, nullptr //dynamic offsets count, ptr
 				);
 
@@ -1213,36 +1282,82 @@ void RTGRenderer::render(RTG &rtg_, RTG::RenderParams const &render_params) {
 
 			//draw all instances:
 			uint32_t index_offset = uint32_t(lambertian_instances.size());// account for lambertian size
-			for (EnvironmentInstance const &inst : environment_instances) {
+			for (ObjectInstance const &inst : environment_instances) {
 				uint32_t index = uint32_t(&inst - &environment_instances[0]) + index_offset; 
-
+				//bind texture descriptor set:
+				vkCmdBindDescriptorSets(
+					workspace.command_buffer, //command buffer
+					VK_PIPELINE_BIND_POINT_GRAPHICS, //pipeline bind point
+					environment_pipeline.layout, //pipeline layout
+					2, //second set
+					1, &material_descriptors[inst.material_index], //descriptor sets count, ptr
+					0, nullptr //dynamic offsets count, ptr
+				);
 				vkCmdDraw(workspace.command_buffer, inst.vertices.count, 1, inst.vertices.first, index);
 			}
 
 		}
 
 		if (!mirror_instances.empty()) {//draw with the objects pipeline:
-				vkCmdBindPipeline(workspace.command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, mirror_pipeline.handle);
+			vkCmdBindPipeline(workspace.command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, mirror_pipeline.handle);
 
-				{//use object_vertices as vertex buffer binding 0:
-					std::array<VkBuffer, 1>vertex_buffers{object_vertices.handle};
-					std::array< VkDeviceSize, 1 > offsets{ 0 };
-					vkCmdBindVertexBuffers(workspace.command_buffer, 0, uint32_t(vertex_buffers.size()), vertex_buffers.data(), offsets.data());
-				}
-
-				//World descriptor still bound
-
-				//Camera descriptor set is still bound, but unused
-
-				//draw all instances:
-				uint32_t index_offset = uint32_t(lambertian_instances.size() + environment_instances.size());// account for lambertian and environment size
-				for (MirrorInstance const &inst : mirror_instances) {
-					uint32_t index = uint32_t(&inst - &mirror_instances[0]) + index_offset;
-
-					vkCmdDraw(workspace.command_buffer, inst.vertices.count, 1, inst.vertices.first, index);
-				}
-
+			{//use object_vertices as vertex buffer binding 0:
+				std::array<VkBuffer, 1>vertex_buffers{object_vertices.handle};
+				std::array< VkDeviceSize, 1 > offsets{ 0 };
+				vkCmdBindVertexBuffers(workspace.command_buffer, 0, uint32_t(vertex_buffers.size()), vertex_buffers.data(), offsets.data());
 			}
+
+			//World descriptor still bound
+
+			//Camera descriptor set is still bound, but unused
+
+			//draw all instances:
+			uint32_t index_offset = uint32_t(lambertian_instances.size() + environment_instances.size());// account for lambertian and environment size
+			for (ObjectInstance const &inst : mirror_instances) {
+				uint32_t index = uint32_t(&inst - &mirror_instances[0]) + index_offset;
+				//bind texture descriptor set:
+				vkCmdBindDescriptorSets(
+					workspace.command_buffer, //command buffer
+					VK_PIPELINE_BIND_POINT_GRAPHICS, //pipeline bind point
+					mirror_pipeline.layout, //pipeline layout
+					2, //second set
+					1, &material_descriptors[inst.material_index], //descriptor sets count, ptr
+					0, nullptr //dynamic offsets count, ptr
+				);
+				vkCmdDraw(workspace.command_buffer, inst.vertices.count, 1, inst.vertices.first, index);
+			}
+
+		}
+		if (!pbr_instances.empty()) {//draw with the objects pipeline:
+			vkCmdBindPipeline(workspace.command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pbr_pipeline.handle);
+
+			{//use object_vertices as vertex buffer binding 0:
+				std::array<VkBuffer, 1>vertex_buffers{object_vertices.handle};
+				std::array< VkDeviceSize, 1 > offsets{ 0 };
+				vkCmdBindVertexBuffers(workspace.command_buffer, 0, uint32_t(vertex_buffers.size()), vertex_buffers.data(), offsets.data());
+			}
+
+			//World descriptor still bound
+
+			//Camera descriptor set is still bound, but unused
+
+			//draw all instances:
+			uint32_t index_offset = uint32_t(lambertian_instances.size() + environment_instances.size() + mirror_instances.size());// account for lambertian, environment, and mirror size
+			for (ObjectInstance const &inst : pbr_instances) {
+				uint32_t index = uint32_t(&inst - &pbr_instances[0]) + index_offset;
+				//bind texture descriptor set:
+				vkCmdBindDescriptorSets(
+					workspace.command_buffer, //command buffer
+					VK_PIPELINE_BIND_POINT_GRAPHICS, //pipeline bind point
+					pbr_pipeline.layout, //pipeline layout
+					2, //second set
+					1, &material_descriptors[inst.material_index], //descriptor sets count, ptr
+					0, nullptr //dynamic offsets count, ptr
+				);
+				vkCmdDraw(workspace.command_buffer, inst.vertices.count, 1, inst.vertices.first, index);
+			}
+
+		}
 	
 		vkCmdEndRenderPass(workspace.command_buffer);
 	}
@@ -1580,6 +1695,7 @@ void RTGRenderer::update(float dt) {
 		lambertian_instances.clear();
 		environment_instances.clear();
 		mirror_instances.clear();
+		pbr_instances.clear();
 		// culling resources
 		glm::mat4x4 frustum_view_from_world = culling_camera == SceneCamera ? view_from_world[0] : view_from_world[1];
 
@@ -1721,54 +1837,66 @@ void RTGRenderer::update(float dt) {
 					}
 				}
 
-				uint32_t texture_index = 0;
-				if (scene.meshes[cur_mesh_index].material_index != -1) { /// has some material
+				if (uint32_t cur_material_index = scene.meshes[cur_mesh_index].material_index; cur_material_index != -1) { /// has some material
 					const Scene::Material& cur_material = scene.materials[scene.meshes[cur_mesh_index].material_index];
+					// if (scene.meshes[cur_mesh_index].name == "Plane") {
+					// 	std::cout<<cur_material_index<<" , "<<cur_material.name<<", "<< std::get<Scene::Material::MatLambertian>(cur_material.material_textures).albedo_index<<std::endl;
+					// }
 					if (cur_material.material_type == Scene::Material::MaterialType::Environment) {
-						environment_instances.emplace_back(EnvironmentInstance{
+						environment_instances.emplace_back(ObjectInstance{
 							.vertices = mesh_vertices[cur_mesh_index],
 							.transform{
 								.CLIP_FROM_LOCAL = CLIP_FROM_WORLD * WORLD_FROM_LOCAL,
 								.WORLD_FROM_LOCAL = WORLD_FROM_LOCAL,
 								.WORLD_FROM_LOCAL_NORMAL = WORLD_FROM_LOCAL_NORMAL,
 							},
+							.material_index = cur_material_index,
 						});
 					}
 					else if (cur_material.material_type == Scene::Material::MaterialType::Mirror) {
-						mirror_instances.emplace_back(MirrorInstance{
+						mirror_instances.emplace_back(ObjectInstance{
 							.vertices = mesh_vertices[cur_mesh_index],
 							.transform{
 								.CLIP_FROM_LOCAL = CLIP_FROM_WORLD * WORLD_FROM_LOCAL,
 								.WORLD_FROM_LOCAL = WORLD_FROM_LOCAL,
 								.WORLD_FROM_LOCAL_NORMAL = WORLD_FROM_LOCAL_NORMAL,
 							},
+							.material_index = cur_material_index,
 						});
 					}
 					else if (cur_material.material_type == Scene::Material::MaterialType::Lambertian) {
-						lambertian_instances.emplace_back(LambertianInstance{
+						lambertian_instances.emplace_back(ObjectInstance{
 							.vertices = mesh_vertices[cur_mesh_index],
 							.transform{
 								.CLIP_FROM_LOCAL = CLIP_FROM_WORLD * WORLD_FROM_LOCAL,
 								.WORLD_FROM_LOCAL = WORLD_FROM_LOCAL,
 								.WORLD_FROM_LOCAL_NORMAL = WORLD_FROM_LOCAL_NORMAL,
 							},
-							.texture = texture_index,
+							.material_index = cur_material_index,
 						});
 					}
 					else if (cur_material.material_type == Scene::Material::MaterialType::PBR) {
-
+						pbr_instances.emplace_back(ObjectInstance{
+							.vertices = mesh_vertices[cur_mesh_index],
+							.transform{
+								.CLIP_FROM_LOCAL = CLIP_FROM_WORLD * WORLD_FROM_LOCAL,
+								.WORLD_FROM_LOCAL = WORLD_FROM_LOCAL,
+								.WORLD_FROM_LOCAL_NORMAL = WORLD_FROM_LOCAL_NORMAL,
+							},
+							.material_index = cur_material_index,
+						});
 					}
 				}
 				else {
 					// use lambertian pipeline to render the default albedo, displacement and normal maps
-					lambertian_instances.emplace_back(LambertianInstance{
+					lambertian_instances.emplace_back(ObjectInstance{
 						.vertices = mesh_vertices[cur_mesh_index],
 						.transform{
 							.CLIP_FROM_LOCAL = CLIP_FROM_WORLD * WORLD_FROM_LOCAL,
 							.WORLD_FROM_LOCAL = WORLD_FROM_LOCAL,
 							.WORLD_FROM_LOCAL_NORMAL = WORLD_FROM_LOCAL_NORMAL,
 						},
-						.texture = texture_index,
+						.material_index = 0,//default material
 					});
 				}
 

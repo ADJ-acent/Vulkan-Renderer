@@ -8,7 +8,9 @@ layout(set=0,binding=0,std140) uniform World {
 	vec3 CAMERA_POSITION;
 };
 layout(set=0, binding=1) uniform samplerCube ENVIRONMENT;
-layout(set=2, binding=0) uniform sampler2D TEXTURE;
+layout(set=2, binding=0) uniform sampler2D NORMAL;
+layout(set=2, binding=1) uniform sampler2D DISPLACEMENT;
+layout(set=2, binding=2) uniform sampler2D ALBEDO;
 
 layout(location=0) in vec3 position;
 layout(location=1) in vec3 normal;
@@ -18,7 +20,7 @@ layout(location=0) out vec4 outColor;
 
 void main() {
 	vec3 n = normalize(normal);
-	vec3 albedo = texture(TEXTURE, texCoord).rgb;
+	vec3 albedo = texture(ALBEDO, texCoord).rgb;
 
 	//hemisphere lighting from direction l:
 	vec3 e = SKY_ENERGY * (0.5 * dot(n,SKY_DIRECTION) + 0.5)

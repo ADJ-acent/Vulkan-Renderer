@@ -1,4 +1,4 @@
-#define tonemap
+#define TONEMAP
 // The code in this file was originally written by Stephen Hill (@self_shadow)
 // from https://github.com/TheRealMJP/BakingLab/blob/master/BakingLab/ACES.hlsl
 const mat3 ACESInputMat = mat3(

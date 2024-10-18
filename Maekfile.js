@@ -79,6 +79,13 @@ const mirror_shaders = [
 ];
 main_objs.push( maek.CPP('MirrorPipeline.cpp', undefined, { depends:[...mirror_shaders] } ) );
 
+// build mirror shaders and pipeline:
+const pbr_shaders = [
+	maek.GLSLC('pbr.vert', undefined, {GLSLCFlags: ['-mfmt=c']}),
+	maek.GLSLC('pbr.frag', undefined, {GLSLCFlags: ['-mfmt=c']}),
+];
+main_objs.push( maek.CPP('PBRPipeline.cpp', undefined, { depends:[...pbr_shaders] } ) );
+
 const main_exe = maek.LINK([...main_objs], 'bin/viewer');
 
 //default targets:

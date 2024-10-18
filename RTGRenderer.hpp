@@ -147,6 +147,26 @@ struct RTGRenderer : RTG::Application {
 		void destroy(RTG &);
 	} mirror_pipeline;
 
+	struct PBRPipeline {
+		//descriptor set layouts:
+		VkDescriptorSetLayout set0_World = VK_NULL_HANDLE;
+        VkDescriptorSetLayout set1_Transforms = VK_NULL_HANDLE;
+        VkDescriptorSetLayout set2_TEXTURE = VK_NULL_HANDLE;
+
+		//types for descriptors same as objects pipeline
+		
+		//no push constants
+
+		VkPipelineLayout layout = VK_NULL_HANDLE;
+
+		using Vertex = PosNorTanTexVertex;
+
+		VkPipeline handle = VK_NULL_HANDLE;
+
+		void create(RTG &, VkRenderPass render_pass, uint32_t subpass);
+		void destroy(RTG &);
+	} pbr_pipeline;
+
 	//pools from which per-workspace things are allocated:
 	VkCommandPool command_pool = VK_NULL_HANDLE;
 	
@@ -195,8 +215,8 @@ struct RTGRenderer : RTG::Application {
     std::vector< Helpers::AllocatedImage > textures;
 	std::vector< VkImageView > texture_views;
 	VkSampler texture_sampler = VK_NULL_HANDLE;
-	VkDescriptorPool texture_descriptor_pool = VK_NULL_HANDLE;
-	std::vector< VkDescriptorSet > texture_descriptors; //allocated from texture_descriptor_pool
+	VkDescriptorPool material_descriptor_pool = VK_NULL_HANDLE;
+	std::vector< VkDescriptorSet > material_descriptors; //allocated from texture_descriptor_pool
 
 	//--------------------------------------------------------------------
 	//Resources that change when the swapchain is resized:
@@ -228,24 +248,12 @@ struct RTGRenderer : RTG::Application {
 
 	using Transform = ObjectsPipeline::Transform;
     
-    struct LambertianInstance {
+    struct ObjectInstance {
 		ObjectVertices vertices;
 		Transform transform;
-        uint32_t texture = 0;
+		uint32_t material_index;
 	};
-	std::vector< LambertianInstance > lambertian_instances;
-
-	struct EnvironmentInstance {
-		ObjectVertices vertices;
-		Transform transform;
-	};
-	std::vector< EnvironmentInstance > environment_instances;
-
-	struct MirrorInstance {
-		ObjectVertices vertices;
-		Transform transform;
-	};
-	std::vector< MirrorInstance > mirror_instances;
+	std::vector< ObjectInstance > lambertian_instances, environment_instances, mirror_instances, pbr_instances;
 
 	enum InSceneCamera{
 		SceneCamera = 0,

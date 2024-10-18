@@ -60,10 +60,22 @@ void RTGRenderer::ObjectsPipeline::create(RTG &rtg, VkRenderPass render_pass, ui
 		VK(vkCreateDescriptorSetLayout(rtg.device, &create_info, nullptr, &set1_Transforms));
 	}
 
-    { //the set2_TEXTURE layout has a single descriptor for a sampler2D used in the fragment shader:
-		std::array< VkDescriptorSetLayoutBinding, 1 > bindings{
+    { //the set2_TEXTURE layout has 3 sampler2Ds used in the fragment shader (normal, displacement, albedo):
+		std::array< VkDescriptorSetLayoutBinding, 3 > bindings{
 			VkDescriptorSetLayoutBinding{
 				.binding = 0,
+				.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+				.descriptorCount = 1,
+				.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT
+			},
+            VkDescriptorSetLayoutBinding{
+				.binding = 1,
+				.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+				.descriptorCount = 1,
+				.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT
+			},
+            VkDescriptorSetLayoutBinding{
+				.binding = 2,
 				.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
 				.descriptorCount = 1,
 				.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT

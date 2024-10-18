@@ -94,7 +94,7 @@ struct Scene
         Attribute attributes[4]; // Position, Normal, Tangent, TexCoord
         VkPrimitiveTopology topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
         uint32_t count = 0;
-        int32_t material_index = -1;
+        uint32_t material_index = 0; // default material at index 0
         // assuming all has the format of PosNorTanTex
     };
 
@@ -152,6 +152,10 @@ struct Scene
     uint32_t vertices_count = 0;
 
     std::vector<Material> materials;
+    uint32_t MatPBR_count;
+    uint32_t MatLambertian_count;
+    uint32_t MatEnvMirror_count; // both environment and mirror just need normal and displacement
+
     std::vector<Texture> textures;
 
     std::vector<Driver> drivers;
