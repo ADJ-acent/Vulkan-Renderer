@@ -6,6 +6,7 @@ layout(set=0,binding=0,std140) uniform World {
 	vec3 SUN_DIRECTION;
 	vec3 SUN_ENERGY; //energy supplied by sun to a surface patch with normal = SUN_DIRECTION
 	vec3 CAMERA_POSITION;
+	float ENVIRONMENT_MIPS;
 };
 layout(set=0, binding=1) uniform samplerCube ENVIRONMENT;
 layout(set=2, binding=0) uniform sampler2D NORMAL;
@@ -23,18 +24,19 @@ layout(location=0) out vec4 outColor;
 #define PI 3.1415926538
 
 void main() {
+	
 	// Sample the normal map and convert from [0,1] to [-1,1]
     vec3 normal_rgb = texture(NORMAL, texCoord).rgb; 
     vec3 tangentNormal = normalize(normal_rgb * 2.0 - 1.0); 
 
     // Transform the normal from tangent space to world space
-    vec3 worldNormal = TBN * tangentNormal; 
+    vec3 worldNormal = TBN * tangentNormal;
 
-	vec3 albedo = texture(ALBEDO, texCoord).rgb;
+	float roughness = texture(ROUGHNESS, texCoord).r * ENVIRONMENT_MIPS;
 
-	//hemisphere lighting from direction l:
-	vec3 e = SKY_ENERGY * (0.5 * dot(worldNormal,SKY_DIRECTION) + 0.5)
-	       + SUN_ENERGY * max(0.0, dot(worldNormal,SUN_DIRECTION)) ;
-
-	outColor = vec4(e * albedo / PI, 1.0);
+	vec3 viewDir = normalize(position - CAMERA_POSITION);
+	vec3 radiance = textureLod(ENVIRONMENT, reflect(viewDir,worldNormal), roughness).rgb;
+	vec3 albedo = radiance * (texture(ALBEDO, texCoord).rgb);
+	// vec3 color = ACESFitted(radiance);
+	outColor = vec4(albedo , 1.0f);
 }

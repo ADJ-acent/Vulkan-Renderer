@@ -59,11 +59,11 @@ const lines_shaders = [
 main_objs.push( maek.CPP('Tutorial-LinesPipeline.cpp', undefined, { depends:[...lines_shaders] } ) );
 
 // build lambertian shaders and pipeline:
-const objects_shaders = [
-	maek.GLSLC('objects.vert', undefined, {GLSLCFlags: ['-mfmt=c']}),
-	maek.GLSLC('objects.frag', undefined, {GLSLCFlags: ['-mfmt=c']}),
+const lambertian_shaders = [
+	maek.GLSLC('lambertian.vert', undefined, {GLSLCFlags: ['-mfmt=c']}),
+	maek.GLSLC('lambertian.frag', undefined, {GLSLCFlags: ['-mfmt=c']}),
 ];
-main_objs.push( maek.CPP('Tutorial-ObjectsPipeline.cpp', undefined, { depends:[...objects_shaders] } ) );
+main_objs.push( maek.CPP('LambertianPipeline.cpp', undefined, { depends:[...lambertian_shaders] } ) );
 
 // build environment shaders and pipeline:
 const environment_shaders = [

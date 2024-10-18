@@ -113,7 +113,7 @@ void Helpers::destroy_buffer(AllocatedBuffer &&buffer) {
 }
 
 
-Helpers::AllocatedImage Helpers::create_image(VkExtent2D const &extent, VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags properties, MapFlag map, uint32_t layers) {
+Helpers::AllocatedImage Helpers::create_image(VkExtent2D const &extent, VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags properties, MapFlag map, uint32_t layers, uint32_t mip_levels) {
 	AllocatedImage image;
 	image.extent = extent;
 	image.format = format;
@@ -128,7 +128,7 @@ Helpers::AllocatedImage Helpers::create_image(VkExtent2D const &extent, VkFormat
 			.height = extent.height,
 			.depth = 1
 		},
-		.mipLevels = 1,
+		.mipLevels = mip_levels,
 		.arrayLayers = layers,
 		.samples = VK_SAMPLE_COUNT_1_BIT,
 		.tiling = tiling,
@@ -340,7 +340,7 @@ void Helpers::transfer_to_image(void *data, size_t size, AllocatedImage &target)
 	destroy_buffer(std::move(transfer_src));
 }
 
-void Helpers::transfer_to_image_cube(void* data, size_t size, AllocatedImage& target) {
+void Helpers::transfer_to_image_cube(void* data, size_t size, AllocatedImage& target, uint8_t mip_level) {
     assert(target.handle); 
 
     size_t bytes_per_pixel = vkuFormatElementSize(target.format);
@@ -369,7 +369,7 @@ void Helpers::transfer_to_image_cube(void* data, size_t size, AllocatedImage& ta
     VkImageSubresourceRange all_layers{
         .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
         .baseMipLevel = 0,
-        .levelCount = 1,
+        .levelCount = mip_level,
         .baseArrayLayer = 0,   // Start from layer 0
         .layerCount = 6,       // Include all 6 layers
     };
@@ -399,26 +399,28 @@ void Helpers::transfer_to_image_cube(void* data, size_t size, AllocatedImage& ta
     }
 
     { // Copy buffer to all layers of the image
-        VkBufferImageCopy regions[6]; // Array of regions for each layer
+        std::vector<VkBufferImageCopy> regions(6 * mip_level); // Array of regions for each layer
 
-        for (uint32_t i = 0; i < 6; ++i) {
-            regions[i] = {
-                .bufferOffset = i * target.extent.width * target.extent.height * bytes_per_pixel, // Offset for each layer
-                .bufferRowLength = target.extent.width,
-                .bufferImageHeight = target.extent.height,
-                .imageSubresource{
-                    .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
-                    .mipLevel = 0,
-                    .baseArrayLayer = i,   // Layer index
-                    .layerCount = 1,       // One layer per region
-                },
-                .imageOffset{ .x = 0, .y = 0, .z = 0 },
-                .imageExtent{
-                    .width = target.extent.width,
-                    .height = target.extent.height,
-                    .depth = 1
-                },
-            };
+        for (uint8_t face = 0; face < 6; ++face) {
+			for (uint8_t level = 0; level < mip_level; ++level) {
+				regions[face*mip_level + level] = {
+					.bufferOffset = get_cube_buffer_offset(target.extent.width, target.extent.height, face, level, bytes_per_pixel), // Offset for each layer
+					.bufferRowLength = target.extent.width >> level,
+					.bufferImageHeight = target.extent.height >> level,
+					.imageSubresource{
+						.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+						.mipLevel = level,
+						.baseArrayLayer = face,   // Layer index
+						.layerCount = 1,       // One layer per region
+					},
+					.imageOffset{ .x = 0, .y = 0, .z = 0 },
+					.imageExtent{
+						.width = target.extent.width >> level,
+						.height = target.extent.height >> level,
+						.depth = 1
+					},
+				};
+			}
         }
 
         vkCmdCopyBufferToImage(
@@ -426,7 +428,7 @@ void Helpers::transfer_to_image_cube(void* data, size_t size, AllocatedImage& ta
             transfer_src.handle,
             target.handle,
             VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-            6, regions // Copy all regions
+            uint32_t(regions.size()), regions.data() // Copy all regions
         );
     }
 
@@ -471,6 +473,16 @@ void Helpers::transfer_to_image_cube(void* data, size_t size, AllocatedImage& ta
 	//destroy the source buffer
 	destroy_buffer(std::move(transfer_src));
 
+}
+
+VkDeviceSize Helpers::get_cube_buffer_offset(uint32_t base_width, uint32_t base_height, uint8_t face, uint8_t level, size_t bytes_per_pixel)
+{
+	uint64_t cur_mip_face_offset = face * (base_width >> level) * (base_height >> level) * bytes_per_pixel;
+	uint64_t mip_offset = 0;
+	for (uint8_t l = 0; l < level; ++l) {
+		mip_offset += 6 * (base_width>>l)*(base_height>>l) * bytes_per_pixel;
+	}
+    return VkDeviceSize(mip_offset + cur_mip_face_offset);
 }
 
 void Helpers::gpu_image_transfer_to_buffer(AllocatedBuffer &target, AllocatedImage &image, 

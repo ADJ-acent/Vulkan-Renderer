@@ -59,7 +59,7 @@ struct Helpers {
 
 		//NOTE: could define default constructor, move constructor, move assignment, destructor for a bit more paranoia
 	};
-	AllocatedImage create_image(VkExtent2D const &extent, VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags properties, MapFlag map = Unmapped, uint32_t layers = 1);
+	AllocatedImage create_image(VkExtent2D const &extent, VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags properties, MapFlag map = Unmapped, uint32_t layers = 1, uint32_t mip_levels = 1);
 	void destroy_image(AllocatedImage &&allocated_image);
 	
 
@@ -69,7 +69,8 @@ struct Helpers {
 	// NOTE: synchronizes *hard* against the GPU; inefficient to use for streaming data!
 	void transfer_to_buffer(void *data, size_t size, AllocatedBuffer &target);
 	void transfer_to_image(void *data, size_t size, AllocatedImage &image); //NOTE: image layout after call is VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
-	void transfer_to_image_cube(void* data, size_t size, AllocatedImage& target);
+	void transfer_to_image_cube(void* data, size_t size, AllocatedImage& target, uint8_t mip_level = 1);
+	VkDeviceSize get_cube_buffer_offset(uint32_t base_width, uint32_t base_height, uint8_t face, uint8_t level, size_t bytes_per_pixel);
 	void gpu_image_transfer_to_buffer(AllocatedBuffer &target, AllocatedImage &image, 
 		VkSemaphore image_available, VkSemaphore image_done, VkFence workspace_available, uint8_t workspace_index);
 

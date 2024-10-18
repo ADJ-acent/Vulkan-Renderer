@@ -12,7 +12,7 @@ static uint32_t frag_code[] =
 #include "spv/objects.frag.inl"
 ;
 
-void RTGRenderer::ObjectsPipeline::create(RTG &rtg, VkRenderPass render_pass, uint32_t subpass) {
+void RTGRenderer::LambertianPipeline::create(RTG &rtg, VkRenderPass render_pass, uint32_t subpass) {
     VkShaderModule vert_module = rtg.helpers.create_shader_module(vert_code);
     VkShaderModule frag_module = rtg.helpers.create_shader_module(frag_code);
 
@@ -220,7 +220,7 @@ void RTGRenderer::ObjectsPipeline::create(RTG &rtg, VkRenderPass render_pass, ui
     }
 }
 
-void RTGRenderer::ObjectsPipeline::destroy(RTG &rtg) {
+void RTGRenderer::LambertianPipeline::destroy(RTG &rtg) {
     if (set0_World != VK_NULL_HANDLE) {
 		vkDestroyDescriptorSetLayout(rtg.device, set0_World, nullptr);
 		set0_World = VK_NULL_HANDLE;

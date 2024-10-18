@@ -71,7 +71,7 @@ struct RTGRenderer : RTG::Application {
 		void destroy(RTG &);
 	} lines_pipeline;
 
-	struct ObjectsPipeline {
+	struct LambertianPipeline {
 		//descriptor set layouts:
 		VkDescriptorSetLayout set0_World = VK_NULL_HANDLE;
         VkDescriptorSetLayout set1_Transforms = VK_NULL_HANDLE;
@@ -85,8 +85,9 @@ struct RTGRenderer : RTG::Application {
             struct { float x, y, z, padding_; } SUN_DIRECTION;
             struct { float r, g, b, padding_; } SUN_ENERGY;
 			glm::vec4 CAMERA_POSITION;
+			float ENVIRONMENT_MIPS;
         };
-        static_assert(sizeof(World) == 4*4 + 4*4 + 4*4 + 4*4 + 4*4, "World is the expected size.");
+        static_assert(sizeof(World) == 4*4 + 4*4 + 4*4 + 4*4 + 4*4 + 4, "World is the expected size.");
 		
         struct Transform {
             glm::mat4x4 CLIP_FROM_LOCAL;
@@ -105,7 +106,7 @@ struct RTGRenderer : RTG::Application {
 
 		void create(RTG &, VkRenderPass render_pass, uint32_t subpass);
 		void destroy(RTG &);
-	} objects_pipeline;
+	} lambertian_pipeline;
 
 	struct EnvironmentPipeline {
 		//descriptor set layouts:
@@ -244,9 +245,9 @@ struct RTGRenderer : RTG::Application {
 
 	std::vector<LinesPipeline::Vertex> lines_vertices;
 
-    ObjectsPipeline::World world;
+    LambertianPipeline::World world;
 
-	using Transform = ObjectsPipeline::Transform;
+	using Transform = LambertianPipeline::Transform;
     
     struct ObjectInstance {
 		ObjectVertices vertices;

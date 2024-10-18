@@ -115,30 +115,67 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_) {
 
 	background_pipeline.create(rtg, render_pass, 0);
 	lines_pipeline.create(rtg, render_pass, 0);
-	objects_pipeline.create(rtg, render_pass, 0);
+	lambertian_pipeline.create(rtg, render_pass, 0);
 	environment_pipeline.create(rtg, render_pass, 0);
 	mirror_pipeline.create(rtg, render_pass, 0);
 	pbr_pipeline.create(rtg, render_pass, 0);
 
 	//create environment texture
 	if (scene.environment.source != ""){
+		std::string environment_source = scene.scene_path +"/"+ scene.environment.source;
 		int width,height,n;
-		unsigned char* image;
-		image = stbi_load((scene.scene_path +"/"+ scene.environment.source).c_str(), &width, &height, &n, 4);
-		if (image == NULL) throw std::runtime_error("Error loading texture " + scene.scene_path +"/" + scene.environment.source);
+		std::vector<unsigned char*> images;
+		images.push_back(stbi_load(environment_source.c_str(), &width, &height, &n, 4));
+		if (images[0] == NULL) throw std::runtime_error("Error loading texture " + environment_source);
 		 // cube map must have 6 sides and stacked vertically
 		if (height % 6 != 0 || width != height / 6) {
 			throw std::runtime_error("Invalid image dimensions for a cubemap");
 		}
 
+		uint8_t mip_levels = 1;
+		size_t period_index = environment_source.find_last_of(".");
+  		std::string base_source = environment_source.substr(0, period_index);
+		std::string file_type = environment_source.substr(period_index+1, environment_source.size()-period_index);
+		int last_width = width;
+		int last_height = height;
+		int total_size = width*height;
+		// load all ggx mip levels of the environment map
+		while (true) {
+			// attempt to load the next mip level, if failed, exit
+			int cur_width, cur_height, cur_n;
+			std::string cur_source = base_source + "." + std::to_string(mip_levels) + "." + file_type;
+			images.push_back(stbi_load(cur_source.c_str(), &cur_width, &cur_height, &cur_n, 4));
+			if (images[mip_levels] == NULL) {
+				if (rtg.configuration.debug) {
+					std::cout<<"Environment Loading Completed, " << int(mip_levels) << " mip levels\n";
+				}
+				break;
+			}
+			if (cur_width == last_width >> 2 && cur_height == last_height >> 2) {
+				throw std::runtime_error("Mip not properly resized");
+			}
+			if (cur_height % 6 != 0 || cur_width != cur_height / 6) {
+				throw std::runtime_error("Invalid image dimensions for a cubemap");
+			}
+			total_size += cur_width * cur_height;
+			last_width = cur_width;
+			last_height = cur_height;
+			mip_levels++;
+		}
+
 		int face_length = width;
 
 		// convert rgbe to rgb values
-		std::vector<glm::vec4> rgb_image(width * height); // Store the converted RGB data
-
-		for (int i = 0; i < width * height; ++i) {
-			glm::u8vec4 rgbe_pixel = glm::u8vec4(image[4*i], image[4*i + 1], image[4*i + 2], image[4*i + 3]);
-			rgb_image[i] = rgbe_to_float(rgbe_pixel);
+		std::vector<glm::vec4> rgb_image(total_size); // Store the converted RGB data
+		int temp_width = width;
+		int temp_height = height;
+		for (uint8_t level = 0; level < mip_levels; ++level) {
+			for (int i = 0; i < temp_width*temp_height; ++i) {
+				glm::u8vec4 rgbe_pixel = glm::u8vec4(images[level][4*i], images[level][4*i + 1], images[level][4*i + 2], images[level][4*i + 3]);
+				rgb_image[i] = rgbe_to_float(rgbe_pixel);
+			}
+			temp_width = temp_width >> 2;
+			temp_height = temp_height >> 2;
 		}
 
 		World_environment = rtg.helpers.create_image(
@@ -147,13 +184,18 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_) {
 			VK_IMAGE_TILING_OPTIMAL,
 			VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
 			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-			Helpers::Unmapped, 6
+			Helpers::Unmapped, 6, mip_levels
 		);
 		
 		rtg.helpers.transfer_to_image_cube(rgb_image.data(), 4 * 4 * width * height, World_environment);
 	
-		//free image:
-		stbi_image_free(image);
+		//free images:
+		for (unsigned char* image : images){
+			stbi_image_free(image);
+		}
+
+		// set world mip level
+		world.ENVIRONMENT_MIPS = float(mip_levels-1);
 
 		{//make image view for environment
 
@@ -167,7 +209,7 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_) {
 				.subresourceRange{
 					.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
 					.baseMipLevel = 0,
-					.levelCount = 1,
+					.levelCount = mip_levels,
 					.baseArrayLayer = 0,
 					.layerCount = 6,
 				},
@@ -266,13 +308,13 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_) {
 		}
 
 		workspace.World_src = rtg.helpers.create_buffer(
-			sizeof(ObjectsPipeline::World),
+			sizeof(LambertianPipeline::World),
 			VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
 			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
 			Helpers::Mapped
 		);
 		workspace.World = rtg.helpers.create_buffer(
-			sizeof(ObjectsPipeline::World),
+			sizeof(LambertianPipeline::World),
 			VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
 			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
 			Helpers::Unmapped
@@ -283,7 +325,7 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_) {
 				.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
 				.descriptorPool = descriptor_pool,
 				.descriptorSetCount = 1,
-				.pSetLayouts = &objects_pipeline.set0_World,
+				.pSetLayouts = &lambertian_pipeline.set0_World,
 			};
 
 			VK(vkAllocateDescriptorSets(rtg.device, &alloc_info, &workspace.World_descriptors));
@@ -295,7 +337,7 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_) {
 				.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
 				.descriptorPool = descriptor_pool,
 				.descriptorSetCount = 1,
-				.pSetLayouts = &objects_pipeline.set1_Transforms,
+				.pSetLayouts = &lambertian_pipeline.set1_Transforms,
 			};
 
 			VK(vkAllocateDescriptorSets(rtg.device, &alloc_info, &workspace.Transforms_descriptors));
@@ -562,7 +604,7 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_) {
 			.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
 			.descriptorPool = material_descriptor_pool,
 			.descriptorSetCount = 1,
-			.pSetLayouts = &objects_pipeline.set2_TEXTURE,
+			.pSetLayouts = &lambertian_pipeline.set2_TEXTURE,
 		};
 		VkDescriptorSetAllocateInfo mat_pbr_alloc_info{
 			.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
@@ -783,7 +825,7 @@ RTGRenderer::~RTGRenderer() {
 
 	background_pipeline.destroy(rtg);
 	lines_pipeline.destroy(rtg);
-	objects_pipeline.destroy(rtg);
+	lambertian_pipeline.destroy(rtg);
 	environment_pipeline.destroy(rtg);
 	mirror_pipeline.destroy(rtg);
 	pbr_pipeline.destroy(rtg);
@@ -1026,7 +1068,7 @@ void RTGRenderer::render(RTG &rtg_, RTG::RenderParams const &render_params) {
 	}
 
 	if (!lambertian_instances.empty() || !environment_instances.empty() || !mirror_instances.empty() || !pbr_instances.empty()) { //upload object transforms:
-		size_t needed_bytes = (lambertian_instances.size() + environment_instances.size() + mirror_instances.size() + pbr_instances.size()) * sizeof(ObjectsPipeline::Transform);
+		size_t needed_bytes = (lambertian_instances.size() + environment_instances.size() + mirror_instances.size() + pbr_instances.size()) * sizeof(Transform);
 		if (workspace.Transforms_src.handle == VK_NULL_HANDLE || workspace.Transforms_src.size < needed_bytes) {
 			//round to next multiple of 4k to avoid re-allocating continuously if vertex count grows slowly:
 			size_t new_bytes = ((needed_bytes + 4096) / 4096) * 4096;
@@ -1082,7 +1124,7 @@ void RTGRenderer::render(RTG &rtg_, RTG::RenderParams const &render_params) {
 
 		{ //copy transforms into Transforms_src:
 			assert(workspace.Transforms_src.allocation.mapped);
-			ObjectsPipeline::Transform *out = reinterpret_cast< ObjectsPipeline::Transform * >(workspace.Transforms_src.allocation.data()); // Strict aliasing violation, but it doesn't matter
+			LambertianPipeline::Transform *out = reinterpret_cast< LambertianPipeline::Transform * >(workspace.Transforms_src.allocation.data()); // Strict aliasing violation, but it doesn't matter
 			for (ObjectInstance const &inst : lambertian_instances) {
 				*out = inst.transform;
 				++out;
@@ -1224,7 +1266,7 @@ void RTGRenderer::render(RTG &rtg_, RTG::RenderParams const &render_params) {
 		}
 
 		if (!lambertian_instances.empty()){//draw with the objects pipeline:
-			vkCmdBindPipeline(workspace.command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, objects_pipeline.handle);
+			vkCmdBindPipeline(workspace.command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, lambertian_pipeline.handle);
 
 			{//use object_vertices (offset 0) as vertex buffer binding 0:
 				std::array<VkBuffer, 1>vertex_buffers{object_vertices.handle};
@@ -1241,7 +1283,7 @@ void RTGRenderer::render(RTG &rtg_, RTG::RenderParams const &render_params) {
 				vkCmdBindDescriptorSets(
 					workspace.command_buffer, //command buffer
 					VK_PIPELINE_BIND_POINT_GRAPHICS, //pipeline bind point
-					objects_pipeline.layout, //pipeline layout
+					lambertian_pipeline.layout, //pipeline layout
 					0, //first set
 					uint32_t(descriptor_sets.size()), descriptor_sets.data(), //descriptor sets count, ptr
 					0, nullptr //dynamic offsets count, ptr
@@ -1257,7 +1299,7 @@ void RTGRenderer::render(RTG &rtg_, RTG::RenderParams const &render_params) {
 				vkCmdBindDescriptorSets(
 					workspace.command_buffer, //command buffer
 					VK_PIPELINE_BIND_POINT_GRAPHICS, //pipeline bind point
-					objects_pipeline.layout, //pipeline layout
+					lambertian_pipeline.layout, //pipeline layout
 					2, //second set
 					1, &material_descriptors[inst.material_index], //descriptor sets count, ptr
 					0, nullptr //dynamic offsets count, ptr
