@@ -592,7 +592,7 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_) {
 		}
 		//write descriptors for materials:
 		std::vector< VkWriteDescriptorSet > writes(scene.materials.size());
-
+		std::vector< std::array<VkDescriptorImageInfo,5> > infos(scene.materials.size());
 		constexpr uint8_t pbr_tex_count = 5;
 		constexpr uint8_t lambertian_tex_count = 3;
 		constexpr uint8_t envmirror_tex_count = 2;
@@ -600,20 +600,20 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_) {
 		for (uint32_t material_index = 0; material_index < scene.materials.size(); ++material_index) {
 			const Scene::Material& material = scene.materials[material_index];
 			uint8_t cur_material_tex_count = 0;
-			VkDescriptorImageInfo infos[5];
-			infos[0] = VkDescriptorImageInfo{
+			std::array<VkDescriptorImageInfo,5>& cur_infos = infos[material_index];
+			cur_infos[0] = VkDescriptorImageInfo{
 				.sampler = texture_sampler,
 				.imageView = texture_views[material.normal_index],
 				.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
 			};
-			infos[1] = VkDescriptorImageInfo{
+			cur_infos[1] = VkDescriptorImageInfo{
 				.sampler = texture_sampler,
 				.imageView = texture_views[material.displacement_index],
 				.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
 			};
 			if (material.material_type == Scene::Material::Lambertian) {
 				cur_material_tex_count = lambertian_tex_count;
-				infos[2] = VkDescriptorImageInfo{
+				cur_infos[2] = VkDescriptorImageInfo{
 					.sampler = texture_sampler,
 					.imageView = texture_views[std::get<Scene::Material::MatLambertian>(material.material_textures).albedo_index],
 					.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
@@ -622,17 +622,17 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_) {
 			else if (material.material_type == Scene::Material::PBR) {
 				cur_material_tex_count = pbr_tex_count;
 				const Scene::Material::MatPBR& pbr_textures = std::get<Scene::Material::MatPBR>(material.material_textures);
-				infos[2] = VkDescriptorImageInfo{
+				cur_infos[2] = VkDescriptorImageInfo{
 					.sampler = texture_sampler,
 					.imageView = texture_views[pbr_textures.albedo_index],
 					.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
 				};
-				infos[3] = VkDescriptorImageInfo{
+				cur_infos[3] = VkDescriptorImageInfo{
 					.sampler = texture_sampler,
 					.imageView = texture_views[pbr_textures.roughness_index],
 					.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
 				};
-				infos[4] = VkDescriptorImageInfo{
+				cur_infos[4] = VkDescriptorImageInfo{
 					.sampler = texture_sampler,
 					.imageView = texture_views[pbr_textures.metalness_index],
 					.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
@@ -649,7 +649,7 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_) {
 				.dstArrayElement = 0,
 				.descriptorCount = cur_material_tex_count,
 				.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-				.pImageInfo = &infos[0],
+				.pImageInfo = &cur_infos[0],
 			};
 		}
 
