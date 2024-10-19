@@ -31,6 +31,6 @@ void main() {
     // Transform the normal from tangent space to world space
     vec3 worldNormal = TBN * tangentNormal; 
 
-	vec3 radiance = vec3(texture(ENVIRONMENT, worldNormal));
+	vec3 radiance = vec3(textureLod(ENVIRONMENT, worldNormal, 0.0f));
 	outColor = vec4(ACESFitted(radiance), 1.0f);
 }

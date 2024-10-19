@@ -30,6 +30,6 @@ void main() {
     vec3 worldNormal = TBN * tangentNormal;
 
 	vec3 viewDir = normalize(position - CAMERA_POSITION);
-	vec3 radiance = vec3(texture(ENVIRONMENT, reflect(viewDir,worldNormal)));
+	vec3 radiance = vec3(textureLod(ENVIRONMENT, reflect(viewDir,worldNormal),0.0f));
 	outColor = vec4(ACESFitted(radiance), 1.0f);
 }

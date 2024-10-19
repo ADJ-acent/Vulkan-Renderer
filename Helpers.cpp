@@ -344,8 +344,6 @@ void Helpers::transfer_to_image_cube(void* data, size_t size, AllocatedImage& ta
     assert(target.handle); 
 
     size_t bytes_per_pixel = vkuFormatElementSize(target.format);
-	
-    assert(size == target.extent.width * target.extent.height * bytes_per_pixel * 6); // Size for all 6 layers
 
     AllocatedBuffer transfer_src = create_buffer(
         size,
@@ -475,7 +473,7 @@ void Helpers::transfer_to_image_cube(void* data, size_t size, AllocatedImage& ta
 
 }
 
-VkDeviceSize Helpers::get_cube_buffer_offset(uint32_t base_width, uint32_t base_height, uint8_t face, uint8_t level, size_t bytes_per_pixel)
+VkDeviceSize Helpers::get_cube_buffer_offset(uint32_t base_width, uint32_t base_height, uint32_t face, uint32_t level, size_t bytes_per_pixel)
 {
 	uint64_t cur_mip_face_offset = face * (base_width >> level) * (base_height >> level) * bytes_per_pixel;
 	uint64_t mip_offset = 0;

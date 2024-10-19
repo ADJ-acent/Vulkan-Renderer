@@ -169,13 +169,15 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_) {
 		std::vector<glm::vec4> rgb_image(total_size); // Store the converted RGB data
 		int temp_width = width;
 		int temp_height = height;
+		uint64_t pixel_index = 0;
 		for (uint8_t level = 0; level < mip_levels; ++level) {
 			for (int i = 0; i < temp_width*temp_height; ++i) {
 				glm::u8vec4 rgbe_pixel = glm::u8vec4(images[level][4*i], images[level][4*i + 1], images[level][4*i + 2], images[level][4*i + 3]);
-				rgb_image[i] = rgbe_to_float(rgbe_pixel);
+				rgb_image[pixel_index] = rgbe_to_float(rgbe_pixel);
+				++pixel_index;
 			}
-			temp_width = temp_width >> 2;
-			temp_height = temp_height >> 2;
+			temp_width = temp_width >> 1;
+			temp_height = temp_height >> 1;
 		}
 
 		World_environment = rtg.helpers.create_image(
@@ -186,8 +188,7 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_) {
 			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
 			Helpers::Unmapped, 6, mip_levels
 		);
-		
-		rtg.helpers.transfer_to_image_cube(rgb_image.data(), 4 * 4 * width * height, World_environment);
+		rtg.helpers.transfer_to_image_cube(rgb_image.data(), 4 * 4 * rgb_image.size(), World_environment, 6);
 	
 		//free images:
 		for (unsigned char* image : images){
@@ -195,7 +196,7 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_) {
 		}
 
 		// set world mip level
-		world.ENVIRONMENT_MIPS = float(mip_levels-1);
+		world.CAMERA_POSITION_ENVIRONMENT_MIPS.w = float(mip_levels-1);
 
 		{//make image view for environment
 
@@ -224,7 +225,7 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_) {
 				.flags = 0,
 				.magFilter = VK_FILTER_LINEAR,
 				.minFilter = VK_FILTER_LINEAR,
-				.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST,
+				.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR,
 				.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
 				.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
 				.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
@@ -234,11 +235,75 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_) {
 				.compareEnable = VK_FALSE,
 				.compareOp = VK_COMPARE_OP_ALWAYS, //doesn't matter if compare isn't enabled
 				.minLod = 0.0f,
-				.maxLod = 0.0f,
+				.maxLod = float(mip_levels - 1),
 				.borderColor = VK_BORDER_COLOR_FLOAT_TRANSPARENT_BLACK,
 				.unnormalizedCoordinates = VK_FALSE,
 			};
 			VK(vkCreateSampler(rtg.device, &create_info, nullptr, &World_environment_sampler));
+		}
+	}
+
+	{//make a sampler for the normal textures and BRDF LUT
+		VkSamplerCreateInfo create_info{
+			.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
+			.flags = 0,
+			.magFilter = VK_FILTER_NEAREST,
+			.minFilter = VK_FILTER_NEAREST,
+			.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST,
+			.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT,
+			.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT,
+			.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT,
+			.mipLodBias = 0.0f,
+			.anisotropyEnable = VK_FALSE,
+			.maxAnisotropy = 0.0f, //doesn't matter if anisotropy isn't enabled
+			.compareEnable = VK_FALSE,
+			.compareOp = VK_COMPARE_OP_ALWAYS, //doesn't matter if compare isn't enabled
+			.minLod = 0.0f,
+			.maxLod = 0.0f,
+			.borderColor = VK_BORDER_COLOR_FLOAT_TRANSPARENT_BLACK,
+			.unnormalizedCoordinates = VK_FALSE,
+		};
+		VK(vkCreateSampler(rtg.device, &create_info, nullptr, &texture_sampler));
+	}
+
+	{ // environment BRDF LUT
+		{ // create the BRDF LUT
+			int width,height,n;
+			float* image = stbi_loadf("../resource/ibl_brdf_lut.png", &width, &height, &n, 2); // r and g only
+			if (image == NULL) throw std::runtime_error("Error loading Environment BRDF LUT texture: ../resource/ibl_brdf_lut.png");
+			World_environment_brdf_lut = rtg.helpers.create_image(
+				VkExtent2D{ .width = uint32_t(width) , .height = uint32_t(height) }, //size of image
+				VK_FORMAT_R32G32_SFLOAT, //how to interpret image data (in this case, linearly-encoded 8-bit RGBA) TODO: double check format
+				VK_IMAGE_TILING_OPTIMAL,
+				VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, //will sample and upload
+				VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, //should be device-local
+				Helpers::Unmapped
+			);
+			
+			rtg.helpers.transfer_to_image(image, sizeof(image[0]) * width * height * 2, World_environment_brdf_lut);
+			
+			//free image:
+			stbi_image_free(image);
+		}
+		{//make image view for lut
+
+			VkImageViewCreateInfo create_info{
+				.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+				.flags = 0,
+				.image = World_environment_brdf_lut.handle,
+				.viewType = VK_IMAGE_VIEW_TYPE_2D,
+				.format = World_environment_brdf_lut.format,
+				// .components sets swizzling and is fine when zero-initialized
+				.subresourceRange{
+					.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+					.baseMipLevel = 0,
+					.levelCount = 1,
+					.baseArrayLayer = 0,
+					.layerCount = 1,
+				},
+			};
+
+			VK(vkCreateImageView(rtg.device, &create_info, nullptr, &World_environment_brdf_lut_view));
 		}
 	}
 
@@ -252,7 +317,7 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_) {
 			},
 			VkDescriptorPoolSize{
 				.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-				.descriptorCount = 1 * per_workspace, //one descriptor per set, one set per workspace
+				.descriptorCount = 2 * per_workspace, //one descriptor per set, one set per workspace
 			},
 			VkDescriptorPoolSize{
 				.type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
@@ -363,7 +428,13 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_) {
 				.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
 			};
 
-			std::array< VkWriteDescriptorSet, 3 > writes{
+			VkDescriptorImageInfo World_environment_brdf_lut_info{
+				.sampler = texture_sampler,
+				.imageView = World_environment_brdf_lut_view,
+				.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+			};
+
+			std::array< VkWriteDescriptorSet, 4 > writes{
 				VkWriteDescriptorSet{
 					.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
 					.dstSet = workspace.Camera_descriptors,
@@ -392,6 +463,16 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_) {
 					.descriptorCount = 1,
 					.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
 					.pImageInfo = &World_environment_info,
+				},
+
+				VkWriteDescriptorSet{
+					.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+					.dstSet = workspace.World_descriptors,
+					.dstBinding = 2,
+					.dstArrayElement = 0,
+					.descriptorCount = 1,
+					.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+					.pImageInfo = &World_environment_brdf_lut_info,
 				},
 			};
 
@@ -491,7 +572,7 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_) {
 			}
 			else {
 				if (cur_texture.single_channel) {
-					float value = uint8_t(std::get<float>(cur_texture.value) * 255.0f);
+					uint8_t value = uint8_t(std::get<float>(cur_texture.value) * 255.0f);
 					textures.emplace_back(rtg.helpers.create_image(
 						VkExtent2D{ .width = 1 , .height = 1 }, //size of image
 						VK_FORMAT_R8_UNORM, //how to interpret image data (in this case, SRGB-encoded 8-bit RGBA)
@@ -549,29 +630,6 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_) {
 			texture_views.emplace_back(image_view);
 		}
 		assert(texture_views.size() == textures.size());
-	}
-
-	{//make a sampler for the textures
-		VkSamplerCreateInfo create_info{
-			.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
-			.flags = 0,
-			.magFilter = VK_FILTER_NEAREST,
-			.minFilter = VK_FILTER_NEAREST,
-			.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST,
-			.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT,
-			.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT,
-			.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT,
-			.mipLodBias = 0.0f,
-			.anisotropyEnable = VK_FALSE,
-			.maxAnisotropy = 0.0f, //doesn't matter if anisotropy isn't enabled
-			.compareEnable = VK_FALSE,
-			.compareOp = VK_COMPARE_OP_ALWAYS, //doesn't matter if compare isn't enabled
-			.minLod = 0.0f,
-			.maxLod = 0.0f,
-			.borderColor = VK_BORDER_COLOR_FLOAT_TRANSPARENT_BLACK,
-			.unnormalizedCoordinates = VK_FALSE,
-		};
-		VK(vkCreateSampler(rtg.device, &create_info, nullptr, &texture_sampler));
 	}
 
 	{//create the material descriptor pool
@@ -1562,7 +1620,9 @@ void RTGRenderer::update(float dt) {
 
 		if (view_camera == InSceneCamera::SceneCamera) {
 			CLIP_FROM_WORLD = clip_from_view[0] * view_from_world[0];
-			world.CAMERA_POSITION = glm::vec4(eye, 1.0f);
+			world.CAMERA_POSITION_ENVIRONMENT_MIPS.x = eye.x;
+			world.CAMERA_POSITION_ENVIRONMENT_MIPS.y = eye.y;
+			world.CAMERA_POSITION_ENVIRONMENT_MIPS.z = eye.z;
 		}
 
 	} 
@@ -1590,7 +1650,9 @@ void RTGRenderer::update(float dt) {
 		}
 
 		FreeCamera& cur_camera = view_camera == InSceneCamera::UserCamera ? user_camera : debug_camera;
-		world.CAMERA_POSITION = glm::vec4(cur_camera.eye, 1.0f);
+		world.CAMERA_POSITION_ENVIRONMENT_MIPS.x = cur_camera.eye.x;
+		world.CAMERA_POSITION_ENVIRONMENT_MIPS.y = cur_camera.eye.y;
+		world.CAMERA_POSITION_ENVIRONMENT_MIPS.z = cur_camera.eye.z;
 	}
 
 	lines_vertices.clear();
