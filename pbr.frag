@@ -33,12 +33,13 @@ const float PI = 3.1415926538;
 vec3 FresnelSchlickRoughness(float cosTheta, float roughness, vec3 F0)
 {
     return F0 + (max(vec3(1.0 - roughness), F0) - F0) * pow(clamp(1.0 - cosTheta, 0.0, 1.0), 5.0);
-}   
+}
 
 void main() {
 	vec3 F0 = vec3(0.04,0.04,0.04);
 	vec3 albedo = texture(ALBEDO, texCoord).rgb;
 	float metalness = texture(METALNESS, texCoord).r;
+	//tint for metallic surface
 	F0 = mix(F0, albedo, metalness);
 	// Sample the normal map and convert from [0,1] to [-1,1]
     vec3 normal_rgb = texture(NORMAL, texCoord).rgb; 
@@ -49,18 +50,19 @@ void main() {
 
 	float roughness = texture(ROUGHNESS, texCoord).r * ENVIRONMENT_MIPS;
 
-	vec3 viewDir = normalize(position - CAMERA_POSITION);
-	vec3 radiance = textureLod(ENVIRONMENT, reflect(viewDir,worldNormal), roughness).rgb;
+	vec3 viewDir = normalize(CAMERA_POSITION - position);
+	vec3 radiance = textureLod(ENVIRONMENT, reflect(-viewDir,worldNormal), roughness).rgb;
+	vec3 irradiance = textureLod(ENVIRONMENT, worldNormal, ENVIRONMENT_MIPS).rgb;
 
 	vec2 brdfCoord = vec2(max(dot(viewDir, worldNormal), 0.0),roughness);
 	vec2 environment_brdf = texture(ENVIRONMENT_BRDF_LUT, brdfCoord).rg;
 
 	vec3 F = FresnelSchlickRoughness(max(dot(viewDir, worldNormal), 0.0), roughness, F0);
 	vec3 kS = F;
-	vec3 kD = 1.0 - kS;
-	kD *= 1.0 - metalness;
+	vec3 kD = mix(vec3(1.0) - F, vec3(0.0), metalness);
+	// kD *= 1.0 - metalness;
 
-	vec3 specular = F * environment_brdf.r + environment_brdf.g;
+	vec3 specular = radiance * (environment_brdf.r * F + environment_brdf.g);
 
-	outColor = vec4(kD/PI*albedo + ACESFitted(specular*radiance) , 1.0f);
+	outColor = vec4(gamma_correction(ACESFitted(kD*albedo*irradiance + kS * specular)) , 1.0f);
 }
