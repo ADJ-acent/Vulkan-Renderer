@@ -865,9 +865,19 @@ RTGRenderer::~RTGRenderer() {
 		rtg.helpers.destroy_image(std::move(World_environment));
 	}
 
+
 	if (texture_sampler) {
 		vkDestroySampler(rtg.device, texture_sampler, nullptr);
 		texture_sampler = VK_NULL_HANDLE;
+	}
+
+	if (World_environment_brdf_lut_view) {
+		vkDestroyImageView(rtg.device, World_environment_brdf_lut_view, nullptr);
+		World_environment_brdf_lut_view = VK_NULL_HANDLE;
+	}
+
+	if (World_environment_brdf_lut.handle) {
+		rtg.helpers.destroy_image(std::move(World_environment_brdf_lut));
 	}
 
 	for (VkImageView &view : texture_views) {
