@@ -324,6 +324,7 @@ void Scene::load(std::string filename, std::optional<std::string> requested_came
                 }
 
             } else if (type.value() == "MATERIAL") {
+
                 std::string material_name = object_i.find("name")->second.as_string().value();
                 int32_t cur_material_index;
                 // look at the map and see if the node has been made already
@@ -337,6 +338,22 @@ void Scene::load(std::string filename, std::optional<std::string> requested_came
                     materials_map.insert({material_name, cur_material_index});
                 }
 
+                auto get_texture_format = [&](std::map<std::string, sejp::value> res){
+                    Texture::Format format = Texture::Linear;
+                    if (auto format_res = res.find("format"); format_res != res.end()) {
+                        std::string tex_format = format_res->second.as_string().value();
+                        if (tex_format == "srgb") {
+                            format = Texture::sRGB;
+                        }
+                        else if (tex_format == "rgbe") {
+                            format = Texture::RGBE;
+                        }
+                        else if (tex_format != "Linear") {
+                            std::cerr<< "Error: Unrecognized texture format for Material: "<<  materials[cur_material_index].name << ", defaulting to linear.\n";
+                        }
+                    }
+                    return format;
+                };
                 materials[cur_material_index].normal_index = static_cast<uint32_t>(Texture::DefaultTexture::DefaultNormal);
                 materials[cur_material_index].displacement_index = static_cast<uint32_t>(Texture::DefaultTexture::DefaultDisplacement);
                 if (auto res = object_i.find("normalMap"); res != object_i.end()) {
@@ -345,7 +362,7 @@ void Scene::load(std::string filename, std::optional<std::string> requested_came
                         if (auto tex_map_entry = textures_map.find(tex_name); tex_map_entry != textures_map.end()) {
                                 materials[cur_material_index].normal_index = tex_map_entry->second;
                         } else {
-                            Texture new_texture = Texture(tex_name);
+                            Texture new_texture = Texture(tex_name, get_texture_format(res->second.as_object().value()));
                             uint32_t index = uint32_t(textures.size());
                             textures.push_back(new_texture);
                             textures_map.insert({tex_name, index});
@@ -360,7 +377,7 @@ void Scene::load(std::string filename, std::optional<std::string> requested_came
                         if (auto tex_map_entry = textures_map.find(tex_name); tex_map_entry != textures_map.end()) {
                                 materials[cur_material_index].displacement_index = tex_map_entry->second;
                         } else {
-                            Texture new_texture = Texture(tex_name, true);
+                            Texture new_texture = Texture(tex_name, true, get_texture_format(res->second.as_object().value()));
                             uint32_t index = uint32_t(textures.size());
                             textures.push_back(new_texture);
                             textures_map.insert({tex_name, index});
@@ -400,7 +417,7 @@ void Scene::load(std::string filename, std::optional<std::string> requested_came
                                 if (auto tex_map_entry = textures_map.find(tex_name); tex_map_entry != textures_map.end()) {
                                     materials[cur_material_index].material_textures = Material::MatLambertian(tex_map_entry->second);
                                 } else {
-                                    Texture new_texture = Texture(tex_name);
+                                    Texture new_texture = Texture(tex_name, get_texture_format(albedo_res->second.as_object().value()));
                                     uint32_t index = uint32_t(textures.size());
                                     textures.push_back(new_texture);
                                     textures_map.insert({tex_name, index});
@@ -458,7 +475,7 @@ void Scene::load(std::string filename, std::optional<std::string> requested_came
                                 if (auto tex_map_entry = textures_map.find(tex_name); tex_map_entry != textures_map.end()) {
                                     new_material.albedo_index = tex_map_entry->second;
                                 } else {
-                                    Texture new_texture = Texture(tex_name);
+                                    Texture new_texture = Texture(tex_name, get_texture_format(albedo_res->second.as_object().value()));
                                     uint32_t index = uint32_t(textures.size());
                                     textures.push_back(new_texture);
                                     textures_map.insert({tex_name, index});
@@ -500,7 +517,7 @@ void Scene::load(std::string filename, std::optional<std::string> requested_came
                                 if (auto tex_map_entry = textures_map.find(tex_name); tex_map_entry != textures_map.end()) {
                                     new_material.roughness_index = tex_map_entry->second;
                                 } else {
-                                    Texture new_texture = Texture(tex_name, true);
+                                    Texture new_texture = Texture(tex_name, true, get_texture_format(roughness_res->second.as_object().value()));
                                     uint32_t index = uint32_t(textures.size());
                                     textures.push_back(new_texture);
                                     textures_map.insert({tex_name, index});
@@ -542,7 +559,7 @@ void Scene::load(std::string filename, std::optional<std::string> requested_came
                                 if (auto tex_map_entry = textures_map.find(tex_name); tex_map_entry != textures_map.end()) {
                                     new_material.metalness_index = tex_map_entry->second;
                                 } else {
-                                    Texture new_texture = Texture(tex_name, true);
+                                    Texture new_texture = Texture(tex_name, true, get_texture_format(metalness_res->second.as_object().value()));
                                     uint32_t index = uint32_t(textures.size());
                                     textures.push_back(new_texture);
                                     textures_map.insert({tex_name, index});

@@ -41,7 +41,7 @@ struct Scene
         bool single_channel = false;
         enum Format {
             Linear,
-            SRGB,
+            sRGB,
             RGBE,
         } format = Format::Linear;
         Texture(std::string value_, bool single_channel_, Format format_ = Linear) : value(value_), is_2D(true), has_src(true), single_channel(single_channel_), format(format_) {};
