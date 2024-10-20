@@ -59,10 +59,11 @@ void main() {
 
 	vec3 F = FresnelSchlickRoughness(max(dot(viewDir, worldNormal), 0.0), roughness, F0);
 	vec3 kS = F;
-	vec3 kD = mix(vec3(1.0) - F, vec3(0.0), metalness);
-	// kD *= 1.0 - metalness;
+	vec3 kD = 1.0 - kS;
+	// vec3 kD = mix(vec3(1.0) - F, vec3(0.0), metalness);
+	kD *= 1.0 - metalness;
 
 	vec3 specular = radiance * (environment_brdf.r * F + environment_brdf.g);
 
-	outColor = vec4(gamma_correction(ACESFitted(kD*albedo*irradiance + kS * specular)) , 1.0f);
+	outColor = vec4(ACESFitted(kD * albedo * irradiance/PI + kS * specular) , 1.0f);
 }

@@ -1,5 +1,9 @@
 #version 450
 
+#ifndef TONEMAP
+	#include "tonemap.glsl"
+#endif
+
 layout(set=0,binding=0,std140) uniform World {
 	vec3 SKY_DIRECTION;
 	vec3 SKY_ENERGY; //energy supplied by sky to a surface patch with normal = SKY_DIRECTION
@@ -21,7 +25,13 @@ layout(location=0) out vec4 outColor;
 
 #define PI 3.1415926538
 
+// //hemisphere lighting from direction l:
+// vec3 e = SKY_ENERGY * (0.5 * dot(worldNormal,SKY_DIRECTION) + 0.5)
+//        + SUN_ENERGY * max(0.0, dot(worldNormal,SUN_DIRECTION)) ;
+
+
 void main() {
+
 	vec3 albedo = texture(ALBEDO, texCoord).rgb;
 
 	// Sample the normal map and convert from [0,1] to [-1,1]
@@ -29,11 +39,9 @@ void main() {
     vec3 tangentNormal = normalize(normal_rgb * 2.0 - 1.0); 
 
     // Transform the normal from tangent space to world space
-    vec3 worldNormal = TBN * tangentNormal; 
+    vec3 worldNormal = TBN * tangentNormal;
 
-	//hemisphere lighting from direction l:
-	vec3 e = SKY_ENERGY * (0.5 * dot(worldNormal,SKY_DIRECTION) + 0.5)
-	       + SUN_ENERGY * max(0.0, dot(worldNormal,SUN_DIRECTION)) ;
+	vec3 irradiance = textureLod(ENVIRONMENT, worldNormal, ENVIRONMENT_MIPS).rgb;
 
-	outColor = vec4(e * albedo / PI, 1.0);
+	outColor = vec4(ACESFitted(albedo * irradiance/PI) , 1.0f);
 }
