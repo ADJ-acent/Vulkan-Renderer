@@ -1,5 +1,5 @@
 
-#include "RTGCube.hpp"
+#include "RTG.hpp"
 #include "RTGCubeApp.hpp"
 
 
@@ -12,7 +12,8 @@ int main(int argc, char **argv) {
 	try {
 
 		//configure application:
-		RTGCube::Configuration configuration;
+		RTG::Configuration configuration;
+		configuration.cube = true;
 
 		configuration.application_info = VkApplicationInfo{
 			.pApplicationName = "RTG Cube",
@@ -40,7 +41,7 @@ int main(int argc, char **argv) {
 		}
 
 		//loads vulkan library, creates surface, initializes helpers:
-		RTGCube rtg(configuration);
+		RTG rtg(configuration);
 
 		//initializes global (whole-life-of-application) resources:
 		RTGCubeApp application(rtg);

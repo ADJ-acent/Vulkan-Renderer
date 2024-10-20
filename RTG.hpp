@@ -74,6 +74,17 @@ struct RTG {
 		//headless mode (for benchmarking)
 		bool headless_mode = false;
 
+		//cube mode
+		bool cube = false;
+		//path to the input image
+		std::string in_image = "";
+
+        std::string ggx_out_image = "";
+
+        std::string lambert_out_image = "";
+
+        uint8_t ggx_levels = 5;
+
 		//event file to read from for headless mode
 		std::string headless_event_path = "";
 
@@ -97,6 +108,7 @@ struct RTG {
 		Configuration() = default;
 		void parse(int argc, char **argv); //parse command-line options; throws on error
 		static void usage(std::function< void(const char *, const char *) > const &callback); //reports command line usage by passing flag and description to callback.
+		static void cube_usage(std::function< void(const char *, const char *) > const &callback);
 	};
 
 	Configuration configuration; //configuration, as used (might have extra extensions, layers, or flags added)
@@ -121,6 +133,10 @@ struct RTG {
 	//queue for present operations:
 	std::optional< uint32_t > present_queue_family;
 	VkQueue present_queue = VK_NULL_HANDLE;
+
+	//queue for compute operations:
+	std::optional< uint32_t > compute_queue_family;
+	VkQueue compute_queue = VK_NULL_HANDLE;
 
 	//-------------------------------------------------
 	//Handles for the window and surface:
@@ -154,6 +170,8 @@ struct RTG {
 	//Workspaces hold dynamic state that must be kept separate between frames.
 	// RTG stores some synchronization primitives per workspace.
 	// (The bulk of per-workspace data will be managed by the Application.)
+	VkFence cube_work_finished;
+
 	struct PerWorkspace {
 		VkFence workspace_available = VK_NULL_HANDLE; //workspace is ready for a new render
 		VkSemaphore image_available = VK_NULL_HANDLE; //the image is ready to write to
@@ -173,6 +191,9 @@ struct RTG {
 
 	//run application in headless mode
 	void headless_run(Application &);
+
+	//run cube application
+	void cube_run(Application &);
 
 	struct SwapchainEvent;
 	struct RenderParams;

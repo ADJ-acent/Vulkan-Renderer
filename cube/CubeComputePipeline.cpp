@@ -9,141 +9,74 @@ static uint32_t comp_code[] =
 ;
 
 
-void RTGCubeApp::CubeComputePipeline::create(RTG &rtg, VkRenderPass render_pass, uint32_t subpass) {
+void RTGCubeApp::CubeComputePipeline::create(RTG &rtg) {
     VkShaderModule comp_module = rtg.helpers.create_shader_module(comp_code);
 
+    {//the set0_TEXTURE holds the input and output image
+		std::array<VkDescriptorSetLayoutBinding, 2> bindings{
+			VkDescriptorSetLayoutBinding{
+				.binding = 0,
+				.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+				.descriptorCount = 1,
+				.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT
+			},
+            VkDescriptorSetLayoutBinding{
+				.binding = 1,
+				.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+				.descriptorCount = 1,
+				.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT
+			},
+		};
+		
+		VkDescriptorSetLayoutCreateInfo create_info{
+			.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+			.bindingCount = uint32_t(bindings.size()),
+			.pBindings = bindings.data(),
+		};
+
+		VK(vkCreateDescriptorSetLayout(rtg.device, &create_info, nullptr, &set0_TEXTURE));
+	}
+
     {//create pipeline layout:
-
-
-        VkPipelineLayoutCreateInfo create_info{
-            .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
-            .setLayoutCount = 0,
-            .pSetLayouts = nullptr,
-            .pushConstantRangeCount = 1,
-            .pPushConstantRanges = &range,
+		std::array<VkDescriptorSetLayout, 1> layouts{
+			set0_TEXTURE
         };
+
+		VkPipelineLayoutCreateInfo create_info{
+			.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+			.setLayoutCount = uint32_t(layouts.size()),
+			.pSetLayouts = layouts.data(),
+			.pushConstantRangeCount = 0,
+			.pPushConstantRanges = nullptr,
+		};
         VK(vkCreatePipelineLayout(rtg.device, &create_info, nullptr, &layout));
     }
     { //create pipeline:
-        //shader code for vertex and fragment pipeline stages:
-        std::array<VkPipelineShaderStageCreateInfo, 2> stages{
-            VkPipelineShaderStageCreateInfo{
-                .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
-                .stage = VK_SHADER_STAGE_VERTEX_BIT,
-                .module = vert_module,
-                .pName = "main"
-            },
-            VkPipelineShaderStageCreateInfo{
-                .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
-                .stage = VK_SHADER_STAGE_FRAGMENT_BIT,
-                .module = frag_module,
-                .pName = "main"
-            },
+        VkPipelineShaderStageCreateInfo shader_stage{
+            .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+            .stage = VK_SHADER_STAGE_COMPUTE_BIT,
+            .module = comp_module,
+            .pName = "main",
         };
 
-        // the viewport and scissor state will be set at run time for the pipeline:
-        std::vector<VkDynamicState> dynamic_states{
-            VK_DYNAMIC_STATE_VIEWPORT,
-            VK_DYNAMIC_STATE_SCISSOR
-        };
-        VkPipelineDynamicStateCreateInfo dynamic_state{
-            .sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO,
-            .dynamicStateCount = uint32_t(dynamic_states.size()),
-            .pDynamicStates = dynamic_states.data()
-        };
-
-        //this pipeline will not take per-vertex inputs:
-        VkPipelineVertexInputStateCreateInfo vertex_input_state{
-            .sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
-            .vertexBindingDescriptionCount = 0,
-            .pVertexBindingDescriptions = nullptr,
-            .vertexAttributeDescriptionCount = 0,
-            .pVertexAttributeDescriptions = nullptr,
-        };
-
-        //this pipeline will draw triangles:
-        VkPipelineInputAssemblyStateCreateInfo input_assembly_state{
-            .sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,
-            .topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
-            .primitiveRestartEnable = VK_FALSE
-        };
-
-        //this pipeline only render to one viewport and scissor rectangle:
-        VkPipelineViewportStateCreateInfo viewport_state{
-            .sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO,
-            .viewportCount = 1,
-            .scissorCount = 1,
-        };
-        
-        //the rasterizer will cull back faces and fill polygons:
-        VkPipelineRasterizationStateCreateInfo rasterization_state{
-            .sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
-            .depthClampEnable = VK_FALSE,
-            .polygonMode = VK_POLYGON_MODE_FILL,
-            .cullMode = VK_CULL_MODE_BACK_BIT,
-            .frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE,
-            .depthBiasEnable = VK_FALSE,
-            .lineWidth = 1.0f,
-        };
-
-        //multisampling will be disabled (one sample per pixel):
-        VkPipelineMultisampleStateCreateInfo multisample_state{
-            .sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
-            .rasterizationSamples = VK_SAMPLE_COUNT_1_BIT,
-            .sampleShadingEnable = VK_FALSE,
-        };
-
-        //depth and stencil tests will be disabled:
-        VkPipelineDepthStencilStateCreateInfo depth_stencil_state{
-            .sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO,
-            .depthTestEnable = VK_FALSE,
-            .stencilTestEnable = VK_FALSE,
-        };
-
-        //there will be one color attachment with blending disabled:
-        std::array<VkPipelineColorBlendAttachmentState, 1> attachment_states{
-            VkPipelineColorBlendAttachmentState{
-                .blendEnable = VK_FALSE,
-                .colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT 
-                    | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT,
-            },
-        };
-        VkPipelineColorBlendStateCreateInfo color_blend_state{
-            .sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
-            .logicOpEnable = VK_FALSE,
-            .attachmentCount = uint32_t(attachment_states.size()),
-            .pAttachments = attachment_states.data(),
-            .blendConstants{0.0f, 0.0f, 0.0f, 0.0f},
-        };
-
-        //all of the above structures bundled into one pipeline create_info
-        VkGraphicsPipelineCreateInfo create_info{
-            .sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
-            .stageCount = uint32_t(stages.size()),
-            .pStages = stages.data(),
-            .pVertexInputState = &vertex_input_state,
-            .pInputAssemblyState = &input_assembly_state,
-            .pViewportState = &viewport_state,
-            .pRasterizationState = &rasterization_state,
-            .pMultisampleState = &multisample_state,
-            .pDepthStencilState = &depth_stencil_state,
-            .pColorBlendState = &color_blend_state,
-            .pDynamicState = &dynamic_state,
+        VkComputePipelineCreateInfo create_info{
+            .sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
+            .stage = shader_stage,
             .layout = layout,
-			.renderPass = render_pass,
-			.subpass = subpass,
         };
 
-        VK(vkCreateGraphicsPipelines(rtg.device, VK_NULL_HANDLE, 1, &create_info, nullptr, &handle));
+        VK(vkCreateComputePipelines(rtg.device, VK_NULL_HANDLE, 1, &create_info, nullptr, &handle));
 
-        //modules no longer needed now that the pipeline is created
-        vkDestroyShaderModule(rtg.device, frag_module, nullptr);
-        vkDestroyShaderModule(rtg.device, vert_module, nullptr);
-    
+        // Destroy shader module after pipeline creation
+        vkDestroyShaderModule(rtg.device, comp_module, nullptr);
     }
 }
 
 void RTGCubeApp::CubeComputePipeline::destroy(RTG &rtg) {
+    if (set0_TEXTURE != VK_NULL_HANDLE) {
+		vkDestroyDescriptorSetLayout(rtg.device, set0_TEXTURE, nullptr);
+		set0_TEXTURE = VK_NULL_HANDLE;
+	}
     if (layout != VK_NULL_HANDLE) {
         vkDestroyPipelineLayout(rtg.device, layout, nullptr);
         layout = VK_NULL_HANDLE;

@@ -559,10 +559,10 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_) {
 					image = stbi_load((scene.scene_path +"/"+ source).c_str(), &width, &height, &n, 4);
 					if (image == NULL) throw std::runtime_error("Error loading texture " + scene.scene_path + "/" + source);		
 					if (cur_texture.format == Scene::Texture::RGBE) {
-						std::vector<uint32_t> rgb_image(width * height);
-						for (uint32_t pixel_i = 0; i< uint32_t(width * height); ++i) {
+						std::vector<uint32_t> converted_image(width * height);
+						for (uint32_t pixel_i = 0; pixel_i< uint32_t(width * height); ++pixel_i) {
 							glm::u8vec4 rgbe_pixel = glm::u8vec4(image[4*pixel_i], image[4*pixel_i + 1], image[4*pixel_i + 2], image[4*pixel_i + 3]);
-							rgb_image[i] = rgbe_to_E5B9G9R9(rgbe_pixel);
+							converted_image[pixel_i] = rgbe_to_E5B9G9R9(rgbe_pixel);
 						}
 						textures.emplace_back(rtg.helpers.create_image(
 							VkExtent2D{ .width = uint32_t(width) , .height = uint32_t(height) }, //size of image
@@ -573,7 +573,7 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_) {
 							Helpers::Unmapped
 						));
 						
-						rtg.helpers.transfer_to_image(rgb_image.data(), sizeof(rgb_image[0])*width*height, textures.back());
+						rtg.helpers.transfer_to_image(converted_image.data(), sizeof(converted_image[0])*width*height, textures.back());
 					}
 					else {
 						VkFormat format = cur_texture.format == Scene::Texture::sRGB ? VK_FORMAT_R8G8B8A8_SRGB : VK_FORMAT_R8G8B8A8_UNORM;
