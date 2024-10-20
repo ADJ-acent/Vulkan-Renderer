@@ -27,19 +27,22 @@ custom_flags_and_rules();
 //maek.CPP(...) builds a c++ file:
 // it returns the path to the output object file
 const main_objs = [
-	maek.CPP('frustum_culling.cpp'),
 	maek.CPP('HeadlessEvent.cpp'),
 	maek.CPP('RTGRenderer.cpp'),
-	maek.CPP('PosColVertex.cpp'),
-	maek.CPP('PosNorTexVertex.cpp'),
 	maek.CPP('RTG.cpp'),
 	maek.CPP('Helpers.cpp'),
-	maek.CPP('main.cpp'),
-	maek.CPP('PosNorTanTexVertex.cpp'),
-	maek.CPP('Scene.cpp'),
 	maek.CPP('data_path.cpp'),
-	maek.CPP('sejp.cpp'),
 ];
+
+const viewer_objs = [
+	maek.CPP('main.cpp'),
+	maek.CPP('PosColVertex.cpp'),
+	maek.CPP('PosNorTanTexVertex.cpp'),
+	maek.CPP('PosNorTexVertex.cpp'),
+	maek.CPP('Scene.cpp'),
+	maek.CPP('frustum_culling.cpp'),
+	maek.CPP('sejp.cpp'),
+]
 
 //maek.GLSLC(...) builds a glsl source file:
 // it returns the path to the output .inl file
@@ -86,7 +89,7 @@ const pbr_shaders = [
 ];
 main_objs.push( maek.CPP('PBRPipeline.cpp', undefined, { depends:[...pbr_shaders] } ) );
 
-const main_exe = maek.LINK([...main_objs], 'bin/viewer');
+const main_exe = maek.LINK([...main_objs, ...viewer_objs], 'bin/viewer');
 
 //default targets:
 maek.TARGETS = [main_exe];

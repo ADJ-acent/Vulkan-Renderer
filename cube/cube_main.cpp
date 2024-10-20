@@ -1,7 +1,7 @@
 
-#include "RTG.hpp"
+#include "RTGCube.hpp"
+#include "RTGCubeApp.hpp"
 
-#include "RTGRenderer.hpp"
 
 #include "Scene.hpp"
 
@@ -12,10 +12,10 @@ int main(int argc, char **argv) {
 	try {
 
 		//configure application:
-		RTG::Configuration configuration;
+		RTGCube::Configuration configuration;
 
 		configuration.application_info = VkApplicationInfo{
-			.pApplicationName = "Real Time Graphics Renderer",
+			.pApplicationName = "RTG Cube",
 			.applicationVersion = VK_MAKE_VERSION(0,0,0),
 			.pEngineName = "Unknown",
 			.engineVersion = VK_MAKE_VERSION(0,0,0),
@@ -39,23 +39,16 @@ int main(int argc, char **argv) {
 			return 1;
 		}
 
-		//loads scene hiearchy
-		Scene scene(configuration.scene_path, configuration.scene_camera, configuration.animation_settings);
-
 		//loads vulkan library, creates surface, initializes helpers:
-		RTG rtg(configuration);
+		RTGCube rtg(configuration);
 
 		//initializes global (whole-life-of-application) resources:
-		RTGRenderer application(rtg, scene);
+		RTGCubeApp application(rtg);
 
 		//main loop -- handles events, renders frames, etc:
-		if (configuration.headless_mode) {
-			rtg.headless_run(application);
-		}
-		else {
-			rtg.run(application);
-		}
 
+		rtg.headless_run(application);
+		
 	} catch (std::exception &e) {
 		std::cerr << "Exception: " << e.what() << std::endl;
 		return 1;
