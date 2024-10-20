@@ -46,43 +46,43 @@ const main_objs = [
 
 // build background shaders and pipeline:
 const background_shaders = [
-	maek.GLSLC('background.vert', undefined, {GLSLCFlags: ['-mfmt=c']}),
-	maek.GLSLC('background.frag', undefined, {GLSLCFlags: ['-mfmt=c']}),
+	maek.GLSLC('glsl/background.vert', 'spv/background.vert', {GLSLCFlags: []}),
+	maek.GLSLC('glsl/background.frag', 'spv/background.frag', {GLSLCFlags: []}),
 ];
 main_objs.push( maek.CPP('Tutorial-BackgroundPipeline.cpp', undefined, { depends:[...background_shaders] } ) );
 
 // build lines shaders and pipeline:
 const lines_shaders = [
-	maek.GLSLC('lines.vert', undefined, {GLSLCFlags: ['-mfmt=c']}),
-	maek.GLSLC('lines.frag', undefined, {GLSLCFlags: ['-mfmt=c']}),
+	maek.GLSLC('glsl/lines.vert', 'spv/lines.vert', {GLSLCFlags: []}),
+	maek.GLSLC('glsl/lines.frag', 'spv/lines.frag', {GLSLCFlags: []}),
 ];
 main_objs.push( maek.CPP('Tutorial-LinesPipeline.cpp', undefined, { depends:[...lines_shaders] } ) );
 
 // build lambertian shaders and pipeline:
 const lambertian_shaders = [
-	maek.GLSLC('lambertian.vert', undefined, {GLSLCFlags: ['-mfmt=c']}),
-	maek.GLSLC('lambertian.frag', undefined, {GLSLCFlags: ['-mfmt=c']}),
+	maek.GLSLC('glsl/lambertian.vert', 'spv/lambertian.vert', {GLSLCFlags: []}),
+	maek.GLSLC('glsl/lambertian.frag', 'spv/lambertian.frag', {GLSLCFlags: []}),
 ];
 main_objs.push( maek.CPP('LambertianPipeline.cpp', undefined, { depends:[...lambertian_shaders] } ) );
 
 // build environment shaders and pipeline:
 const environment_shaders = [
-	maek.GLSLC('environment.vert', undefined, {GLSLCFlags: ['-mfmt=c']}),
-	maek.GLSLC('environment.frag', undefined, {GLSLCFlags: ['-mfmt=c']}),
+	maek.GLSLC('glsl/environment.vert', 'spv/environment.vert', {GLSLCFlags: []}),
+	maek.GLSLC('glsl/environment.frag', 'spv/environment.frag', {GLSLCFlags: []}),
 ];
 main_objs.push( maek.CPP('EnvironmentPipeline.cpp', undefined, { depends:[...environment_shaders] } ) );
 
 // build mirror shaders and pipeline:
 const mirror_shaders = [
-	maek.GLSLC('mirror.vert', undefined, {GLSLCFlags: ['-mfmt=c']}),
-	maek.GLSLC('mirror.frag', undefined, {GLSLCFlags: ['-mfmt=c']}),
+	maek.GLSLC('glsl/mirror.vert', 'spv/mirror.vert', {GLSLCFlags: []}),
+	maek.GLSLC('glsl/mirror.frag', 'spv/mirror.frag', {GLSLCFlags: []}),
 ];
 main_objs.push( maek.CPP('MirrorPipeline.cpp', undefined, { depends:[...mirror_shaders] } ) );
 
 // build mirror shaders and pipeline:
 const pbr_shaders = [
-	maek.GLSLC('pbr.vert', undefined, {GLSLCFlags: ['-mfmt=c']}),
-	maek.GLSLC('pbr.frag', undefined, {GLSLCFlags: ['-mfmt=c']}),
+	maek.GLSLC('glsl/pbr.vert', 'spv/pbr.vert', {GLSLCFlags: []}),
+	maek.GLSLC('glsl/pbr.frag', 'spv/pbr.frag', {GLSLCFlags: []}),
 ];
 main_objs.push( maek.CPP('PBRPipeline.cpp', undefined, { depends:[...pbr_shaders] } ) );
 
@@ -185,7 +185,7 @@ function custom_flags_and_rules() {
 	//- - - - - - - - - - - - -
 	//custom rule that runs glslc:
 	
-	maek.DEFAULT_OPTIONS.GLSLC = [`${VULKAN_SDK}/bin/glslc` + (maek.OS === 'windows' ? '.exe' : ''), '-Werror', '-g', '--target-env=vulkan1.2'];
+	maek.DEFAULT_OPTIONS.GLSLC = [`${VULKAN_SDK}/bin/glslc` + (maek.OS === 'windows' ? '.exe' : ''), '-Werror', '-g','-mfmt=c', '--target-env=vulkan1.2'];
 	maek.DEFAULT_OPTIONS.GLSLCFlags = [];
 	maek.DEFAULT_OPTIONS.spirvSuffix = '.inl';
 	maek.DEFAULT_OPTIONS.spirvPrefix = 'spv/';
