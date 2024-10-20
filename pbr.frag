@@ -65,5 +65,5 @@ void main() {
 
 	vec3 specular = radiance * (environment_brdf.r * F + environment_brdf.g);
 
-	outColor = vec4(ACESFitted(kD * albedo * irradiance/PI + kS * specular) , 1.0f);
+	outColor = vec4(gamma_correction(ACESFitted(kD * albedo * irradiance/PI + specular)) , 1.0f);
 }

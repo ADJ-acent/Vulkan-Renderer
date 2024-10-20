@@ -269,18 +269,18 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_) {
 	{ // environment BRDF LUT
 		{ // create the BRDF LUT
 			int width,height,n;
-			float* image = stbi_loadf("../resource/ibl_brdf_lut.png", &width, &height, &n, 2); // r and g only
+			float* image = stbi_loadf("../resource/ibl_brdf_lut.png", &width, &height, &n, 0);
 			if (image == NULL) throw std::runtime_error("Error loading Environment BRDF LUT texture: ../resource/ibl_brdf_lut.png");
 			World_environment_brdf_lut = rtg.helpers.create_image(
 				VkExtent2D{ .width = uint32_t(width) , .height = uint32_t(height) }, //size of image
-				VK_FORMAT_R32G32_SFLOAT, //how to interpret image data (in this case, linearly-encoded 8-bit RGBA) TODO: double check format
+				VK_FORMAT_R32G32B32_SFLOAT,
 				VK_IMAGE_TILING_OPTIMAL,
 				VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, //will sample and upload
 				VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, //should be device-local
 				Helpers::Unmapped
 			);
 			
-			rtg.helpers.transfer_to_image(image, sizeof(image[0]) * width * height * 2, World_environment_brdf_lut);
+			rtg.helpers.transfer_to_image(image, sizeof(image[0]) * width * height * 3, World_environment_brdf_lut);
 			
 			//free image:
 			stbi_image_free(image);
@@ -566,7 +566,7 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_) {
 						}
 						textures.emplace_back(rtg.helpers.create_image(
 							VkExtent2D{ .width = uint32_t(width) , .height = uint32_t(height) }, //size of image
-							VK_FORMAT_E5B9G9R9_UFLOAT_PACK32, //how to interpret image data (in this case, linearly-encoded 8-bit RGBA) TODO: double check format
+							VK_FORMAT_E5B9G9R9_UFLOAT_PACK32,
 							VK_IMAGE_TILING_OPTIMAL,
 							VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, //will sample and upload
 							VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, //should be device-local
@@ -579,7 +579,7 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_) {
 						VkFormat format = cur_texture.format == Scene::Texture::sRGB ? VK_FORMAT_R8G8B8A8_SRGB : VK_FORMAT_R8G8B8A8_UNORM;
 						textures.emplace_back(rtg.helpers.create_image(
 							VkExtent2D{ .width = uint32_t(width) , .height = uint32_t(height) }, //size of image
-							format, //how to interpret image data (in this case, linearly-encoded 8-bit RGBA) TODO: double check format
+							format, 
 							VK_IMAGE_TILING_OPTIMAL,
 							VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, //will sample and upload
 							VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, //should be device-local

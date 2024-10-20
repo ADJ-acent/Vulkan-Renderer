@@ -43,5 +43,5 @@ void main() {
 
 	vec3 irradiance = textureLod(ENVIRONMENT, worldNormal, ENVIRONMENT_MIPS).rgb;
 
-	outColor = vec4(ACESFitted(albedo * irradiance/PI) , 1.0f);
+	outColor = vec4(gamma_correction(ACESFitted(albedo * irradiance/PI)), 1.0f);
 }
