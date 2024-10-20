@@ -166,14 +166,14 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_) {
 		int face_length = width;
 
 		// convert rgbe to rgb values
-		std::vector<glm::vec4> rgb_image(total_size); // Store the converted RGB data
+		std::vector<uint32_t> rgb_image(total_size); // Store the converted RGB data
 		int temp_width = width;
 		int temp_height = height;
 		uint64_t pixel_index = 0;
 		for (uint8_t level = 0; level < mip_levels; ++level) {
 			for (int i = 0; i < temp_width*temp_height; ++i) {
 				glm::u8vec4 rgbe_pixel = glm::u8vec4(images[level][4*i], images[level][4*i + 1], images[level][4*i + 2], images[level][4*i + 3]);
-				rgb_image[pixel_index] = rgbe_to_float(rgbe_pixel);
+				rgb_image[pixel_index] = rgbe_to_E5B9G9R9(rgbe_pixel);
 				++pixel_index;
 			}
 			temp_width = temp_width >> 1;
@@ -182,13 +182,13 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_) {
 
 		World_environment = rtg.helpers.create_image(
 			VkExtent2D{ .width = uint32_t(face_length), .height = uint32_t(face_length) }, // size of each face
-			VK_FORMAT_R32G32B32A32_SFLOAT,
+			VK_FORMAT_E5B9G9R9_UFLOAT_PACK32,
 			VK_IMAGE_TILING_OPTIMAL,
 			VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
 			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
 			Helpers::Unmapped, 6, mip_levels
 		);
-		rtg.helpers.transfer_to_image_cube(rgb_image.data(), 4 * 4 * rgb_image.size(), World_environment, 6);
+		rtg.helpers.transfer_to_image_cube(rgb_image.data(), sizeof(rgb_image[0]) * rgb_image.size(), World_environment, 6);
 	
 		//free images:
 		for (unsigned char* image : images){
@@ -559,21 +559,21 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_) {
 					image = stbi_load((scene.scene_path +"/"+ source).c_str(), &width, &height, &n, 4);
 					if (image == NULL) throw std::runtime_error("Error loading texture " + scene.scene_path + "/" + source);		
 					if (cur_texture.format == Scene::Texture::RGBE) {
-						std::vector<glm::vec4> rgb_image(width * height);
+						std::vector<uint32_t> rgb_image(width * height);
 						for (uint32_t pixel_i = 0; i< uint32_t(width * height); ++i) {
 							glm::u8vec4 rgbe_pixel = glm::u8vec4(image[4*pixel_i], image[4*pixel_i + 1], image[4*pixel_i + 2], image[4*pixel_i + 3]);
-							rgb_image[i] = rgbe_to_float(rgbe_pixel);
+							rgb_image[i] = rgbe_to_E5B9G9R9(rgbe_pixel);
 						}
 						textures.emplace_back(rtg.helpers.create_image(
 							VkExtent2D{ .width = uint32_t(width) , .height = uint32_t(height) }, //size of image
-							VK_FORMAT_R32G32B32A32_SFLOAT, //how to interpret image data (in this case, linearly-encoded 8-bit RGBA) TODO: double check format
+							VK_FORMAT_E5B9G9R9_UFLOAT_PACK32, //how to interpret image data (in this case, linearly-encoded 8-bit RGBA) TODO: double check format
 							VK_IMAGE_TILING_OPTIMAL,
 							VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, //will sample and upload
 							VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, //should be device-local
 							Helpers::Unmapped
 						));
 						
-						rtg.helpers.transfer_to_image(image, sizeof(image[0]) * width*height*4, textures.back());
+						rtg.helpers.transfer_to_image(rgb_image.data(), sizeof(rgb_image[0])*width*height, textures.back());
 					}
 					else {
 						VkFormat format = cur_texture.format == Scene::Texture::sRGB ? VK_FORMAT_R8G8B8A8_SRGB : VK_FORMAT_R8G8B8A8_UNORM;
