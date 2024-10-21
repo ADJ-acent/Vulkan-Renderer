@@ -1226,6 +1226,7 @@ void RTG::headless_run(Application &application) {
 			std::chrono::high_resolution_clock::time_point after_debug = std::chrono::high_resolution_clock::now();
 			float dt_debug = float(std::chrono::duration< double >(after_debug - before_debug).count());
 			std::cout<<dt_debug<<std::endl;
+			before_debug = after_debug;
 		}
 		else if (cur_event.type == HeadlessEvent::PLAY) {
 			HeadlessEvent::AnimationParams params = std::get<HeadlessEvent::AnimationParams>(cur_event.event_params);
