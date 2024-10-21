@@ -40,7 +40,7 @@ void RTG::Configuration::parse(int argc, char **argv) {
 			} else if (arg == "--ggx-levels ") {
 				if (argi + 1 >= argc) throw std::runtime_error("--ggx-levels requires a parameter (number of output levels).");
 				argi += 1;
-				ggx_levels = atoi(argv[argi]);
+				ggx_levels = uint8_t(atoi(argv[argi]));
 			} else {
 				throw std::runtime_error("Unrecognized argument '" + arg + "'.");
 			}

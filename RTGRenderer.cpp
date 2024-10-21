@@ -271,16 +271,21 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_) {
 			int width,height,n;
 			float* image = stbi_loadf("../resource/ibl_brdf_lut.png", &width, &height, &n, 0);
 			if (image == NULL) throw std::runtime_error("Error loading Environment BRDF LUT texture: ../resource/ibl_brdf_lut.png");
+			std::vector<float> converted_image(width*height*2);
+			for (uint32_t i = 0; i < uint32_t(width * height); ++i) {
+				converted_image[i*2] = image[i*3];
+				converted_image[i*2+1] = image[i*3+1];
+			}
 			World_environment_brdf_lut = rtg.helpers.create_image(
 				VkExtent2D{ .width = uint32_t(width) , .height = uint32_t(height) }, //size of image
-				VK_FORMAT_R32G32B32_SFLOAT,
+				VK_FORMAT_R32G32_SFLOAT,
 				VK_IMAGE_TILING_OPTIMAL,
 				VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, //will sample and upload
 				VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, //should be device-local
 				Helpers::Unmapped
 			);
 			
-			rtg.helpers.transfer_to_image(image, sizeof(image[0]) * width * height * 3, World_environment_brdf_lut);
+			rtg.helpers.transfer_to_image(converted_image.data(), sizeof(converted_image[0]) * width * height * 2, World_environment_brdf_lut);
 			
 			//free image:
 			stbi_image_free(image);
@@ -1355,6 +1360,22 @@ void RTGRenderer::render(RTG &rtg_, RTG::RenderParams const &render_params) {
 			vkCmdDraw(workspace.command_buffer, uint32_t(lines_vertices.size()), 1, 0, 0);
 		}
 
+		if (!lambertian_instances.empty() || !environment_instances.empty() || !mirror_instances.empty() || !pbr_instances.empty()) {
+			//bind Transforms descriptor set:
+			std::array< VkDescriptorSet, 2 > descriptor_sets{
+				workspace.World_descriptors, //0: World
+				workspace.Transforms_descriptors, //1: Transforms
+			};
+			vkCmdBindDescriptorSets(
+				workspace.command_buffer, //command buffer
+				VK_PIPELINE_BIND_POINT_GRAPHICS, //pipeline bind point
+				lambertian_pipeline.layout, //pipeline layout
+				0, //first set
+				uint32_t(descriptor_sets.size()), descriptor_sets.data(), //descriptor sets count, ptr
+				0, nullptr //dynamic offsets count, ptr
+			);
+		}
+
 		if (!lambertian_instances.empty()){//draw with the objects pipeline:
 			vkCmdBindPipeline(workspace.command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, lambertian_pipeline.handle);
 
@@ -1365,22 +1386,7 @@ void RTGRenderer::render(RTG &rtg_, RTG::RenderParams const &render_params) {
 
 			}
 
-			{ //bind Transforms descriptor set:
-				std::array< VkDescriptorSet, 2 > descriptor_sets{
-					workspace.World_descriptors, //0: World
-					workspace.Transforms_descriptors, //1: Transforms
-				};
-				vkCmdBindDescriptorSets(
-					workspace.command_buffer, //command buffer
-					VK_PIPELINE_BIND_POINT_GRAPHICS, //pipeline bind point
-					lambertian_pipeline.layout, //pipeline layout
-					0, //first set
-					uint32_t(descriptor_sets.size()), descriptor_sets.data(), //descriptor sets count, ptr
-					0, nullptr //dynamic offsets count, ptr
-				);
-			}
-
-			//Camera descriptor set is still bound, but unused
+			// set 1 and 2 still bound
 
 			//draw all instances:
 			for (ObjectInstance const &inst : lambertian_instances) {
@@ -1441,8 +1447,6 @@ void RTGRenderer::render(RTG &rtg_, RTG::RenderParams const &render_params) {
 
 			//World descriptor still bound
 
-			//Camera descriptor set is still bound, but unused
-
 			//draw all instances:
 			uint32_t index_offset = uint32_t(lambertian_instances.size() + environment_instances.size());// account for lambertian and environment size
 			for (ObjectInstance const &inst : mirror_instances) {
@@ -1470,8 +1474,6 @@ void RTGRenderer::render(RTG &rtg_, RTG::RenderParams const &render_params) {
 			}
 
 			//World descriptor still bound
-
-			//Camera descriptor set is still bound, but unused
 
 			//draw all instances:
 			uint32_t index_offset = uint32_t(lambertian_instances.size() + environment_instances.size() + mirror_instances.size());// account for lambertian, environment, and mirror size
