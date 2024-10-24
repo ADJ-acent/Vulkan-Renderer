@@ -605,9 +605,38 @@ VkShaderModule Helpers::create_shader_module(uint32_t const *code, size_t bytes)
 	return shader_module;
 }
 
+void Helpers::signal_a_semaphore(VkSemaphore to_signal, uint8_t workspace_index)
+{
+	//begin recording a command buffer
+	VK(vkResetCommandBuffer(transfer_command_buffers[workspace_index], 0));
+
+	VkCommandBufferBeginInfo begin_info{
+		.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+		.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
+	};
+
+	VK(vkBeginCommandBuffer(transfer_command_buffers[workspace_index], &begin_info));
+	VK(vkEndCommandBuffer(transfer_command_buffers[workspace_index]));
+
+	VkSubmitInfo submit_info{
+		.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+		.waitSemaphoreCount = 0,
+		.pWaitSemaphores = nullptr,
+		.pWaitDstStageMask = nullptr,
+		.commandBufferCount = 1,
+		.pCommandBuffers = &transfer_command_buffers[workspace_index],
+		.signalSemaphoreCount = 1,
+		.pSignalSemaphores = &to_signal,
+	};
+
+	VK(vkQueueSubmit(rtg.graphics_queue, 1, &submit_info, VK_NULL_HANDLE));
+
+}
+
 //----------------------------
 
-Helpers::Helpers(RTG const &rtg_) : rtg(rtg_) {
+Helpers::Helpers(RTG const &rtg_) : rtg(rtg_)
+{
 }
 
 Helpers::~Helpers() {

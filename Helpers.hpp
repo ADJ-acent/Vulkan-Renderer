@@ -94,6 +94,7 @@ struct Helpers {
 	VkShaderModule create_shader_module(uint32_t const (&arr)[N]) const {
 		return create_shader_module(arr, 4*N);
 	}
+	void signal_a_semaphore(VkSemaphore to_signal, uint8_t workspace_index);
 
 	//-----------------------
 	//internals:

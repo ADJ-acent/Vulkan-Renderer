@@ -1202,6 +1202,9 @@ void RTG::headless_run(Application &application) {
 		return;
 	}
 
+	for(uint8_t i = 0; i < uint8_t(workspaces.size()); i++)
+        helpers.signal_a_semaphore(workspaces[i].image_available, i);
+
 	float before = float(events.events[0].ts) / 1000000.0f;
 	int32_t image_index = -1;
 	std::chrono::high_resolution_clock::time_point before_debug = std::chrono::high_resolution_clock::now();
