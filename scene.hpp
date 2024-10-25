@@ -103,8 +103,35 @@ struct Scene
         std::string name;
         glm::vec3 tint = glm::vec3(1.0f); // multiplied with energy
         float shadow = 0.0f;
-        float angle = 0.0f;
-        float strength = 1.0f;
+
+        enum LightType : uint8_t {
+            Sun,
+            Sphere,
+            Spot,
+        } light_type;
+
+        struct LightSun {
+            float angle = 0.0f;
+            float strength = 1.0f;
+        };
+        struct LightSphere {
+            float radius = 0.0f;
+            float power = 0.0f;
+            float limit = 0.0f;
+        };
+        struct LightSpot {
+            float radius = 0.0f;
+            float power = 0.0f;
+            float limit = 0.0f;
+            float fov  = 0.0f;
+            float blend = 0.0f;
+        };
+
+        std::variant<LightSun, LightSphere, LightSpot> additional_params;
+    };
+
+    struct LightInstance {
+        uint32_t light_index = 0;
         std::vector<uint32_t> local_to_world; // list of node indices to get from local to world (index 0 is a root node)
     };
 

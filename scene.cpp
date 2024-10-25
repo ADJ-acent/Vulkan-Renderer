@@ -30,6 +30,7 @@ void Scene::load(std::string filename, std::optional<std::string> requested_came
         std::unordered_map<std::string, uint32_t> materials_map;
         std::unordered_map<std::string, uint32_t> textures_map;
         std::unordered_map<std::string, uint32_t> cameras_map;
+        std::unordered_map<std::string, uint32_t> lights_map;
 
         // insert the default 5 textures: 0 for albedo, 1 for roughness, 2 for metalness, 3 for normal, 4 for displacement
         textures.push_back(Texture(glm::vec3(1.0f,1.0f,1.0f)));
@@ -158,23 +159,16 @@ void Scene::load(std::string filename, std::optional<std::string> requested_came
                 // set light
                 if (auto res = object_i.find("light"); res != object_i.end()) {
                     std::string light_name = res->second.as_string().value();
-                    int32_t light_index = -1;
-                    for (int32_t j = 0; j < lights.size(); ++j) {
-                        if (lights[j].name == light_name) {
-                            light_index = j;
-                            break;
-                        }
-                    }
-
-                    if (light_index == -1) {
+                    if (auto light_found = lights_map.find(light_name); light_found != lights_map.end()) {
+                        nodes[cur_node_index].light_index = light_found->second;
+                    } else {
                         Light new_light = {.name = light_name};
                         int32_t index = int32_t(lights.size());
                         lights.push_back(new_light);
+                        lights_map.insert({light_name, index});
                         nodes[cur_node_index].light_index = index;
                     }
-                    else {
-                        nodes[cur_node_index].light_index = light_index;
-                    }
+                    
                 }
 
             } else if (type.value() == "MESH") {
@@ -591,52 +585,85 @@ void Scene::load(std::string filename, std::optional<std::string> requested_came
                 environment.source = environment_source;
             } else if (type.value() == "LIGHT") {
                 std::string light_name = object_i.find("name")->second.as_string().value();
-                glm::vec3 tint = glm::vec3(1.0f,1.0f,1.0f);
-                if (auto tint_res = object_i.find("tint"); tint_res != object_i.end()) {
-                    auto tint_arr = tint_res->second.as_array().value();
-                    assert(tint_arr.size() == 3);
-                    tint.x = float(tint_arr[0].as_number().value());
-                    tint.y = float(tint_arr[1].as_number().value());
-                    tint.z = float(tint_arr[2].as_number().value());
-                }
-                float shadow = 0.0f;
-                if (auto shadow_res = object_i.find("shadow"); shadow_res != object_i.end()) {
-                    shadow = float(shadow_res->second.as_number().value());
-                }
-                float angle = 0.0f;
-                float strength = 1.0f;
-                if (auto sun_res = object_i.find("sun"); sun_res != object_i.end()) {
-                    auto sun_obj = sun_res->second.as_object().value();
-                    if (auto angle_res = sun_obj.find("angle"); angle_res != sun_obj.end()) {
-                        angle = float(angle_res->second.as_number().value());
-                    }
-                    if (auto strength_res = sun_obj.find("strength"); strength_res != sun_obj.end()) {
-                        strength = float(strength_res->second.as_number().value());
-                    }
+                uint32_t light_index = 0;
+                if (auto light_found = lights_map.find(light_name); light_found != lights_map.end()) {
+                    light_index = light_found->second;
                 }
                 else {
-                    std::cerr<<"Only 'sun' light type supported for now.\n";
-                    continue;
-                }
-                int32_t light_index = -1;
-                for (int32_t j = 0; j < lights.size(); ++j) {
-                    if (lights[j].name == light_name) {
-                        light_index = j;
-                        lights[j].tint = tint;
-                        lights[j].angle = angle;
-                        lights[j].strength = strength;
-                        break;
-                    }
+                    Light new_light = {.name = light_name};
+                    int32_t index = int32_t(lights.size());
+                    lights.push_back(new_light);
+                    lights_map.insert({light_name, index});
+                    light_index = index;
                 }
 
-                if (light_index == -1) {
-                    Light new_light = {
-                        .name = light_name,
-                        .tint = tint,
-                        .angle = angle,
-                        .strength = strength
-                    };
-                    lights.push_back(new_light);
+                {// tint
+                    glm::vec3 tint = glm::vec3(1.0f,1.0f,1.0f);
+                    if (auto tint_res = object_i.find("tint"); tint_res != object_i.end()) {
+                        auto tint_arr = tint_res->second.as_array().value();
+                        assert(tint_arr.size() == 3);
+                        tint.x = float(tint_arr[0].as_number().value());
+                        tint.y = float(tint_arr[1].as_number().value());
+                        tint.z = float(tint_arr[2].as_number().value());
+                    }
+                    lights[light_index].tint = tint;
+                }
+
+                {// shadow
+                    float shadow = 0.0f;
+                    if (auto shadow_res = object_i.find("shadow"); shadow_res != object_i.end()) {
+                        shadow = float(shadow_res->second.as_number().value());
+                    }
+                    lights[light_index].shadow = shadow;
+                }
+
+                if (auto sun_res = object_i.find("sun"); sun_res != object_i.end()) {
+                    Light::LightSun additional_params;
+                    auto sun_obj = sun_res->second.as_object().value();
+                    if (auto angle_res = sun_obj.find("angle"); angle_res != sun_obj.end()) {
+                        additional_params.angle = float(angle_res->second.as_number().value());
+                    }
+                    if (auto strength_res = sun_obj.find("strength"); strength_res != sun_obj.end()) {
+                        additional_params.strength = float(strength_res->second.as_number().value());
+                    }
+                    lights[light_index].additional_params = additional_params;
+                }
+                else if (auto sphere_res = object_i.find("sphere"); sphere_res != object_i.end()) {
+                    Light::LightSphere additional_params;
+                    auto sphere_obj = sphere_res->second.as_object().value();
+                    if (auto radius_res = sphere_obj.find("radius"); radius_res != sphere_obj.end()) {
+                        additional_params.radius = float(radius_res->second.as_number().value());
+                    }
+                    if (auto power_res = sphere_obj.find("power"); power_res != sphere_obj.end()) {
+                        additional_params.power = float(power_res->second.as_number().value());
+                    }
+                    if (auto limit_res = sphere_obj.find("limit"); limit_res != sphere_obj.end()) {
+                        additional_params.limit = float(limit_res->second.as_number().value());
+                    }
+                    lights[light_index].additional_params = additional_params;
+                }
+                else if (auto spot_res = object_i.find("spot"); spot_res != object_i.end()){
+                    Light::LightSpot additional_params;
+                    auto spot_obj = spot_res->second.as_object().value();
+                    if (auto radius_res = spot_obj.find("radius"); radius_res != spot_obj.end()) {
+                        additional_params.radius = float(radius_res->second.as_number().value());
+                    }
+                    if (auto power_res = spot_obj.find("power"); power_res != spot_obj.end()) {
+                        additional_params.power = float(power_res->second.as_number().value());
+                    }
+                    if (auto limit_res = spot_obj.find("limit"); limit_res != spot_obj.end()) {
+                        additional_params.limit = float(limit_res->second.as_number().value());
+                    }
+                    if (auto fov_res = spot_obj.find("fov"); fov_res != spot_obj.end()) {
+                        additional_params.fov = float(fov_res->second.as_number().value());
+                    }
+                    if (auto blend_res = spot_obj.find("blend"); blend_res != spot_obj.end()) {
+                        additional_params.blend = float(blend_res->second.as_number().value());
+                    }
+                    lights[light_index].additional_params = additional_params;
+                }
+                else {
+                    throw std::runtime_error("Unsupported light type, only supports Sun, Sphere, and Spot light.");
                 }
 
             } else if (type.value() == "DRIVER") {
@@ -716,13 +743,11 @@ void Scene::load(std::string filename, std::optional<std::string> requested_came
     std::cout<< "----Finished loading " + filename +"----"<<std::endl;
 
     { //build the camera and light local to world transform vectors
+
         std::vector<uint32_t> cur_transform_list;
-		std::function<void(uint32_t)> fill_camera_and_light_transforms = [&](uint32_t i) {
+		std::function<void(uint32_t)> fill_camera_transform = [&](uint32_t i) {
 			const Scene::Node& cur_node = nodes[i];
             cur_transform_list.push_back(i);
-            if (cur_node.light_index != -1) {
-                lights[cur_node.light_index].local_to_world = cur_transform_list;
-            }
 			if (cur_node.cameras_index != -1) {
                 cameras[cur_node.cameras_index].local_to_world = cur_transform_list;
                 if (requested_camera.has_value() && requested_camera.value() == cameras[cur_node.cameras_index].name) {
@@ -731,14 +756,14 @@ void Scene::load(std::string filename, std::optional<std::string> requested_came
             }
 			// look for cameras in children
 			for (uint32_t child_index : cur_node.children) {
-				fill_camera_and_light_transforms(child_index);
+				fill_camera_transform(child_index);
 			}
 			cur_transform_list.pop_back();
 		};
 
 		//traverse the scene hiearchy:
 		for (uint32_t i = 0; i < root_nodes.size(); ++i) {
-			fill_camera_and_light_transforms(root_nodes[i]);
+			fill_camera_transform(root_nodes[i]);
 		}
 	}
     // could not find requested camera
@@ -873,8 +898,37 @@ void Scene::debug() {
                       << light.tint.r << ", "
                       << light.tint.g << ", "
                       << light.tint.b << ")\n";
-            std::cout << "Light Strength: " << light.strength << "\n";
-            std::cout << "Light Angle: " << light.angle << "\n";
+
+            std::cout << "Light Type: ";
+            switch (light.light_type) {
+                case Light::Sun:
+                    std::cout << "Sun\n";
+                    break;
+                case Light::Sphere:
+                    std::cout << "Sphere\n";
+                    break;
+                case Light::Spot:
+                    std::cout << "Spot\n";
+                    break;
+            }
+
+            std::visit([](const auto& params) {
+                using T = std::decay_t<decltype(params)>;
+                if constexpr (std::is_same_v<T, Light::LightSun>) {
+                    std::cout << "Sun Angle: " << params.angle << "\n";
+                    std::cout << "Sun Strength: " << params.strength << "\n";
+                } else if constexpr (std::is_same_v<T, Light::LightSphere>) {
+                    std::cout << "Sphere Radius: " << params.radius << "\n";
+                    std::cout << "Sphere Power: " << params.power << "\n";
+                    std::cout << "Sphere Limit: " << params.limit << "\n";
+                } else if constexpr (std::is_same_v<T, Light::LightSpot>) {
+                    std::cout << "Spot Radius: " << params.radius << "\n";
+                    std::cout << "Spot Power: " << params.power << "\n";
+                    std::cout << "Spot Limit: " << params.limit << "\n";
+                    std::cout << "Spot FOV: " << params.fov << "\n";
+                    std::cout << "Spot Blend: " << params.blend << "\n";
+                }
+            }, light.additional_params);
         }
 
         std::cout << "-----------------------------\n";
