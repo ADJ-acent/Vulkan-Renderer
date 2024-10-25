@@ -7,6 +7,7 @@
 
 #include "VK.hpp"
 #include "rgbe.hpp"
+#include "data_path.hpp"
 
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
@@ -121,8 +122,14 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_) {
 	pbr_pipeline.create(rtg, render_pass, 0);
 
 	//create environment texture
-	if (scene.environment.source != ""){
-		std::string environment_source = scene.scene_path +"/"+ scene.environment.source;
+	{
+		std::string environment_source;
+		if (scene.environment.source == "") {
+			environment_source  = data_path("../resource/default_environment.png");
+		}
+		else {
+			environment_source = scene.scene_path +"/"+ scene.environment.source;
+		}
 		int width,height,n;
 		std::vector<unsigned char*> images;
 		images.push_back(stbi_load(environment_source.c_str(), &width, &height, &n, 4));
@@ -188,7 +195,7 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_) {
 			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
 			Helpers::Unmapped, 6, mip_levels
 		);
-		rtg.helpers.transfer_to_image_cube(rgb_image.data(), sizeof(rgb_image[0]) * rgb_image.size(), World_environment, 6);
+		rtg.helpers.transfer_to_image_cube(rgb_image.data(), sizeof(rgb_image[0]) * rgb_image.size(), World_environment, mip_levels);
 	
 		//free images:
 		for (unsigned char* image : images){
@@ -269,7 +276,7 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_) {
 	{ // environment BRDF LUT
 		{ // create the BRDF LUT
 			int width,height,n;
-			float* image = stbi_loadf("../resource/ibl_brdf_lut.png", &width, &height, &n, 0);
+			float* image = stbi_loadf(data_path("../resource/ibl_brdf_lut.png").c_str(), &width, &height, &n, 0);
 			if (image == NULL) throw std::runtime_error("Error loading Environment BRDF LUT texture: ../resource/ibl_brdf_lut.png");
 			std::vector<float> converted_image(width*height*2);
 			for (uint32_t i = 0; i < uint32_t(width * height); ++i) {
@@ -402,9 +409,12 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_) {
 			//NOTE: will actually fill in this descriptor set just a bit lower
 		}
 
-		size_t sun_light_size = scene.light_instance_count.sun_light * sizeof(LambertianPipeline::SunLight);
-		size_t sphere_light_size = scene.light_instance_count.sphere_light * sizeof(LambertianPipeline::SphereLight);
-		size_t spot_light_size = scene.light_instance_count.spot_light * sizeof(LambertianPipeline::SpotLight);
+		size_t sun_light_size = std::max(scene.light_instance_count.sun_light * sizeof(LambertianPipeline::SunLight),
+			sizeof(LambertianPipeline::SunLight));
+		size_t sphere_light_size = std::max(scene.light_instance_count.sphere_light * sizeof(LambertianPipeline::SphereLight), 
+			sizeof(LambertianPipeline::SphereLight));
+		size_t spot_light_size = std::max(scene.light_instance_count.spot_light * sizeof(LambertianPipeline::SpotLight),
+			sizeof(LambertianPipeline::SpotLight));
 		{// create Light buffers
 			size_t needed_bytes = sun_light_size + sphere_light_size + spot_light_size;
 			workspace.Light_src = rtg.helpers.create_buffer(
