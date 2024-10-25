@@ -96,6 +96,8 @@ struct Helpers {
 	}
 	void signal_a_semaphore(VkSemaphore to_signal, uint8_t workspace_index);
 
+	size_t align_buffer_size(size_t current_buffer_size, size_t alignment);
+
 	//-----------------------
 	//internals:
 	Helpers(RTG const &);

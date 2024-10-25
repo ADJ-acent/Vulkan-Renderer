@@ -4,12 +4,50 @@
 	#include "tonemap.glsl"
 #endif
 
+struct SunLight {
+	vec3 POSITION;
+	vec3 ENERGY;
+	float SIN_ANGLE;
+};
+
+struct SphereLight {
+	vec3 POSITION;
+	float RADIUS;
+	vec3 ENERGY;
+	float LIMIT;
+};
+
+struct SpotLight {
+	vec3 POSITION;
+	vec3 DIRECTION;
+	float RADIUS;
+	vec3 ENERGY;
+	float LIMIT;
+	vec2 CONE_ANGLES;
+};
+
 layout(set=0,binding=0,std140) uniform World {
 	vec3 CAMERA_POSITION;
-	float ENVIRONMENT_MIPS;
+	uint ENVIRONMENT_MIPS;
+	uint SUN_LIGHT_COUNT;
+	uint SPHERE_LIGHT_COUNT;
+	uint SPOT_LIGHT_COUNT;
 };
 layout(set=0, binding=1) uniform samplerCube ENVIRONMENT;
 layout(set=0, binding=2) uniform sampler2D ENVIRONMENT_BRDF_LUT;
+
+layout(set=0, binding=3, std140) readonly buffer SunLights {
+	SunLight SUNLIGHTS[];
+};
+
+layout(set=0, binding=4, std140) readonly buffer SphereLights {
+	SphereLight SPHERELIGHTS[];
+};
+
+layout(set=0, binding=5, std140) readonly buffer SpotLights {
+	SpotLight SPOTLIGHTS[];
+};
+
 layout(set=2, binding=0) uniform sampler2D NORMAL;
 layout(set=2, binding=1) uniform sampler2D DISPLACEMENT;
 layout(set=2, binding=2) uniform sampler2D ALBEDO;
@@ -56,10 +94,9 @@ void main() {
 	vec3 F = FresnelSchlickRoughness(max(dot(viewDir, worldNormal), 0.0), roughness, F0);
 	vec3 kS = F;
 	vec3 kD = 1.0 - kS;
-	// vec3 kD = mix(vec3(1.0) - F, vec3(0.0), metalness);
 	kD *= 1.0 - metalness;
 
 	vec3 specular = radiance * (environment_brdf.r * F + environment_brdf.g);
 
-	outColor = vec4(gamma_correction(ACESFitted(kD * albedo * irradiance/PI + specular)) , 1.0f);
+	outColor = vec4(gamma_correction(ACESFitted(kD/PI * albedo * irradiance + specular)) , 1.0f);
 }

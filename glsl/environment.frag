@@ -6,7 +6,7 @@
 
 layout(set=0,binding=0,std140) uniform World {
 	vec3 CAMERA_POSITION;
-	float ENVIRONMENT_MIPS;
+	uint ENVIRONMENT_MIPS;
 };
 
 layout(set=0, binding=1) uniform samplerCube ENVIRONMENT;

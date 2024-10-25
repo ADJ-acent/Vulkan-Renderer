@@ -633,6 +633,11 @@ void Helpers::signal_a_semaphore(VkSemaphore to_signal, uint8_t workspace_index)
 
 }
 
+size_t Helpers::align_buffer_size(size_t current_buffer_size, size_t alignment)
+{
+    return (current_buffer_size + alignment - 1) / alignment * alignment;
+}
+
 //----------------------------
 
 Helpers::Helpers(RTG const &rtg_) : rtg(rtg_)

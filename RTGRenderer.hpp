@@ -81,9 +81,12 @@ struct RTGRenderer : RTG::Application {
 
         struct World {
 			glm::vec3 CAMERA_POSITION;
-			float ENVIRONMENT_MIPS;
+			uint32_t ENVIRONMENT_MIPS;
+			uint32_t SUN_LIGHT_COUNT;
+			uint32_t SPHERE_LIGHT_COUNT;
+			uint32_t SPOT_LIGHT_COUNT;
         };
-        static_assert(sizeof(World) == 4*4, "World is the expected size.");
+        static_assert(sizeof(World) == 4*3 + 4 + 4 + 4 + 4, "World is the expected size.");
 
 		struct SunLight {
 			glm::vec4 POSITION; // w padding
@@ -245,6 +248,14 @@ struct RTGRenderer : RTG::Application {
 	VkSampler texture_sampler = VK_NULL_HANDLE;
 	VkDescriptorPool material_descriptor_pool = VK_NULL_HANDLE;
 	std::vector< VkDescriptorSet > material_descriptors; //allocated from texture_descriptor_pool
+
+	struct {
+		size_t sun_light_size;
+		size_t sun_light_alignment;
+		size_t sphere_light_size;
+		size_t sphere_light_alignment;
+		size_t spot_light_size;
+	} light_info{};
 
 	//--------------------------------------------------------------------
 	//Resources that change when the swapchain is resized:

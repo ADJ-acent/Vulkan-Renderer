@@ -203,7 +203,7 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_) {
 		}
 
 		// set world mip level
-		world.ENVIRONMENT_MIPS = float(mip_levels-1);
+		world.ENVIRONMENT_MIPS = mip_levels-1;
 
 		{//make image view for environment
 
@@ -409,14 +409,23 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_) {
 			//NOTE: will actually fill in this descriptor set just a bit lower
 		}
 
-		size_t sun_light_size = std::max(scene.light_instance_count.sun_light * sizeof(LambertianPipeline::SunLight),
-			sizeof(LambertianPipeline::SunLight));
-		size_t sphere_light_size = std::max(scene.light_instance_count.sphere_light * sizeof(LambertianPipeline::SphereLight), 
-			sizeof(LambertianPipeline::SphereLight));
-		size_t spot_light_size = std::max(scene.light_instance_count.spot_light * sizeof(LambertianPipeline::SpotLight),
-			sizeof(LambertianPipeline::SpotLight));
+		{// set light infos
+			light_info.sun_light_size = std::max(scene.light_instance_count.sun_light * sizeof(LambertianPipeline::SunLight),
+				sizeof(LambertianPipeline::SunLight));
+			light_info.sun_light_alignment = rtg.helpers.align_buffer_size(light_info.sun_light_size, rtg.device_properties.limits.minStorageBufferOffsetAlignment);
+			light_info.sphere_light_size = std::max(scene.light_instance_count.sphere_light * sizeof(LambertianPipeline::SphereLight), 
+				sizeof(LambertianPipeline::SphereLight));
+			light_info.sphere_light_alignment = rtg.helpers.align_buffer_size(light_info.sun_light_alignment + light_info.sphere_light_size, rtg.device_properties.limits.minStorageBufferOffsetAlignment);
+			light_info.spot_light_size = std::max(scene.light_instance_count.spot_light * sizeof(LambertianPipeline::SpotLight),
+				sizeof(LambertianPipeline::SpotLight));
+			
+			world.SUN_LIGHT_COUNT = scene.light_instance_count.sun_light;
+			world.SPHERE_LIGHT_COUNT = scene.light_instance_count.sphere_light;
+			world.SPOT_LIGHT_COUNT = scene.light_instance_count.spot_light;
+		}
+
 		{// create Light buffers
-			size_t needed_bytes = sun_light_size + sphere_light_size + spot_light_size;
+			size_t needed_bytes = light_info.sphere_light_alignment + light_info.spot_light_size;
 			workspace.Light_src = rtg.helpers.create_buffer(
 				needed_bytes,
 				VK_BUFFER_USAGE_TRANSFER_SRC_BIT, //going to have GPU copy from this memory
@@ -460,17 +469,17 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_) {
 			VkDescriptorBufferInfo SunLight_info{
 				.buffer = workspace.Light.handle,
 				.offset = 0,
-				.range = sun_light_size,
+				.range = light_info.sun_light_size,
 			};
 			VkDescriptorBufferInfo SphereLight_info{
 				.buffer = workspace.Light.handle,
-				.offset = sun_light_size,
-				.range = sphere_light_size,
+				.offset = light_info.sun_light_alignment,
+				.range = light_info.sphere_light_size,
 			};
 			VkDescriptorBufferInfo SpotLight_info{
 				.buffer = workspace.Light.handle,
-				.offset = sun_light_size + sphere_light_size,
-				.range = spot_light_size,
+				.offset = light_info.sphere_light_alignment,
+				.range = light_info.spot_light_size,
 			};
 
 			VkDescriptorImageInfo World_environment_info{
@@ -1331,22 +1340,20 @@ void RTGRenderer::render(RTG &rtg_, RTG::RenderParams const &render_params) {
 	}
 
 	if (!spot_lights.empty() && !sun_lights.empty() && !sphere_lights.empty()) {
-		size_t sun_light_size = scene.light_instance_count.sun_light * sizeof(LambertianPipeline::SunLight);
-		size_t sphere_light_size = scene.light_instance_count.sphere_light * sizeof(LambertianPipeline::SphereLight);
-		size_t spot_light_size = scene.light_instance_count.spot_light * sizeof(LambertianPipeline::SpotLight);
 		{ //copy lights into Light_src:
 			assert(workspace.Light_src.allocation.mapped);
-			LambertianPipeline::SunLight *sun_out = reinterpret_cast< LambertianPipeline::SunLight * >(workspace.Light_src.allocation.data());
+			char * lights_ptr = reinterpret_cast< char * >(workspace.Light_src.allocation.data());
+			LambertianPipeline::SunLight *sun_out = reinterpret_cast< LambertianPipeline::SunLight * >(lights_ptr);
 			for (LambertianPipeline::SunLight const &inst : sun_lights) {
 				*sun_out = inst;
 				++sun_out;
 			}
-			LambertianPipeline::SphereLight *sphere_out = reinterpret_cast< LambertianPipeline::SphereLight * >(sun_out);
+			LambertianPipeline::SphereLight *sphere_out = reinterpret_cast< LambertianPipeline::SphereLight * >(lights_ptr + light_info.sun_light_alignment);
 			for (LambertianPipeline::SphereLight const &inst : sphere_lights) {
 				*sphere_out = inst;
 				++sphere_out;
 			}
-			LambertianPipeline::SpotLight *spot_out = reinterpret_cast< LambertianPipeline::SpotLight * >(sphere_out);
+			LambertianPipeline::SpotLight *spot_out = reinterpret_cast< LambertianPipeline::SpotLight * >(lights_ptr + light_info.sphere_light_alignment);
 			for (LambertianPipeline::SpotLight const &inst : spot_lights) {
 				*spot_out = inst;
 				++spot_out;
@@ -1354,24 +1361,12 @@ void RTGRenderer::render(RTG &rtg_, RTG::RenderParams const &render_params) {
 		}
 
 		//device-side copy from Light_src -> Light:
-		std::array< VkBufferCopy, 3 > copy_regions{
-			VkBufferCopy{
-				.srcOffset = 0,
-				.dstOffset = 0,
-				.size = sun_light_size,
-			},
-			VkBufferCopy{
-				.srcOffset = sun_light_size,
-				.dstOffset = sun_light_size,
-				.size = sphere_light_size,
-			},
-			VkBufferCopy{
-				.srcOffset = sun_light_size + sphere_light_size,
-				.dstOffset = sun_light_size + sphere_light_size,
-				.size = spot_light_size,
-			},
+		VkBufferCopy copy_region{
+			.srcOffset = 0,
+			.dstOffset = 0,
+			.size = light_info.sphere_light_alignment + light_info.spot_light_size,
 		};
-		vkCmdCopyBuffer(workspace.command_buffer, workspace.Light_src.handle, workspace.Light.handle, uint32_t(copy_regions.size()), copy_regions.data());
+		vkCmdCopyBuffer(workspace.command_buffer, workspace.Light_src.handle, workspace.Light.handle, 1, &copy_region);
 		
 	}
 
@@ -1668,87 +1663,6 @@ void RTGRenderer::update(float dt) {
 		scene.update_drivers(dt);
 	}
 
-	// { //static sun and static sky:
-	// 	//guaranteed to have at most 2 lights
-	// 	assert(scene.lights.size() <= 2);
-	// 	bool sun_defined = false;
-	// 	bool sky_defined = false;
-	// 	glm::vec3 default_directional_light_dir = {0.0f, 0.0f, 1.0f};
-	// 	for (const Scene::Light& light : scene.light) {
-	// 		//TODO: create method to only extract the rotation instead of needing to normalize
-	// 		glm::mat4x4 cur_light_transform = scene.nodes[light.local_to_world[0]].transform.parent_from_local();
-	// 		for (int i = 1; i < light.local_to_world.size(); ++i) {
-	// 			cur_light_transform *= scene.nodes[light.local_to_world[i]].transform.parent_from_local();
-	// 		}
-	// 		glm::mat3 rotation_matrix = glm::mat3(cur_light_transform);
-	// 		rotation_matrix[0] = glm::normalize(rotation_matrix[0]);
-	// 		rotation_matrix[1] = glm::normalize(rotation_matrix[1]);
-	// 		rotation_matrix[2] = glm::normalize(rotation_matrix[2]);
-	// 		glm::vec3 new_direction = rotation_matrix * default_directional_light_dir;
-
-	// 		if (abs(light.angle - 0.0f) < 0.001f) {
-	// 			sun_defined = true;
-	// 			glm::vec3 energy = light.strength * light.tint;
-	// 			world.SUN_ENERGY.r = energy.r;
-	// 			world.SUN_ENERGY.g = energy.g;
-	// 			world.SUN_ENERGY.b = energy.b;
-	// 			world.SUN_DIRECTION.x = new_direction.x;
-	// 			world.SUN_DIRECTION.y = new_direction.y;
-	// 			world.SUN_DIRECTION.z = new_direction.z;
-	// 		}
-	// 		else if (abs(light.angle - float(M_PI)) < 0.001f) {
-	// 			sky_defined = true;
-	// 			glm::vec3 energy = light.strength * light.tint;
-	// 			world.SKY_ENERGY.r = energy.r;
-	// 			world.SKY_ENERGY.g = energy.g;
-	// 			world.SKY_ENERGY.b = energy.b;
-	// 			world.SKY_DIRECTION.x = new_direction.x;
-	// 			world.SKY_DIRECTION.y = new_direction.y;
-	// 			world.SKY_DIRECTION.z = new_direction.z;
-	// 		}
-	// 	}
-	// 	if (!sky_defined && !sun_defined) {
-	// 		world.SKY_ENERGY.r = .1f;
-	// 		world.SKY_ENERGY.g = .1f;
-	// 		world.SKY_ENERGY.b = .2f;
-
-	// 		world.SUN_ENERGY.r = 1.0f;
-	// 		world.SUN_ENERGY.g = 1.0f;
-	// 		world.SUN_ENERGY.b = 0.9f;
-
-	// 		world.SKY_DIRECTION.x = 0.0f;
-	// 		world.SKY_DIRECTION.y = 0.0f;
-	// 		world.SKY_DIRECTION.z = 1.0f;
-
-	// 		world.SUN_DIRECTION.x = 0.0f;
-	// 		world.SUN_DIRECTION.y = 0.0f;
-	// 		world.SUN_DIRECTION.z = 1.0f;
-
-	// 	}
-	// 	else if (!sky_defined) {
-	// 		world.SKY_ENERGY.r = 0.0f;
-	// 		world.SKY_ENERGY.g = 0.0f;
-	// 		world.SKY_ENERGY.b = 0.0f;
-	// 		world.SKY_DIRECTION.x = 0.0f;
-	// 		world.SKY_DIRECTION.y = 0.0f;
-	// 		world.SKY_DIRECTION.z = 1.0f;
-	// 	}
-	// 	else if (!sun_defined) {
-	// 		world.SUN_ENERGY.r = 0.0f;
-	// 		world.SUN_ENERGY.g = 0.0f;
-	// 		world.SUN_ENERGY.b = 0.0f;
-	// 		world.SUN_DIRECTION.x = 0.0f;
-	// 		world.SUN_DIRECTION.y = 0.0f;
-	// 		world.SUN_DIRECTION.z = 1.0f;
-	// 	}
-
-	// 	float length = sqrt(world.SUN_DIRECTION.x * world.SUN_DIRECTION.x + world.SUN_DIRECTION.y * world.SUN_DIRECTION.y + world.SUN_DIRECTION.z * world.SUN_DIRECTION.z);
-	// 	world.SKY_DIRECTION.x /= length;
-	// 	world.SKY_DIRECTION.y /= length;
-	// 	world.SKY_DIRECTION.z /= length;
-
-	// }
-
 	// set scene camera for animation purposes
 	if (view_camera == InSceneCamera::SceneCamera || culling_camera == InSceneCamera::SceneCamera){
 		Scene::Camera& cur_camera = scene.cameras[scene.requested_camera_index];
@@ -1953,7 +1867,7 @@ void RTGRenderer::update(float dt) {
 		}
 	}
 
-	{ //fill object instances with scene hiearchy, optionally draw debug lines when on debug camera
+	{ //fill object instances with scene hiearchy, optionally draw debug lines when on debug camera, fill light information
 		lambertian_instances.clear();
 		environment_instances.clear();
 		mirror_instances.clear();

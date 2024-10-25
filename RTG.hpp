@@ -138,6 +138,8 @@ struct RTG {
 	std::optional< uint32_t > compute_queue_family;
 	VkQueue compute_queue = VK_NULL_HANDLE;
 
+	VkPhysicalDeviceProperties device_properties{};
+
 	//-------------------------------------------------
 	//Handles for the window and surface:
 
