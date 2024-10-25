@@ -130,10 +130,11 @@ struct Scene
         std::variant<LightSun, LightSphere, LightSpot> additional_params;
     };
 
-    struct LightInstance {
-        uint32_t light_index = 0;
-        std::vector<uint32_t> local_to_world; // list of node indices to get from local to world (index 0 is a root node)
-    };
+    struct {
+        uint32_t sun_light = 0;
+        uint32_t sphere_light = 0;
+        uint32_t spot_light = 0;
+    } light_instance_count; // determines the storage buffer size
 
     struct Environment {
         std::string name;

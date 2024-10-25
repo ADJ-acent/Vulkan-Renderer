@@ -745,25 +745,36 @@ void Scene::load(std::string filename, std::optional<std::string> requested_came
     { //build the camera and light local to world transform vectors
 
         std::vector<uint32_t> cur_transform_list;
-		std::function<void(uint32_t)> fill_camera_transform = [&](uint32_t i) {
+		std::function<void(uint32_t)> fill_camera_transform_and_count_lights = [&](uint32_t i) {
 			const Scene::Node& cur_node = nodes[i];
             cur_transform_list.push_back(i);
+            if (cur_node.light_index != -1) {
+                if (lights[cur_node.light_index].light_type == Light::Sun) {
+                    light_instance_count.sun_light++;
+                }
+                else if (lights[cur_node.light_index].light_type == Light::Sphere) {
+                    light_instance_count.sphere_light++;
+                }
+                else if (lights[cur_node.light_index].light_type == Light::Spot) {
+                    light_instance_count.spot_light++;
+                }
+            }
 			if (cur_node.cameras_index != -1) {
                 cameras[cur_node.cameras_index].local_to_world = cur_transform_list;
                 if (requested_camera.has_value() && requested_camera.value() == cameras[cur_node.cameras_index].name) {
                     requested_camera_index = cur_node.cameras_index;
                 }
             }
-			// look for cameras in children
+			// look for cameras and lights in children
 			for (uint32_t child_index : cur_node.children) {
-				fill_camera_transform(child_index);
+				fill_camera_transform_and_count_lights(child_index);
 			}
 			cur_transform_list.pop_back();
 		};
 
 		//traverse the scene hiearchy:
 		for (uint32_t i = 0; i < root_nodes.size(); ++i) {
-			fill_camera_transform(root_nodes[i]);
+			fill_camera_transform_and_count_lights(root_nodes[i]);
 		}
 	}
     // could not find requested camera

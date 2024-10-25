@@ -80,15 +80,37 @@ struct RTGRenderer : RTG::Application {
 		//types for descriptors:
 
         struct World {
-            struct { float x, y, z, padding_; } SKY_DIRECTION;
-            struct { float r, g, b, padding_; } SKY_ENERGY;
-            struct { float x, y, z, padding_; } SUN_DIRECTION;
-            struct { float r, g, b, padding_; } SUN_ENERGY;
-			glm::vec4 CAMERA_POSITION_ENVIRONMENT_MIPS; //xyz: camera position, z: environment mips
+			glm::vec3 CAMERA_POSITION;
+			float ENVIRONMENT_MIPS;
         };
-        static_assert(sizeof(World) == 4*4 + 4*4 + 4*4 + 4*4 + 4*4, "World is the expected size.");
+        static_assert(sizeof(World) == 4*4, "World is the expected size.");
+
+		struct SunLight {
+			glm::vec4 POSITION; // w padding
+			glm::vec3 ENERGY;
+			float SIN_ANGLE;
+		};
+		static_assert(sizeof(SunLight) == 4*4 + 4*3 + 4, "SunLight is the expected size.");
+
+		struct SphereLight {
+			glm::vec3 POSITION;
+			float RADIUS;
+			glm::vec3 ENERGY;
+			float LIMIT;
+		};
+		static_assert(sizeof(SphereLight) == 4*3 + 4 + 4*3 + 4, "SphereLight is the expected size.");
 		
-        struct Transform {
+        struct SpotLight {
+			glm::vec4 POSITION; // w padding
+			glm::vec3 DIRECTION;
+			float RADIUS;
+			glm::vec3 ENERGY;
+			float LIMIT;
+			glm::vec2 CONE_ANGLES;
+		};
+		static_assert(sizeof(SpotLight) == 4*4 + 4*3 + 4 + 4*3 + 4 + 4 * 2, "SpotLight is the expected size.");
+		
+		struct Transform {
             glm::mat4x4 CLIP_FROM_LOCAL;
             glm::mat4x4 WORLD_FROM_LOCAL;
             glm::mat4x4 WORLD_FROM_LOCAL_NORMAL;
@@ -186,12 +208,14 @@ struct RTGRenderer : RTG::Application {
 		Helpers::AllocatedBuffer Camera; //device-local
 		VkDescriptorSet Camera_descriptors; //references Camera
 
-        //location for ObjectsPipeline::World data: (streamed to GPU per-frame)
+        //location for LambertianPipeline::World data: (streamed to GPU per-frame)
         Helpers::AllocatedBuffer World_src; //host coherent; mapped
         Helpers::AllocatedBuffer World; //device-local
+		Helpers::AllocatedBuffer Light_src; //host coherent; mapped
+        Helpers::AllocatedBuffer Light; //device-local
         VkDescriptorSet World_descriptors; //references World
 
-        // locations for ObjectsPipeline::Transforms data: (streamed to GPU per-frame):
+        // locations for LambertianPipeline::Transforms data: (streamed to GPU per-frame):
         Helpers::AllocatedBuffer Transforms_src; //host coherent; mapped
         Helpers::AllocatedBuffer Transforms; //device-local
         VkDescriptorSet Transforms_descriptors; //references Transforms
@@ -258,6 +282,10 @@ struct RTGRenderer : RTG::Application {
 		uint32_t material_index;
 	};
 	std::vector< ObjectInstance > lambertian_instances, environment_instances, mirror_instances, pbr_instances;
+
+	std::vector<LambertianPipeline::SunLight> sun_lights;
+	std::vector<LambertianPipeline::SphereLight> sphere_lights;
+	std::vector<LambertianPipeline::SpotLight> spot_lights;
 
 	enum InSceneCamera{
 		SceneCamera = 0,

@@ -17,7 +17,7 @@ void RTGRenderer::EnvironmentPipeline::create(RTG &rtg, VkRenderPass render_pass
     VkShaderModule frag_module = rtg.helpers.create_shader_module(frag_code);
 
     {//the set0_World layout holds world info in a uniform buffer used in the fragment shader and the environment cubemap and IBL BRDF LUT:
-		std::array<VkDescriptorSetLayoutBinding, 3> bindings{
+		std::array<VkDescriptorSetLayoutBinding, 6> bindings{
 			VkDescriptorSetLayoutBinding{
 				.binding = 0,
 				.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
@@ -33,6 +33,24 @@ void RTGRenderer::EnvironmentPipeline::create(RTG &rtg, VkRenderPass render_pass
             VkDescriptorSetLayoutBinding{
 				.binding = 2,
 				.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+				.descriptorCount = 1,
+				.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT
+			},
+            VkDescriptorSetLayoutBinding{
+				.binding = 3,
+				.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+				.descriptorCount = 1,
+				.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT
+			},
+            VkDescriptorSetLayoutBinding{
+				.binding = 4,
+				.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+				.descriptorCount = 1,
+				.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT
+			},
+            VkDescriptorSetLayoutBinding{
+				.binding = 5,
+				.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
 				.descriptorCount = 1,
 				.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT
 			},

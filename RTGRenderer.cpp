@@ -196,7 +196,7 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_) {
 		}
 
 		// set world mip level
-		world.CAMERA_POSITION_ENVIRONMENT_MIPS.w = float(mip_levels-1);
+		world.ENVIRONMENT_MIPS = float(mip_levels-1);
 
 		{//make image view for environment
 
@@ -326,7 +326,7 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_) {
 			},
 			VkDescriptorPoolSize{
 				.type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-				.descriptorCount = 1 * per_workspace, //one descriptor per set, one set per workspace
+				.descriptorCount = 4 * per_workspace, //three descriptor for set 0, one for set 1, one set per workspace
 			},
 		};
 		
@@ -402,6 +402,26 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_) {
 			//NOTE: will actually fill in this descriptor set just a bit lower
 		}
 
+		size_t sun_light_size = scene.light_instance_count.sun_light * sizeof(LambertianPipeline::SunLight);
+		size_t sphere_light_size = scene.light_instance_count.sphere_light * sizeof(LambertianPipeline::SphereLight);
+		size_t spot_light_size = scene.light_instance_count.spot_light * sizeof(LambertianPipeline::SpotLight);
+		{// create Light buffers
+			size_t needed_bytes = sun_light_size + sphere_light_size + spot_light_size;
+			workspace.Light_src = rtg.helpers.create_buffer(
+				needed_bytes,
+				VK_BUFFER_USAGE_TRANSFER_SRC_BIT, //going to have GPU copy from this memory
+				VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, //host-visible memory, coherent (no special sync needed)
+				Helpers::Mapped //get a pointer to the memory
+			);
+			workspace.Light = rtg.helpers.create_buffer(
+				needed_bytes,
+				VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, //going to use as storage buffer, also going to have GPU into this memory
+				VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, //GPU-local memory
+				Helpers::Unmapped //don't get a pointer to the memory
+			);
+		}
+		
+
 		{//allocate descriptor set for Transforms descriptor
 			VkDescriptorSetAllocateInfo alloc_info{
 				.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
@@ -414,7 +434,7 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_) {
 			//NOTE: will fill in this descriptor set in render when buffers are [re-]allocated
 		}
 
-		{//point descriptor to Camera buffer:
+		{//point descriptors to buffers:
 			VkDescriptorBufferInfo Camera_info{
 				.buffer = workspace.Camera.handle,
 				.offset = 0,
@@ -425,6 +445,22 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_) {
 				.buffer = workspace.World.handle,
 				.offset = 0,
 				.range = workspace.World.size,
+			};
+
+			VkDescriptorBufferInfo SunLight_info{
+				.buffer = workspace.Light.handle,
+				.offset = 0,
+				.range = sun_light_size,
+			};
+			VkDescriptorBufferInfo SphereLight_info{
+				.buffer = workspace.Light.handle,
+				.offset = sun_light_size,
+				.range = sphere_light_size,
+			};
+			VkDescriptorBufferInfo SpotLight_info{
+				.buffer = workspace.Light.handle,
+				.offset = sun_light_size + sphere_light_size,
+				.range = spot_light_size,
 			};
 
 			VkDescriptorImageInfo World_environment_info{
@@ -439,7 +475,7 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_) {
 				.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
 			};
 
-			std::array< VkWriteDescriptorSet, 4 > writes{
+			std::array< VkWriteDescriptorSet, 7 > writes{
 				VkWriteDescriptorSet{
 					.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
 					.dstSet = workspace.Camera_descriptors,
@@ -478,6 +514,36 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_) {
 					.descriptorCount = 1,
 					.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
 					.pImageInfo = &World_environment_brdf_lut_info,
+				},
+
+				VkWriteDescriptorSet{
+					.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+					.dstSet = workspace.World_descriptors,
+					.dstBinding = 3,
+					.dstArrayElement = 0,
+					.descriptorCount = 1,
+					.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+					.pBufferInfo = &SunLight_info,
+				},
+
+				VkWriteDescriptorSet{
+					.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+					.dstSet = workspace.World_descriptors,
+					.dstBinding = 4,
+					.dstArrayElement = 0,
+					.descriptorCount = 1,
+					.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+					.pBufferInfo = &SphereLight_info,
+				},
+
+				VkWriteDescriptorSet{
+					.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+					.dstSet = workspace.World_descriptors,
+					.dstBinding = 5,
+					.dstArrayElement = 0,
+					.descriptorCount = 1,
+					.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+					.pBufferInfo = &SpotLight_info,
 				},
 			};
 
@@ -957,6 +1023,13 @@ RTGRenderer::~RTGRenderer() {
 		if (workspace.World.handle != VK_NULL_HANDLE) {
 			rtg.helpers.destroy_buffer(std::move(workspace.World));
 		}
+
+		if (workspace.Light_src.handle != VK_NULL_HANDLE) {
+			rtg.helpers.destroy_buffer(std::move(workspace.Light_src));
+		}
+		if (workspace.Light.handle != VK_NULL_HANDLE) {
+			rtg.helpers.destroy_buffer(std::move(workspace.Light));
+		}
 		//World descriptors freed when pool is destroyed.
 
 		if (workspace.Transforms_src.handle != VK_NULL_HANDLE) {
@@ -1247,6 +1320,51 @@ void RTGRenderer::render(RTG &rtg_, RTG::RenderParams const &render_params) {
 		vkCmdCopyBuffer(workspace.command_buffer, workspace.Transforms_src.handle, workspace.Transforms.handle, 1, &copy_region);
 	}
 
+	if (!spot_lights.empty() && !sun_lights.empty() && !sphere_lights.empty()) {
+		size_t sun_light_size = scene.light_instance_count.sun_light * sizeof(LambertianPipeline::SunLight);
+		size_t sphere_light_size = scene.light_instance_count.sphere_light * sizeof(LambertianPipeline::SphereLight);
+		size_t spot_light_size = scene.light_instance_count.spot_light * sizeof(LambertianPipeline::SpotLight);
+		{ //copy lights into Light_src:
+			assert(workspace.Light_src.allocation.mapped);
+			LambertianPipeline::SunLight *sun_out = reinterpret_cast< LambertianPipeline::SunLight * >(workspace.Light_src.allocation.data());
+			for (LambertianPipeline::SunLight const &inst : sun_lights) {
+				*sun_out = inst;
+				++sun_out;
+			}
+			LambertianPipeline::SphereLight *sphere_out = reinterpret_cast< LambertianPipeline::SphereLight * >(sun_out);
+			for (LambertianPipeline::SphereLight const &inst : sphere_lights) {
+				*sphere_out = inst;
+				++sphere_out;
+			}
+			LambertianPipeline::SpotLight *spot_out = reinterpret_cast< LambertianPipeline::SpotLight * >(sphere_out);
+			for (LambertianPipeline::SpotLight const &inst : spot_lights) {
+				*spot_out = inst;
+				++spot_out;
+			}
+		}
+
+		//device-side copy from Light_src -> Light:
+		std::array< VkBufferCopy, 3 > copy_regions{
+			VkBufferCopy{
+				.srcOffset = 0,
+				.dstOffset = 0,
+				.size = sun_light_size,
+			},
+			VkBufferCopy{
+				.srcOffset = sun_light_size,
+				.dstOffset = sun_light_size,
+				.size = sphere_light_size,
+			},
+			VkBufferCopy{
+				.srcOffset = sun_light_size + sphere_light_size,
+				.dstOffset = sun_light_size + sphere_light_size,
+				.size = spot_light_size,
+			},
+		};
+		vkCmdCopyBuffer(workspace.command_buffer, workspace.Light_src.handle, workspace.Light.handle, uint32_t(copy_regions.size()), copy_regions.data());
+		
+	}
+
 	{//memory barrier to make sure copies complete before rendering happens:
 		VkMemoryBarrier memory_barrier{
 			.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER,
@@ -1361,7 +1479,7 @@ void RTGRenderer::render(RTG &rtg_, RTG::RenderParams const &render_params) {
 		}
 
 		if (!lambertian_instances.empty() || !environment_instances.empty() || !mirror_instances.empty() || !pbr_instances.empty()) {
-			//bind Transforms descriptor set:
+			//bind World and Transforms descriptor set:
 			std::array< VkDescriptorSet, 2 > descriptor_sets{
 				workspace.World_descriptors, //0: World
 				workspace.Transforms_descriptors, //1: Transforms
@@ -1654,9 +1772,7 @@ void RTGRenderer::update(float dt) {
 
 		if (view_camera == InSceneCamera::SceneCamera) {
 			CLIP_FROM_WORLD = clip_from_view[0] * view_from_world[0];
-			world.CAMERA_POSITION_ENVIRONMENT_MIPS.x = eye.x;
-			world.CAMERA_POSITION_ENVIRONMENT_MIPS.y = eye.y;
-			world.CAMERA_POSITION_ENVIRONMENT_MIPS.z = eye.z;
+			world.CAMERA_POSITION = eye;
 		}
 
 	} 
@@ -1684,9 +1800,7 @@ void RTGRenderer::update(float dt) {
 		}
 
 		FreeCamera& cur_camera = view_camera == InSceneCamera::UserCamera ? user_camera : debug_camera;
-		world.CAMERA_POSITION_ENVIRONMENT_MIPS.x = cur_camera.eye.x;
-		world.CAMERA_POSITION_ENVIRONMENT_MIPS.y = cur_camera.eye.y;
-		world.CAMERA_POSITION_ENVIRONMENT_MIPS.z = cur_camera.eye.z;
+		world.CAMERA_POSITION = cur_camera.eye;
 	}
 
 	lines_vertices.clear();
