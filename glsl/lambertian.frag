@@ -4,27 +4,9 @@
 	#include "tonemap.glsl"
 #endif
 
-struct SunLight {
-	vec3 POSITION;
-	vec3 ENERGY;
-	float SIN_ANGLE;
-};
-
-struct SphereLight {
-	vec3 POSITION;
-	float RADIUS;
-	vec3 ENERGY;
-	float LIMIT;
-};
-
-struct SpotLight {
-	vec3 POSITION;
-	vec3 DIRECTION;
-	float RADIUS;
-	vec3 ENERGY;
-	float LIMIT;
-	vec2 CONE_ANGLES;
-};
+#ifndef LIGHT
+	#include "light.glsl"
+#endif
 
 layout(set=0,binding=0,std140) uniform World {
 	vec3 CAMERA_POSITION;
@@ -77,5 +59,19 @@ void main() {
 
 	vec3 irradiance = textureLod(ENVIRONMENT, worldNormal, ENVIRONMENT_MIPS).rgb;
 
-	outColor = vec4(gamma_correction(ACESFitted(albedo * irradiance/PI)), 1.0f);
+	for (uint i = 0; i < SUN_LIGHT_COUNT; ++i) {
+        irradiance += calculateSunLight(SUNLIGHTS[i], worldNormal);
+    }
+
+    // Sphere Light Contributions
+    for (uint i = 0; i < SPHERE_LIGHT_COUNT; ++i) {
+        irradiance += calculateSphereLight(SPHERELIGHTS[i], position, worldNormal);
+    }
+
+    // Spot Light Contributions
+    for (uint i = 0; i < SPOT_LIGHT_COUNT; ++i) {
+        irradiance += calculateSpotLight(SPOTLIGHTS[i], position, worldNormal);
+    }
+
+	outColor = vec4(gamma_correction(ACESFitted(albedo * irradiance / PI)), 1.0f);
 }

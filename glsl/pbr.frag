@@ -4,27 +4,9 @@
 	#include "tonemap.glsl"
 #endif
 
-struct SunLight {
-	vec3 POSITION;
-	vec3 ENERGY;
-	float SIN_ANGLE;
-};
-
-struct SphereLight {
-	vec3 POSITION;
-	float RADIUS;
-	vec3 ENERGY;
-	float LIMIT;
-};
-
-struct SpotLight {
-	vec3 POSITION;
-	vec3 DIRECTION;
-	float RADIUS;
-	vec3 ENERGY;
-	float LIMIT;
-	vec2 CONE_ANGLES;
-};
+#ifndef LIGHT
+	#include "light.glsl"
+#endif
 
 layout(set=0,binding=0,std140) uniform World {
 	vec3 CAMERA_POSITION;
@@ -96,7 +78,23 @@ void main() {
 	vec3 kD = 1.0 - kS;
 	kD *= 1.0 - metalness;
 
+	vec3 light_energy = vec3(0.0, 0.0, 0.0);
+
+	for (uint i = 0; i < SUN_LIGHT_COUNT; ++i) {
+        light_energy += calculateSunLight(SUNLIGHTS[i], worldNormal);
+    }
+
+    // Sphere Light Contributions
+    for (uint i = 0; i < SPHERE_LIGHT_COUNT; ++i) {
+        light_energy += calculateSphereLight(SPHERELIGHTS[i], position, worldNormal);
+    }
+
+    // Spot Light Contributions
+    for (uint i = 0; i < SPOT_LIGHT_COUNT; ++i) {
+        light_energy += calculateSpotLight(SPOTLIGHTS[i], position, worldNormal);
+    }
+
 	vec3 specular = radiance * (environment_brdf.r * F + environment_brdf.g);
 
-	outColor = vec4(gamma_correction(ACESFitted(kD/PI * albedo * irradiance + specular)) , 1.0f);
+	outColor = vec4(gamma_correction(ACESFitted(kD/PI * albedo * irradiance + specular + light_energy)) , 1.0f);
 }

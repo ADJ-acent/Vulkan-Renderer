@@ -110,16 +110,16 @@ struct Scene
             Spot,
         } light_type;
 
-        struct LightSun {
+        struct ParamSun {
             float angle = 0.0f;
             float strength = 1.0f;
         };
-        struct LightSphere {
+        struct ParamSphere {
             float radius = 0.0f;
             float power = 0.0f;
             float limit = 0.0f;
         };
-        struct LightSpot {
+        struct ParamSpot {
             float radius = 0.0f;
             float power = 0.0f;
             float limit = 0.0f;
@@ -127,7 +127,7 @@ struct Scene
             float blend = 0.0f;
         };
 
-        std::variant<LightSun, LightSphere, LightSpot> additional_params;
+        std::variant<ParamSun, ParamSphere, ParamSpot> additional_params;
     };
 
     struct {
