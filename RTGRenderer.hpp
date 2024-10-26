@@ -89,7 +89,7 @@ struct RTGRenderer : RTG::Application {
         static_assert(sizeof(World) == 4*3 + 4 + 4 + 4 + 4, "World is the expected size.");
 
 		struct SunLight {
-			glm::vec4 POSITION; // w padding
+			glm::vec4 DIRECTION; // w padding
 			glm::vec3 ENERGY;
 			float SIN_ANGLE;
 		};

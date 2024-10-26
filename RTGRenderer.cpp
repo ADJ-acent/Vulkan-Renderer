@@ -1339,7 +1339,7 @@ void RTGRenderer::render(RTG &rtg_, RTG::RenderParams const &render_params) {
 		vkCmdCopyBuffer(workspace.command_buffer, workspace.Transforms_src.handle, workspace.Transforms.handle, 1, &copy_region);
 	}
 
-	if (!spot_lights.empty() && !sun_lights.empty() && !sphere_lights.empty()) {
+	if (!spot_lights.empty() || !sun_lights.empty() || !sphere_lights.empty()) {
 		{ //copy lights into Light_src:
 			assert(workspace.Light_src.allocation.mapped);
 			char * lights_ptr = reinterpret_cast< char * >(workspace.Light_src.allocation.data());
@@ -1872,11 +1872,16 @@ void RTGRenderer::update(float dt) {
 		environment_instances.clear();
 		mirror_instances.clear();
 		pbr_instances.clear();
+		//clear lights
+		sun_lights.clear();
+		sphere_lights.clear();
+		spot_lights.clear();
+
 		// culling resources
 		glm::mat4x4 frustum_view_from_world = culling_camera == SceneCamera ? view_from_world[0] : view_from_world[1];
 
 		std::deque<glm::mat4x4> transform_stack;
-		std::function<void(uint32_t)> draw_node = [&](uint32_t i) {
+		std::function<void(uint32_t)> collect_node_information = [&](uint32_t i) {
 			Scene::Node& cur_node = scene.nodes[i];
 			glm::mat4x4 cur_node_transform_in_parent = cur_node.transform.parent_from_local();
 			if (transform_stack.empty()) {
@@ -1888,7 +1893,7 @@ void RTGRenderer::update(float dt) {
 			}
 			// draw children mesh
 			for (uint32_t child_index : cur_node.children) {
-				draw_node(child_index);
+				collect_node_information(child_index);
 			}
 			// draw own mesh
 			if (int32_t cur_mesh_index = cur_node.mesh_index; cur_mesh_index != -1) {
@@ -2075,7 +2080,50 @@ void RTGRenderer::update(float dt) {
 						.material_index = 0,//default material
 					});
 				}
+			}
+			// gather light information
+			if (uint32_t cur_light_index = cur_node.light_index; cur_light_index != -1) {
+				glm::mat4x4 WORLD_FROM_LOCAL = transform_stack.back();
+				Scene::Light& cur_light = scene.lights[cur_light_index];
+				
+				glm::vec3 tint = cur_light.tint;
+				if (cur_light.light_type == Scene::Light::Sun) {
 
+					glm::vec3 light_direction = glm::mat3x3(WORLD_FROM_LOCAL) * glm::vec3(0.0f,0.0f,1.0f);
+					Scene::Light::ParamSun sun_param = std::get<Scene::Light::ParamSun>(cur_light.additional_params);
+					sun_lights.emplace_back(LambertianPipeline::SunLight{
+						.DIRECTION = glm::vec4(light_direction, 0.0f),
+						.ENERGY = sun_param.strength * tint,
+						.SIN_ANGLE = sin(sun_param.angle)
+					});
+				}
+				else if (cur_light.light_type == Scene::Light::Sphere) {
+
+					glm::vec3 light_position = WORLD_FROM_LOCAL * glm::vec4(0.0f,0.0f,0.0f,1.0f);
+					Scene::Light::ParamSphere sphere_param = std::get<Scene::Light::ParamSphere>(cur_light.additional_params);
+					sphere_lights.emplace_back(LambertianPipeline::SphereLight{
+						.POSITION = glm::vec4(light_position, 0.0f),
+						.RADIUS = sphere_param.radius,
+						.ENERGY = sphere_param.power * tint,
+						.LIMIT = sphere_param.limit,
+					});
+				}
+				else if (cur_light.light_type == Scene::Light::Spot) {
+
+					glm::vec3 light_position = WORLD_FROM_LOCAL * glm::vec4(0.0f,0.0f,0.0f,1.0f);
+					glm::vec3 light_direction = glm::mat3x3(WORLD_FROM_LOCAL) * glm::vec3(0.0f,0.0f,1.0f);
+					Scene::Light::ParamSpot spot_param = std::get<Scene::Light::ParamSpot>(cur_light.additional_params);
+					float outer_angle = spot_param.fov / 2.0f;
+					float inner_angle = (1.0f - spot_param.blend) * outer_angle;
+					spot_lights.emplace_back(LambertianPipeline::SpotLight{
+						.POSITION = glm::vec4(light_position, 0.0f),
+						.DIRECTION = light_direction,
+						.RADIUS = spot_param.radius,
+						.ENERGY = spot_param.power * tint,
+						.LIMIT = spot_param.limit,
+						.CONE_ANGLES = glm::vec2(inner_angle, outer_angle),
+					});
+				}
 			}
 			transform_stack.pop_back();
 		};
@@ -2083,7 +2131,7 @@ void RTGRenderer::update(float dt) {
 		//traverse the scene hiearchy:
 		for (uint32_t i = 0; i < scene.root_nodes.size(); ++i) {
 			transform_stack.clear();
-			draw_node(scene.root_nodes[i]);
+			collect_node_information(scene.root_nodes[i]);
 		}
 	}
 }

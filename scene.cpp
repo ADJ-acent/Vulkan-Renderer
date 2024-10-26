@@ -618,7 +618,8 @@ void Scene::load(std::string filename, std::optional<std::string> requested_came
                 }
 
                 if (auto sun_res = object_i.find("sun"); sun_res != object_i.end()) {
-                    Light::LightSun additional_params;
+                    lights[light_index].light_type = Light::Sun;
+                    Light::ParamSun additional_params;
                     auto sun_obj = sun_res->second.as_object().value();
                     if (auto angle_res = sun_obj.find("angle"); angle_res != sun_obj.end()) {
                         additional_params.angle = float(angle_res->second.as_number().value());
@@ -629,7 +630,8 @@ void Scene::load(std::string filename, std::optional<std::string> requested_came
                     lights[light_index].additional_params = additional_params;
                 }
                 else if (auto sphere_res = object_i.find("sphere"); sphere_res != object_i.end()) {
-                    Light::LightSphere additional_params;
+                    lights[light_index].light_type = Light::Sphere;
+                    Light::ParamSphere additional_params;
                     auto sphere_obj = sphere_res->second.as_object().value();
                     if (auto radius_res = sphere_obj.find("radius"); radius_res != sphere_obj.end()) {
                         additional_params.radius = float(radius_res->second.as_number().value());
@@ -643,7 +645,8 @@ void Scene::load(std::string filename, std::optional<std::string> requested_came
                     lights[light_index].additional_params = additional_params;
                 }
                 else if (auto spot_res = object_i.find("spot"); spot_res != object_i.end()){
-                    Light::LightSpot additional_params;
+                    lights[light_index].light_type = Light::Spot;
+                    Light::ParamSpot additional_params;
                     auto spot_obj = spot_res->second.as_object().value();
                     if (auto radius_res = spot_obj.find("radius"); radius_res != spot_obj.end()) {
                         additional_params.radius = float(radius_res->second.as_number().value());
@@ -925,14 +928,14 @@ void Scene::debug() {
 
             std::visit([](const auto& params) {
                 using T = std::decay_t<decltype(params)>;
-                if constexpr (std::is_same_v<T, Light::LightSun>) {
+                if constexpr (std::is_same_v<T, Light::ParamSun>) {
                     std::cout << "Sun Angle: " << params.angle << "\n";
                     std::cout << "Sun Strength: " << params.strength << "\n";
-                } else if constexpr (std::is_same_v<T, Light::LightSphere>) {
+                } else if constexpr (std::is_same_v<T, Light::ParamSphere>) {
                     std::cout << "Sphere Radius: " << params.radius << "\n";
                     std::cout << "Sphere Power: " << params.power << "\n";
                     std::cout << "Sphere Limit: " << params.limit << "\n";
-                } else if constexpr (std::is_same_v<T, Light::LightSpot>) {
+                } else if constexpr (std::is_same_v<T, Light::ParamSpot>) {
                     std::cout << "Spot Radius: " << params.radius << "\n";
                     std::cout << "Spot Power: " << params.power << "\n";
                     std::cout << "Spot Limit: " << params.limit << "\n";
