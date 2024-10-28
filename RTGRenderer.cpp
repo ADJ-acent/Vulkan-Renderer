@@ -1891,7 +1891,52 @@ void RTGRenderer::update(float dt) {
 				glm::mat4x4 parent_node_transform_in_world = transform_stack.back();
 				transform_stack.push_back(parent_node_transform_in_world * cur_node_transform_in_parent);
 			}
-			// draw children mesh
+			// gather light information
+			if (uint32_t cur_light_index = cur_node.light_index; cur_light_index != -1) {
+				glm::mat4x4 WORLD_FROM_LOCAL = transform_stack.back();
+				Scene::Light& cur_light = scene.lights[cur_light_index];
+				
+				glm::vec3 tint = cur_light.tint;
+				if (cur_light.light_type == Scene::Light::Sun) {
+
+					glm::vec3 light_direction = glm::mat3x3(WORLD_FROM_LOCAL) * glm::vec3(0.0f,0.0f,1.0f);
+					Scene::Light::ParamSun sun_param = std::get<Scene::Light::ParamSun>(cur_light.additional_params);
+					sun_lights.emplace_back(LambertianPipeline::SunLight{
+						.DIRECTION = glm::vec4(light_direction, 0.0f),
+						.ENERGY = sun_param.strength * tint,
+						.SIN_ANGLE = sin(sun_param.angle/2.0f)
+					});
+				}
+				else if (cur_light.light_type == Scene::Light::Sphere) {
+
+					glm::vec3 light_position = WORLD_FROM_LOCAL * glm::vec4(0.0f,0.0f,0.0f,1.0f);
+					Scene::Light::ParamSphere sphere_param = std::get<Scene::Light::ParamSphere>(cur_light.additional_params);
+					sphere_lights.emplace_back(LambertianPipeline::SphereLight{
+						.POSITION = glm::vec4(light_position, 0.0f),
+						.RADIUS = sphere_param.radius,
+						.ENERGY = sphere_param.power * tint,
+						.LIMIT = sphere_param.limit,
+					});
+				}
+				else if (cur_light.light_type == Scene::Light::Spot) {
+
+					glm::vec3 light_position = WORLD_FROM_LOCAL * glm::vec4(0.0f,0.0f,0.0f,1.0f);
+					glm::vec3 light_direction = glm::mat3x3(WORLD_FROM_LOCAL) * glm::vec3(0.0f,0.0f,1.0f);
+					Scene::Light::ParamSpot spot_param = std::get<Scene::Light::ParamSpot>(cur_light.additional_params);
+					
+					float outer_angle = spot_param.fov / 2.0f;
+					float inner_angle = (1.0f - spot_param.blend) * outer_angle;
+					spot_lights.emplace_back(LambertianPipeline::SpotLight{
+						.POSITION = glm::vec4(light_position, 0.0f),
+						.DIRECTION = light_direction,
+						.RADIUS = spot_param.radius,
+						.ENERGY = spot_param.power * tint,
+						.LIMIT = spot_param.limit,
+						.CONE_ANGLES = glm::vec4(inner_angle, outer_angle, 0.0f, 0.0f),
+					});
+				}
+			}
+
 			for (uint32_t child_index : cur_node.children) {
 				collect_node_information(child_index);
 			}
@@ -2081,50 +2126,7 @@ void RTGRenderer::update(float dt) {
 					});
 				}
 			}
-			// gather light information
-			if (uint32_t cur_light_index = cur_node.light_index; cur_light_index != -1) {
-				glm::mat4x4 WORLD_FROM_LOCAL = transform_stack.back();
-				Scene::Light& cur_light = scene.lights[cur_light_index];
-				
-				glm::vec3 tint = cur_light.tint;
-				if (cur_light.light_type == Scene::Light::Sun) {
-
-					glm::vec3 light_direction = glm::mat3x3(WORLD_FROM_LOCAL) * glm::vec3(0.0f,0.0f,1.0f);
-					Scene::Light::ParamSun sun_param = std::get<Scene::Light::ParamSun>(cur_light.additional_params);
-					sun_lights.emplace_back(LambertianPipeline::SunLight{
-						.DIRECTION = glm::vec4(light_direction, 0.0f),
-						.ENERGY = sun_param.strength * tint,
-						.SIN_ANGLE = sin(sun_param.angle)
-					});
-				}
-				else if (cur_light.light_type == Scene::Light::Sphere) {
-
-					glm::vec3 light_position = WORLD_FROM_LOCAL * glm::vec4(0.0f,0.0f,0.0f,1.0f);
-					Scene::Light::ParamSphere sphere_param = std::get<Scene::Light::ParamSphere>(cur_light.additional_params);
-					sphere_lights.emplace_back(LambertianPipeline::SphereLight{
-						.POSITION = glm::vec4(light_position, 0.0f),
-						.RADIUS = sphere_param.radius,
-						.ENERGY = sphere_param.power * tint,
-						.LIMIT = sphere_param.limit,
-					});
-				}
-				else if (cur_light.light_type == Scene::Light::Spot) {
-
-					glm::vec3 light_position = WORLD_FROM_LOCAL * glm::vec4(0.0f,0.0f,0.0f,1.0f);
-					glm::vec3 light_direction = glm::mat3x3(WORLD_FROM_LOCAL) * glm::vec3(0.0f,0.0f,1.0f);
-					Scene::Light::ParamSpot spot_param = std::get<Scene::Light::ParamSpot>(cur_light.additional_params);
-					float outer_angle = spot_param.fov / 2.0f;
-					float inner_angle = (1.0f - spot_param.blend) * outer_angle;
-					spot_lights.emplace_back(LambertianPipeline::SpotLight{
-						.POSITION = glm::vec4(light_position, 0.0f),
-						.DIRECTION = light_direction,
-						.RADIUS = spot_param.radius,
-						.ENERGY = spot_param.power * tint,
-						.LIMIT = spot_param.limit,
-						.CONE_ANGLES = glm::vec2(inner_angle, outer_angle),
-					});
-				}
-			}
+			
 			transform_stack.pop_back();
 		};
 

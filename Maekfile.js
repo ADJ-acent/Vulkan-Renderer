@@ -64,7 +64,7 @@ main_objs.push( maek.CPP('Tutorial-LinesPipeline.cpp', undefined, { depends:[...
 // build lambertian shaders and pipeline:
 const lambertian_shaders = [
 	maek.GLSLC('glsl/lambertian.vert', 'spv/lambertian.vert', {GLSLCFlags: []}),
-	maek.GLSLC('glsl/lambertian.frag', 'spv/lambertian.frag', {GLSLCFlags: []}),
+	maek.GLSLC('glsl/lambertian.frag', 'spv/lambertian.frag', {GLSLCFlags: [], depends:["glsl/light.glsl"]}),
 ];
 main_objs.push( maek.CPP('LambertianPipeline.cpp', undefined, { depends:[...lambertian_shaders] } ) );
 
@@ -85,7 +85,7 @@ main_objs.push( maek.CPP('MirrorPipeline.cpp', undefined, { depends:[...mirror_s
 // build mirror shaders and pipeline:
 const pbr_shaders = [
 	maek.GLSLC('glsl/pbr.vert', 'spv/pbr.vert', {GLSLCFlags: []}),
-	maek.GLSLC('glsl/pbr.frag', 'spv/pbr.frag', {GLSLCFlags: []}),
+	maek.GLSLC('glsl/pbr.frag', 'spv/pbr.frag', {GLSLCFlags: [], depends:["glsl/light.glsl"]}),
 ];
 main_objs.push( maek.CPP('PBRPipeline.cpp', undefined, { depends:[...pbr_shaders] } ) );
 

@@ -39,11 +39,71 @@ layout(location=2) in mat3 TBN;
 
 layout(location=0) out vec4 outColor;
 
-#define PI 3.1415926538
+vec3 computeDirectLightDiffuse(vec3 worldNormal, vec3 albedo) {
+    vec3 light_energy = vec3(0.0);
 
-// //hemisphere lighting from direction l:
-// vec3 e = SKY_ENERGY * (0.5 * dot(worldNormal,SKY_DIRECTION) + 0.5)
-//        + SUN_ENERGY * max(0.0, dot(worldNormal,SUN_DIRECTION)) ;
+    // Sun Lights
+    for (uint i = 0; i < SUN_LIGHT_COUNT; ++i) {
+        SunLight light = SUNLIGHTS[i];
+        vec3 L = normalize(light.DIRECTION);
+        float NdotL = max(dot(worldNormal, L), -light.SIN_ANGLE);
+		float factor = (NdotL + light.SIN_ANGLE) / (light.SIN_ANGLE * 2.0f);
+		bool aboveHorizon = bool(floor(factor));
+        light_energy += (float(aboveHorizon) * NdotL + float(!aboveHorizon) * (factor * light.SIN_ANGLE)) * (light.ENERGY * (albedo / PI));
+    }
+
+    // Sphere Lights
+    for (uint i = 0; i < SPHERE_LIGHT_COUNT; ++i) {
+        SphereLight light = SPHERELIGHTS[i];
+        vec3 L = normalize(light.POSITION - position);
+        float d = length(light.POSITION - position);
+		
+		vec3 e = light.ENERGY / (4 * PI * max(d, light.RADIUS) * max(d, light.RADIUS));
+        float attenuation = light.LIMIT == 0.0f ? 1.0f : max(0.0, 1.0 - pow(d / light.LIMIT, 4.0));
+
+		if (light.RADIUS == 0.0 || light.RADIUS >= d) {
+			float NdotL = max(dot(worldNormal, L), 0);
+			light_energy += albedo * e * (NdotL * attenuation / PI);
+		}
+		else {
+			float sinHalfTheta = light.RADIUS / d;
+			float NdotL = max(dot(worldNormal, L), -sinHalfTheta);
+			float factor = (NdotL + sinHalfTheta) / (sinHalfTheta * 2.0f);
+			bool aboveHorizon = bool(floor(factor));
+			light_energy += (float(aboveHorizon) * NdotL + float(!aboveHorizon) * (factor * sinHalfTheta)) * (albedo * e * (attenuation / PI));
+		}
+
+    }
+	
+    // Spot Lights
+    for (uint i = 0; i < SPOT_LIGHT_COUNT; ++i) {
+        SpotLight light = SPOTLIGHTS[i];
+        vec3 L = normalize(light.POSITION - position);
+        float d = length(light.POSITION - position);
+
+		vec3 e = light.ENERGY / (4 * PI * max(d, light.RADIUS) * max(d, light.RADIUS));
+        float attenuation = light.LIMIT == 0.0f ? 1.0f : max(0.0, 1.0 - pow(d / light.LIMIT, 4.0));
+
+        float angleToLight = clamp(acos(dot(L, light.DIRECTION)), light.CONE_ANGLES.x, light.CONE_ANGLES.y);
+
+    	float smoothFalloff = (angleToLight - light.CONE_ANGLES.y) / (light.CONE_ANGLES.x - light.CONE_ANGLES.y);
+
+		if (light.RADIUS == 0.0 || light.RADIUS >= d) {
+			float NdotL = max(dot(worldNormal, L), 0);
+			light_energy += albedo * e * (NdotL * attenuation * smoothFalloff / PI);
+		}
+		else {
+			float sinHalfTheta = light.RADIUS / d;
+			float NdotL = max(dot(worldNormal, L), -sinHalfTheta);
+			float factor = (NdotL + sinHalfTheta) / (sinHalfTheta * 2.0f);
+			bool aboveHorizon = bool(floor(factor));
+			light_energy += (float(aboveHorizon) * NdotL + float(!aboveHorizon) * (factor * sinHalfTheta)) * (albedo * e * (attenuation * smoothFalloff / PI));
+		}
+    }
+
+    return light_energy;
+
+}
 
 
 void main() {
@@ -59,19 +119,7 @@ void main() {
 
 	vec3 irradiance = textureLod(ENVIRONMENT, worldNormal, ENVIRONMENT_MIPS).rgb;
 
-	for (uint i = 0; i < SUN_LIGHT_COUNT; ++i) {
-        irradiance += calculateSunLight(SUNLIGHTS[i], worldNormal);
-    }
+	vec3 light_energy = computeDirectLightDiffuse(worldNormal, albedo);
 
-    // Sphere Light Contributions
-    for (uint i = 0; i < SPHERE_LIGHT_COUNT; ++i) {
-        irradiance += calculateSphereLight(SPHERELIGHTS[i], position, worldNormal);
-    }
-
-    // Spot Light Contributions
-    for (uint i = 0; i < SPOT_LIGHT_COUNT; ++i) {
-        irradiance += calculateSpotLight(SPOTLIGHTS[i], position, worldNormal);
-    }
-
-	outColor = vec4(gamma_correction(ACESFitted(albedo * irradiance / PI)), 1.0f);
+	outColor = vec4(ACESFitted(albedo * irradiance / PI + light_energy), 1.0f);
 }

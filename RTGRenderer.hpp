@@ -109,9 +109,9 @@ struct RTGRenderer : RTG::Application {
 			float RADIUS;
 			glm::vec3 ENERGY;
 			float LIMIT;
-			glm::vec2 CONE_ANGLES;
+			glm::vec4 CONE_ANGLES; // z and w are padding
 		};
-		static_assert(sizeof(SpotLight) == 4*4 + 4*3 + 4 + 4*3 + 4 + 4 * 2, "SpotLight is the expected size.");
+		static_assert(sizeof(SpotLight) == 4*4 + 4*3 + 4 + 4*3 + 4 + 4 * 4, "SpotLight is the expected size.");
 		
 		struct Transform {
             glm::mat4x4 CLIP_FROM_LOCAL;
