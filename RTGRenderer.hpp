@@ -28,6 +28,7 @@ struct RTGRenderer : RTG::Application {
 	VkFormat depth_format{};
 	//Render passes describe how pipelines write to images:
 	VkRenderPass render_pass = VK_NULL_HANDLE;
+	VkRenderPass shadow_atlas_pass = VK_NULL_HANDLE;
 
 	//Pipelines:
 
@@ -250,6 +251,8 @@ struct RTGRenderer : RTG::Application {
 	VkDescriptorPool material_descriptor_pool = VK_NULL_HANDLE;
 	std::vector< VkDescriptorSet > material_descriptors; //allocated from texture_descriptor_pool
 
+	VkImageView Shadow_atlas_view = VK_NULL_HANDLE;
+
 	struct {
 		size_t sun_light_size;
 		size_t sun_light_alignment;
@@ -300,6 +303,7 @@ struct RTGRenderer : RTG::Application {
 	std::vector<LambertianPipeline::SpotLight> spot_lights;
 	uint64_t total_shadow_size = 0;
 	static constexpr uint32_t shadow_atlas_length = 2048;
+	Helpers::AllocatedImage shadow_atlas_image;
 
 	struct ShadowAtlas {
 		uint32_t size;

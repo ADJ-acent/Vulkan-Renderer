@@ -114,6 +114,126 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_) {
 		VK( vkCreateRenderPass(rtg.device, &create_info, nullptr, &render_pass) );
 	}
 
+	{// create shadow atlas render pass, referenced https://github.com/SaschaWillems/Vulkan/blob/master/examples/shadowmapping/shadowmapping.cpp
+
+		VkAttachmentDescription attachment_description{
+			.format = depth_format,
+			.samples = VK_SAMPLE_COUNT_1_BIT,
+			.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
+			.storeOp = VK_ATTACHMENT_STORE_OP_STORE,
+			.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+			.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
+			.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+			.finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL,
+		};
+
+		VkAttachmentReference depth_reference = {
+			.attachment = 0,
+			.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+		};
+
+		VkSubpassDescription subpass = {
+			.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS,
+			.colorAttachmentCount = 0,
+			.pDepthStencilAttachment = &depth_reference,
+		};
+
+		// Use subpass dependencies for layout transitions
+		std::array<VkSubpassDependency, 2> dependencies {
+			VkSubpassDependency {
+				.srcSubpass = VK_SUBPASS_EXTERNAL,
+				.dstSubpass = 0,
+				.srcStageMask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+				.dstStageMask = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT,
+				.srcAccessMask = VK_ACCESS_SHADER_READ_BIT,
+				.dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+				.dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT,
+			},
+			VkSubpassDependency {
+				.srcSubpass = 0,
+				.dstSubpass = VK_SUBPASS_EXTERNAL,
+				.srcStageMask = VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT,
+				.dstStageMask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+				.srcAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+				.dstAccessMask = VK_ACCESS_SHADER_READ_BIT,
+				.dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT,
+			}
+
+		};
+
+
+		VkRenderPassCreateInfo render_pass_create_info {
+			.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,
+			.attachmentCount = 1,
+			.pAttachments = &attachment_description,
+			.subpassCount = 1,
+			.pSubpasses = &subpass,
+			.dependencyCount = static_cast<uint32_t>(dependencies.size()),
+			.pDependencies = dependencies.data(),
+		};
+
+		VK(vkCreateRenderPass(rtg.device, &render_pass_create_info, nullptr, &shadow_atlas_pass));
+
+	}
+	{ //shadow atlas depth framebuffer
+
+		// For shadow mapping we only need a depth attachment
+		shadow_atlas_image = rtg.helpers.create_image(
+			VkExtent2D{ .width = shadow_atlas.size, .height = shadow_atlas.size }, // size of each face
+			depth_format,
+			VK_IMAGE_TILING_OPTIMAL,
+			VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+			Helpers::Unmapped
+		);
+
+		VkImageViewCreateInfo depthStencilView{
+			.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+			.image = shadow_atlas_image.handle,
+			.viewType = VK_IMAGE_VIEW_TYPE_2D,
+			.format = depth_format,
+			.subresourceRange = {
+				.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT,
+				.baseMipLevel = 0,
+				.levelCount = 1,
+				.baseArrayLayer = 0,
+				.layerCount = 1,
+			},
+		};
+		VK(vkCreateImageView(rtg.device, &depthStencilView, nullptr, &Shadow_atlas_view));
+
+		// Create sampler to sample from to depth attachment
+		// Used to sample in the fragment shader for shadowed rendering
+		VkFilter shadowmap_filter = vks::tools::formatIsFilterable(physicalDevice, offscreenDepthFormat, VK_IMAGE_TILING_OPTIMAL) ? VK_FILTER_LINEAR : VK_FILTER_NEAREST;
+		VkSamplerCreateInfo sampler = vks::initializers::samplerCreateInfo();
+		sampler.magFilter = shadowmap_filter;
+		sampler.minFilter = shadowmap_filter;
+		sampler.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+		sampler.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+		sampler.addressModeV = sampler.addressModeU;
+		sampler.addressModeW = sampler.addressModeU;
+		sampler.mipLodBias = 0.0f;
+		sampler.maxAnisotropy = 1.0f;
+		sampler.minLod = 0.0f;
+		sampler.maxLod = 1.0f;
+		sampler.borderColor = VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE;
+		VK_CHECK_RESULT(vkCreateSampler(device, &sampler, nullptr, &offscreenPass.depthSampler));
+
+		prepareOffscreenRenderpass();
+
+		// Create frame buffer
+		VkFramebufferCreateInfo fbufCreateInfo = vks::initializers::framebufferCreateInfo();
+		fbufCreateInfo.renderPass = offscreenPass.renderPass;
+		fbufCreateInfo.attachmentCount = 1;
+		fbufCreateInfo.pAttachments = &offscreenPass.depth.view;
+		fbufCreateInfo.width = offscreenPass.width;
+		fbufCreateInfo.height = offscreenPass.height;
+		fbufCreateInfo.layers = 1;
+
+		VK_CHECK_RESULT(vkCreateFramebuffer(device, &fbufCreateInfo, nullptr, &offscreenPass.frameBuffer));
+
+	}
+
 	background_pipeline.create(rtg, render_pass, 0);
 	lines_pipeline.create(rtg, render_pass, 0);
 	lambertian_pipeline.create(rtg, render_pass, 0);
