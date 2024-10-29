@@ -121,5 +121,5 @@ void main() {
 
 	vec3 light_energy = computeDirectLightDiffuse(worldNormal, albedo);
 
-	outColor = vec4(ACESFitted(albedo * irradiance / PI + light_energy), 1.0f);
+	outColor = vec4(ACESFitted(albedo * irradiance / PI) + light_energy, 1.0f);
 }
