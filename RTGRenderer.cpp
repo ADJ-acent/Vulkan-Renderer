@@ -1928,12 +1928,14 @@ void RTGRenderer::update(float dt) {
 					float inner_angle = (1.0f - spot_param.blend) * outer_angle;
 					spot_lights.emplace_back(LambertianPipeline::SpotLight{
 						.POSITION = glm::vec4(light_position, 0.0f),
+						.shadow_size = cur_light.shadow,
 						.DIRECTION = light_direction,
 						.RADIUS = spot_param.radius,
 						.ENERGY = spot_param.power * tint,
 						.LIMIT = spot_param.limit,
 						.CONE_ANGLES = glm::vec4(inner_angle, outer_angle, 0.0f, 0.0f),
 					});
+					total_shadow_size += cur_light.shadow * cur_light.shadow;
 				}
 			}
 
@@ -2136,6 +2138,25 @@ void RTGRenderer::update(float dt) {
 			collect_node_information(scene.root_nodes[i]);
 		}
 	}
+
+	{// shadow map atlas organization
+		// sort spot light by the shadow size
+		std::sort(spot_lights.begin(), spot_lights.end(), [](LambertianPipeline::SpotLight a, LambertianPipeline::SpotLight b) {
+			return a.shadow_size > b.shadow_size;
+		});
+
+		// reduce shadow map size if requesting too many
+		uint8_t reduction = 0;
+		while (total_shadow_size > shadow_atlas_length * shadow_atlas_length) {
+			total_shadow_size/= 4;
+			++reduction;
+		}
+		shadow_atlas.update_regions(spot_lights, reduction);
+		shadow_atlas.debug();
+		//reset total_shadow_size
+		total_shadow_size = 0;
+	}
+
 }
 
 

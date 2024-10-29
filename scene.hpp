@@ -102,7 +102,7 @@ struct Scene
         // assuming only sun type
         std::string name;
         glm::vec3 tint = glm::vec3(1.0f); // multiplied with energy
-        float shadow = 0.0f;
+        uint32_t shadow = 0;
 
         enum LightType : uint8_t {
             Sun,

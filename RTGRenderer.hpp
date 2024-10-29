@@ -104,7 +104,8 @@ struct RTGRenderer : RTG::Application {
 		static_assert(sizeof(SphereLight) == 4*3 + 4 + 4*3 + 4, "SphereLight is the expected size.");
 		
         struct SpotLight {
-			glm::vec4 POSITION; // w padding
+			glm::vec3 POSITION;
+			uint32_t shadow_size; // only used to sort shadow map atlas, not used in shaders, 
 			glm::vec3 DIRECTION;
 			float RADIUS;
 			glm::vec3 ENERGY;
@@ -297,7 +298,25 @@ struct RTGRenderer : RTG::Application {
 	std::vector<LambertianPipeline::SunLight> sun_lights;
 	std::vector<LambertianPipeline::SphereLight> sphere_lights;
 	std::vector<LambertianPipeline::SpotLight> spot_lights;
+	uint64_t total_shadow_size = 0;
+	static constexpr uint32_t shadow_atlas_length = 2048;
 
+	struct ShadowAtlas {
+		uint32_t size;
+		struct Region{
+			uint32_t x;
+			uint32_t y;
+			uint32_t size;
+		} ;
+		std::vector<Region> regions;
+
+		//spot lights must be sorted
+		void update_regions(std::vector<RTGRenderer::LambertianPipeline::SpotLight> &, uint8_t reduction);
+		void debug();
+
+		ShadowAtlas(uint32_t size_) : size(size_) {};
+	} shadow_atlas = ShadowAtlas(shadow_atlas_length);
+	
 	enum InSceneCamera{
 		SceneCamera = 0,
 		UserCamera = 1,

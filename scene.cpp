@@ -610,9 +610,9 @@ void Scene::load(std::string filename, std::optional<std::string> requested_came
                 }
 
                 {// shadow
-                    float shadow = 0.0f;
+                    uint32_t shadow = 0;
                     if (auto shadow_res = object_i.find("shadow"); shadow_res != object_i.end()) {
-                        shadow = float(shadow_res->second.as_number().value());
+                        shadow = uint32_t(shadow_res->second.as_number().value());
                     }
                     lights[light_index].shadow = shadow;
                 }
