@@ -72,6 +72,25 @@ struct RTGRenderer : RTG::Application {
 		void destroy(RTG &);
 	} lines_pipeline;
 
+	struct ShadowAtlasPipeline {
+		//descriptor set layouts:
+        VkDescriptorSetLayout set0_Transforms = VK_NULL_HANDLE;
+
+		struct Light{
+			glm::mat4 LIGHT_FROM_WORLD;
+		} light;
+		static_assert(sizeof(Light) == 16*4, "light buffer structure is packed");
+		
+		VkPipelineLayout layout = VK_NULL_HANDLE;
+
+		using Vertex = PosNorTanTexVertex;
+
+		VkPipeline handle = VK_NULL_HANDLE;
+
+		void create(RTG &, VkRenderPass render_pass, uint32_t subpass);
+		void destroy(RTG &);
+	} shadow_pipeline;
+
 	struct LambertianPipeline {
 		//descriptor set layouts:
 		VkDescriptorSetLayout set0_World = VK_NULL_HANDLE;
@@ -252,6 +271,8 @@ struct RTGRenderer : RTG::Application {
 	std::vector< VkDescriptorSet > material_descriptors; //allocated from texture_descriptor_pool
 
 	VkImageView Shadow_atlas_view = VK_NULL_HANDLE;
+	VkSampler shadow_sampler = VK_NULL_HANDLE;
+	VkFramebuffer shadow_framebuffer = VK_NULL_HANDLE;
 
 	struct {
 		size_t sun_light_size;
@@ -301,6 +322,8 @@ struct RTGRenderer : RTG::Application {
 	std::vector<LambertianPipeline::SunLight> sun_lights;
 	std::vector<LambertianPipeline::SphereLight> sphere_lights;
 	std::vector<LambertianPipeline::SpotLight> spot_lights;
+	std::vector<glm::mat4x4> spot_light_from_world;
+	std::vector<uint32_t> spot_light_sorted_indices;
 	uint64_t total_shadow_size = 0;
 	static constexpr uint32_t shadow_atlas_length = 2048;
 	Helpers::AllocatedImage shadow_atlas_image;
@@ -315,7 +338,7 @@ struct RTGRenderer : RTG::Application {
 		std::vector<Region> regions;
 
 		//spot lights must be sorted
-		void update_regions(std::vector<RTGRenderer::LambertianPipeline::SpotLight> &, uint8_t reduction);
+		void update_regions(std::vector<RTGRenderer::LambertianPipeline::SpotLight> &, std::vector<uint32_t> &, uint8_t reduction);
 		void debug();
 
 		ShadowAtlas(uint32_t size_) : size(size_) {};

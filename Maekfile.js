@@ -90,6 +90,14 @@ const pbr_shaders = [
 ];
 main_objs.push( maek.CPP('PBRPipeline.cpp', undefined, { depends:[...pbr_shaders] } ) );
 
+
+// build mirror shaders and pipeline:
+const shadow_shaders = [
+	maek.GLSLC('glsl/shadow.vert', 'spv/shadow.vert', {GLSLCFlags: []}),
+	maek.GLSLC('glsl/shadow.frag', 'spv/shadow.frag', {GLSLCFlags: []}),
+];
+main_objs.push( maek.CPP('ShadowAtlasPipeline.cpp', undefined, { depends:[...shadow_shaders] } ) );
+
 const main_exe = maek.LINK([...main_objs, ...viewer_objs], 'bin/viewer');
 
 //default targets:

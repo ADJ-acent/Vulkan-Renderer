@@ -6,6 +6,7 @@
 #include <vulkan/vulkan_core.h>
 #include <vulkan/utility/vk_format_utils.h> //useful for byte counting
 #if defined(__APPLE__)
+#define VK_ENABLE_BETA_EXTENSIONS 1
 #include <vulkan/vulkan_beta.h> //for portability subset
 #include <vulkan/vulkan_metal.h> //for VK_EXT_METAL_SURFACE_EXTENSION_NAME
 #endif
@@ -451,6 +452,14 @@ RTG::RTG(Configuration const &configuration_) : helpers(*this) {
 				//pass a pointer to a VkPhysicalDeviceFeatures to request specific features: (e.g., thick lines)
 				.pEnabledFeatures = nullptr,
 			};
+
+			#if defined(__APPLE__)
+			VkPhysicalDevicePortabilitySubsetFeaturesKHR portability_features{
+				.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PORTABILITY_SUBSET_FEATURES_KHR,
+				.mutableComparisonSamplers = VK_TRUE,
+			};
+			create_info.pNext = &portability_features;
+			#endif
 
 			VK( vkCreateDevice(physical_device, &create_info, nullptr, &device) );
 

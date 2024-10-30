@@ -2,13 +2,13 @@
 #include <iostream>
 
 //referenced https://lisyarus.github.io/blog/posts/texture-packing.html
-void RTGRenderer::ShadowAtlas::update_regions(std::vector<RTGRenderer::LambertianPipeline::SpotLight> & spot_lights, uint8_t reduction)
+void RTGRenderer::ShadowAtlas::update_regions(std::vector<RTGRenderer::LambertianPipeline::SpotLight> & spot_lights, std::vector<uint32_t> &sorted_indices, uint8_t reduction)
 {
     regions.clear();
     regions.resize(spot_lights.size());
     struct point { uint32_t x, y; } pen = {0,0};
     std::vector<point> ladder;
-    for (size_t i = 0; i < spot_lights.size(); ++i) {
+    for (uint32_t i : sorted_indices) {
         
         const uint32_t texture_size = spot_lights[i].shadow_size >> reduction;
 
@@ -34,7 +34,6 @@ void RTGRenderer::ShadowAtlas::update_regions(std::vector<RTGRenderer::Lambertia
                 pen.x = 0;
         }
     }
-
 }
 
 void RTGRenderer::ShadowAtlas::debug()

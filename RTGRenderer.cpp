@@ -187,7 +187,7 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_) {
 			Helpers::Unmapped
 		);
 
-		VkImageViewCreateInfo depthStencilView{
+		VkImageViewCreateInfo depth_stencil_view{
 			.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
 			.image = shadow_atlas_image.handle,
 			.viewType = VK_IMAGE_VIEW_TYPE_2D,
@@ -200,37 +200,42 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_) {
 				.layerCount = 1,
 			},
 		};
-		VK(vkCreateImageView(rtg.device, &depthStencilView, nullptr, &Shadow_atlas_view));
+		VK(vkCreateImageView(rtg.device, &depth_stencil_view, nullptr, &Shadow_atlas_view));
 
 		// Create sampler to sample from to depth attachment
 		// Used to sample in the fragment shader for shadowed rendering
-		VkFilter shadowmap_filter = vks::tools::formatIsFilterable(physicalDevice, offscreenDepthFormat, VK_IMAGE_TILING_OPTIMAL) ? VK_FILTER_LINEAR : VK_FILTER_NEAREST;
-		VkSamplerCreateInfo sampler = vks::initializers::samplerCreateInfo();
-		sampler.magFilter = shadowmap_filter;
-		sampler.minFilter = shadowmap_filter;
-		sampler.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
-		sampler.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-		sampler.addressModeV = sampler.addressModeU;
-		sampler.addressModeW = sampler.addressModeU;
-		sampler.mipLodBias = 0.0f;
-		sampler.maxAnisotropy = 1.0f;
-		sampler.minLod = 0.0f;
-		sampler.maxLod = 1.0f;
-		sampler.borderColor = VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE;
-		VK_CHECK_RESULT(vkCreateSampler(device, &sampler, nullptr, &offscreenPass.depthSampler));
 
-		prepareOffscreenRenderpass();
+		VkSamplerCreateInfo sampler {
+			.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
+			.magFilter = VK_FILTER_LINEAR,
+			.minFilter = VK_FILTER_LINEAR,
+			.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR,
+			.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+			.addressModeV = sampler.addressModeU,
+			.addressModeW = sampler.addressModeU,
+			.mipLodBias = 0.0f,
+			.maxAnisotropy = 1.0f,
+			.compareEnable = VK_TRUE,
+			.compareOp = VK_COMPARE_OP_LESS,
+			.minLod = 0.0f,
+			.maxLod = 1.0f,
+			.borderColor = VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE,
+		};
+		VK(vkCreateSampler(rtg.device, &sampler, nullptr, &shadow_sampler));
+
 
 		// Create frame buffer
-		VkFramebufferCreateInfo fbufCreateInfo = vks::initializers::framebufferCreateInfo();
-		fbufCreateInfo.renderPass = offscreenPass.renderPass;
-		fbufCreateInfo.attachmentCount = 1;
-		fbufCreateInfo.pAttachments = &offscreenPass.depth.view;
-		fbufCreateInfo.width = offscreenPass.width;
-		fbufCreateInfo.height = offscreenPass.height;
-		fbufCreateInfo.layers = 1;
+		VkFramebufferCreateInfo framebuffer_create_info {
+			.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
+			.renderPass = shadow_atlas_pass,
+			.attachmentCount = 1,
+			.pAttachments = &Shadow_atlas_view,
+			.width = shadow_atlas_length,
+			.height = shadow_atlas_length,
+			.layers = 1,
+		};
 
-		VK_CHECK_RESULT(vkCreateFramebuffer(device, &fbufCreateInfo, nullptr, &offscreenPass.frameBuffer));
+		VK (vkCreateFramebuffer(rtg.device, &framebuffer_create_info, nullptr, &shadow_framebuffer));
 
 	}
 
@@ -240,6 +245,7 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_) {
 	environment_pipeline.create(rtg, render_pass, 0);
 	mirror_pipeline.create(rtg, render_pass, 0);
 	pbr_pipeline.create(rtg, render_pass, 0);
+	shadow_pipeline.create(rtg, shadow_atlas_pass, 0);
 
 	//create environment texture
 	{
@@ -1129,8 +1135,28 @@ RTGRenderer::~RTGRenderer() {
 	environment_pipeline.destroy(rtg);
 	mirror_pipeline.destroy(rtg);
 	pbr_pipeline.destroy(rtg);
+	shadow_pipeline.destroy(rtg);
 	
 	rtg.helpers.destroy_buffer(std::move(object_vertices));
+
+	if (shadow_sampler) {
+		vkDestroySampler(rtg.device, shadow_sampler, nullptr);
+		shadow_sampler = VK_NULL_HANDLE;
+	}
+
+	if (Shadow_atlas_view) {
+		vkDestroyImageView(rtg.device, Shadow_atlas_view, nullptr);
+		Shadow_atlas_view = VK_NULL_HANDLE;
+	}
+
+	if (shadow_atlas_image.handle) {
+		rtg.helpers.destroy_image(std::move(shadow_atlas_image));
+	}
+
+	if (shadow_framebuffer) {
+		vkDestroyFramebuffer(rtg.device, shadow_framebuffer, nullptr);
+	}
+
 
 	if (swapchain_depth_image.handle != VK_NULL_HANDLE) {
 		destroy_framebuffers();
@@ -1190,6 +1216,11 @@ RTGRenderer::~RTGRenderer() {
 	if (command_pool != VK_NULL_HANDLE) {
 		vkDestroyCommandPool(rtg.device, command_pool, nullptr);
 		command_pool = VK_NULL_HANDLE;
+	}
+
+	if (shadow_atlas_pass != VK_NULL_HANDLE) {
+		vkDestroyRenderPass(rtg.device, shadow_atlas_pass, nullptr);
+		shadow_atlas_pass = VK_NULL_HANDLE;
 	}
 
 	if (render_pass != VK_NULL_HANDLE) {
@@ -1291,89 +1322,7 @@ void RTGRenderer::render(RTG &rtg_, RTG::RenderParams const &render_params) {
 		VK(vkBeginCommandBuffer(workspace.command_buffer, &begine_info));
 	}
 
-	if (!lines_vertices.empty()) { //upload lines vertices;
-		//[re-]allocate lines buffer if needed:
-		size_t needed_bytes = lines_vertices.size() * sizeof(lines_vertices[0]);
-		if (workspace.lines_vertices_src.handle == VK_NULL_HANDLE || workspace.lines_vertices_src.size < needed_bytes) {
-			//round to next multiple of 4k to avoid re-allocating continuously if vertex count grows slowly:
-			size_t new_bytes = ((needed_bytes + 4096) / 4096) * 4096;
-
-			if (workspace.lines_vertices_src.handle) {
-				rtg.helpers.destroy_buffer(std::move(workspace.lines_vertices_src));
-			}
-			if (workspace.lines_vertices.handle) {
-				rtg.helpers.destroy_buffer(std::move(workspace.lines_vertices));
-			}
-			
-			workspace.lines_vertices_src = rtg.helpers.create_buffer(
-				new_bytes,
-				VK_BUFFER_USAGE_TRANSFER_SRC_BIT, //going to have GPU copy from this memory
-				VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, //host-visible memory, coherent (no special sync needed)
-				Helpers::Mapped //get a pointer to the memory
-			);
-			workspace.lines_vertices = rtg.helpers.create_buffer(
-				new_bytes,
-				VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, //going to use as vertex buffer, also going to have GPU into this memory
-				VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, //GPU-local memory
-				Helpers::Unmapped //don't get a pointer to the memory
-			);
-
-			std::cout << "Re-allocated lines buffers to " << new_bytes << " bytes." << std::endl;
-
-		}
-
-		assert(workspace.lines_vertices_src.size == workspace.lines_vertices.size);
-		assert(workspace.lines_vertices_src.size >= needed_bytes);
-
-		// host-side copy into lines_vertices_src:
-		assert(workspace.lines_vertices_src.allocation.mapped);
-		std::memcpy(workspace.lines_vertices_src.allocation.data(), lines_vertices.data(), needed_bytes);
-
-		//device-side copy from lines_vertices_src -> lines_vertices:
-		VkBufferCopy copy_region{
-			.srcOffset = 0,
-			.dstOffset = 0,
-			.size = needed_bytes,
-		};
-
-		vkCmdCopyBuffer(workspace.command_buffer, workspace.lines_vertices_src.handle, workspace.lines_vertices.handle, 1, &copy_region);
-	}
-
-	{//upload camera info:
-		LinesPipeline::Camera camera{
-			.CLIP_FROM_WORLD = CLIP_FROM_WORLD
-		};
-		assert(workspace.Camera_src.size == sizeof(camera));
-
-		//host-side copy into Camera_src:
-		memcpy(workspace.Camera_src.allocation.data(), &camera, sizeof(camera));
-
-		//add device-side copy from Camera_src -> Camera:
-		assert(workspace.Camera_src.size == workspace.Camera.size);
-		VkBufferCopy copy_region{
-			.srcOffset = 0,
-			.dstOffset = 0,
-			.size = workspace.Camera_src.size,
-		};
-		vkCmdCopyBuffer(workspace.command_buffer, workspace.Camera_src.handle, workspace.Camera.handle, 1, &copy_region);
-	}
-
-	{ //upload world info:
-		assert(workspace.World_src.size == sizeof(world));
-
-		//host-side copy into World_src:
-		memcpy(workspace.World_src.allocation.data(), &world, sizeof(world));
-
-		//add device-side copy from World_src -> World:
-		assert(workspace.World_src.size == workspace.World.size);
-		VkBufferCopy copy_region{
-			.srcOffset = 0,
-			.dstOffset = 0,
-			.size = workspace.World_src.size,
-		};
-		vkCmdCopyBuffer(workspace.command_buffer, workspace.World_src.handle, workspace.World.handle, 1, &copy_region);
-	}
-
+	//copy transforms, needed for both shadow atlas pass and render pass
 	if (!lambertian_instances.empty() || !environment_instances.empty() || !mirror_instances.empty() || !pbr_instances.empty()) { //upload object transforms:
 		size_t needed_bytes = (lambertian_instances.size() + environment_instances.size() + mirror_instances.size() + pbr_instances.size()) * sizeof(Transform);
 		if (workspace.Transforms_src.handle == VK_NULL_HANDLE || workspace.Transforms_src.size < needed_bytes) {
@@ -1459,6 +1408,232 @@ void RTGRenderer::render(RTG &rtg_, RTG::RenderParams const &render_params) {
 		vkCmdCopyBuffer(workspace.command_buffer, workspace.Transforms_src.handle, workspace.Transforms.handle, 1, &copy_region);
 	}
 
+	VkBufferMemoryBarrier buffer_memory_barrier{
+			.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
+			.srcAccessMask = VK_ACCESS_MEMORY_WRITE_BIT,
+			.dstAccessMask = VK_ACCESS_MEMORY_READ_BIT,
+			.buffer = workspace.Transforms.handle,
+			.size = VK_WHOLE_SIZE, 
+	};
+	vkCmdPipelineBarrier( workspace.command_buffer,
+		VK_PIPELINE_STAGE_TRANSFER_BIT, //srcStageMask
+		VK_PIPELINE_STAGE_VERTEX_INPUT_BIT, //dstStageMask
+		0, //dependencyFlags
+		0, nullptr, //memoryBarriers (count, data)
+		1, &buffer_memory_barrier, //bufferMemoryBarriers (count, data)
+		0, nullptr //imageMemoryBarriers (count, data)
+	);
+
+	{//shadow atlas pass:
+		std::array<VkClearValue, 1> clear_values{
+			VkClearValue{.depthStencil{.depth = 1.0f, .stencil = 0}},
+		};
+		VkRenderPassBeginInfo begin_info{
+			.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
+			.renderPass = shadow_atlas_pass,
+			.framebuffer = shadow_framebuffer,
+			.renderArea{
+				.offset = {.x = 0, .y = 0},
+				.extent = {.width = shadow_atlas_length, .height = shadow_atlas_length},
+			},
+			.clearValueCount = uint32_t(clear_values.size()),
+			.pClearValues = clear_values.data(),
+		};
+
+		vkCmdBeginRenderPass(workspace.command_buffer, &begin_info, VK_SUBPASS_CONTENTS_INLINE);
+
+		if (!lambertian_instances.empty() || !environment_instances.empty() || !mirror_instances.empty() || !pbr_instances.empty()) {
+			//bind Transforms descriptor set:
+			std::array< VkDescriptorSet, 1 > descriptor_sets{
+				workspace.Transforms_descriptors, //1: Transforms
+			};
+			vkCmdBindDescriptorSets(
+				workspace.command_buffer, //command buffer
+				VK_PIPELINE_BIND_POINT_GRAPHICS, //pipeline bind point
+				shadow_pipeline.layout, //pipeline layout
+				0, //first set
+				uint32_t(descriptor_sets.size()), descriptor_sets.data(), //descriptor sets count, ptr
+				0, nullptr //dynamic offsets count, ptr
+			);
+		}
+		if (!spot_lights.empty()) {
+			vkCmdBindPipeline(workspace.command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, shadow_pipeline.handle);
+
+			{//use object_vertices (offset 0) as vertex buffer binding 0:
+				std::array<VkBuffer, 1>vertex_buffers{object_vertices.handle};
+				std::array< VkDeviceSize, 1 > offsets{ 0 };
+				vkCmdBindVertexBuffers(workspace.command_buffer, 0, uint32_t(vertex_buffers.size()), vertex_buffers.data(), offsets.data());
+
+			}
+			for (uint32_t light_index : spot_light_sorted_indices) {
+				ShadowAtlas::Region& region = shadow_atlas.regions[light_index];
+				{//push time:
+					ShadowAtlasPipeline::Light push{
+						.LIGHT_FROM_WORLD = spot_light_from_world[light_index],
+					};
+					vkCmdPushConstants(workspace.command_buffer, shadow_pipeline.layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(push), &push);
+				}
+				{// set viewport and scissors
+					VkExtent2D extent = {region.size, region.size};
+					VkOffset2D offset = {.x = int32_t(region.x), .y = int32_t(region.y)};
+
+					{//set scissor rectangle:
+						VkRect2D scissor{
+							.offset = offset,
+							.extent = extent,
+						};
+						vkCmdSetScissor(workspace.command_buffer, 0, 1, &scissor);
+					}
+					{//configure viewport transform:
+						VkViewport viewport{
+							.x = float(offset.x),
+							.y = float(offset.y),
+							.width = float(extent.width),
+							.height = float(extent.height),
+							.minDepth = 0.0f,
+							.maxDepth = 1.0f,
+						};
+						vkCmdSetViewport(workspace.command_buffer, 0, 1, &viewport);
+					}
+				}
+
+				//draw all instances:
+				for (ObjectInstance const &inst : lambertian_instances) {
+					uint32_t index = uint32_t(&inst - &lambertian_instances[0]);
+					vkCmdDraw(workspace.command_buffer, inst.vertices.count, 1, inst.vertices.first, index);
+				}
+
+				uint32_t index_offset = uint32_t(lambertian_instances.size());// account for lambertian size
+				for (ObjectInstance const &inst : environment_instances) {
+					uint32_t index = uint32_t(&inst - &environment_instances[0]) + index_offset; 
+					vkCmdDraw(workspace.command_buffer, inst.vertices.count, 1, inst.vertices.first, index);
+				}
+				index_offset = uint32_t(lambertian_instances.size() + environment_instances.size());// account for lambertian and environment size
+				for (ObjectInstance const &inst : mirror_instances) {
+					uint32_t index = uint32_t(&inst - &mirror_instances[0]) + index_offset;
+					vkCmdDraw(workspace.command_buffer, inst.vertices.count, 1, inst.vertices.first, index);
+				}
+				index_offset = uint32_t(lambertian_instances.size() + environment_instances.size() + mirror_instances.size());// account for lambertian, environment, and mirror size
+				for (ObjectInstance const &inst : pbr_instances) {
+					uint32_t index = uint32_t(&inst - &pbr_instances[0]) + index_offset;
+					vkCmdDraw(workspace.command_buffer, inst.vertices.count, 1, inst.vertices.first, index);
+				}
+			}
+		}
+		vkCmdEndRenderPass(workspace.command_buffer);
+	}
+
+	VkImageMemoryBarrier image_memory_barrier{
+		.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+		.srcAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+		.dstAccessMask = VK_ACCESS_SHADER_READ_BIT,
+		.oldLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL,
+		.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+		.image = shadow_atlas_image.handle,
+		.subresourceRange = {
+			.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT,
+			.baseMipLevel = 0,
+			.levelCount = 1,
+			.baseArrayLayer = 0,
+			.layerCount = 1
+    	},
+	};
+
+	// Command for barrier between render passes
+	vkCmdPipelineBarrier(
+		workspace.command_buffer,
+		VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT, // srcStageMask
+		VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, // dstStageMask
+		0, // dependencyFlags
+		0, nullptr, // memoryBarriers (count, data)
+		0, nullptr, // bufferMemoryBarriers (count, data)
+		1, &image_memory_barrier // imageMemoryBarriers (count, data)
+	);
+
+
+	if (!lines_vertices.empty()) { //upload lines vertices;
+		//[re-]allocate lines buffer if needed:
+		size_t needed_bytes = lines_vertices.size() * sizeof(lines_vertices[0]);
+		if (workspace.lines_vertices_src.handle == VK_NULL_HANDLE || workspace.lines_vertices_src.size < needed_bytes) {
+			//round to next multiple of 4k to avoid re-allocating continuously if vertex count grows slowly:
+			size_t new_bytes = ((needed_bytes + 4096) / 4096) * 4096;
+
+			if (workspace.lines_vertices_src.handle) {
+				rtg.helpers.destroy_buffer(std::move(workspace.lines_vertices_src));
+			}
+			if (workspace.lines_vertices.handle) {
+				rtg.helpers.destroy_buffer(std::move(workspace.lines_vertices));
+			}
+			
+			workspace.lines_vertices_src = rtg.helpers.create_buffer(
+				new_bytes,
+				VK_BUFFER_USAGE_TRANSFER_SRC_BIT, //going to have GPU copy from this memory
+				VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, //host-visible memory, coherent (no special sync needed)
+				Helpers::Mapped //get a pointer to the memory
+			);
+			workspace.lines_vertices = rtg.helpers.create_buffer(
+				new_bytes,
+				VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, //going to use as vertex buffer, also going to have GPU into this memory
+				VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, //GPU-local memory
+				Helpers::Unmapped //don't get a pointer to the memory
+			);
+
+			std::cout << "Re-allocated lines buffers to " << new_bytes << " bytes." << std::endl;
+
+		}
+
+		assert(workspace.lines_vertices_src.size == workspace.lines_vertices.size);
+		assert(workspace.lines_vertices_src.size >= needed_bytes);
+
+		// host-side copy into lines_vertices_src:
+		assert(workspace.lines_vertices_src.allocation.mapped);
+		std::memcpy(workspace.lines_vertices_src.allocation.data(), lines_vertices.data(), needed_bytes);
+
+		//device-side copy from lines_vertices_src -> lines_vertices:
+		VkBufferCopy copy_region{
+			.srcOffset = 0,
+			.dstOffset = 0,
+			.size = needed_bytes,
+		};
+
+		vkCmdCopyBuffer(workspace.command_buffer, workspace.lines_vertices_src.handle, workspace.lines_vertices.handle, 1, &copy_region);
+	}
+
+	{//upload camera info:
+		LinesPipeline::Camera camera{
+			.CLIP_FROM_WORLD = CLIP_FROM_WORLD
+		};
+		assert(workspace.Camera_src.size == sizeof(camera));
+
+		//host-side copy into Camera_src:
+		memcpy(workspace.Camera_src.allocation.data(), &camera, sizeof(camera));
+
+		//add device-side copy from Camera_src -> Camera:
+		assert(workspace.Camera_src.size == workspace.Camera.size);
+		VkBufferCopy copy_region{
+			.srcOffset = 0,
+			.dstOffset = 0,
+			.size = workspace.Camera_src.size,
+		};
+		vkCmdCopyBuffer(workspace.command_buffer, workspace.Camera_src.handle, workspace.Camera.handle, 1, &copy_region);
+	}
+
+	{ //upload world info:
+		assert(workspace.World_src.size == sizeof(world));
+
+		//host-side copy into World_src:
+		memcpy(workspace.World_src.allocation.data(), &world, sizeof(world));
+
+		//add device-side copy from World_src -> World:
+		assert(workspace.World_src.size == workspace.World.size);
+		VkBufferCopy copy_region{
+			.srcOffset = 0,
+			.dstOffset = 0,
+			.size = workspace.World_src.size,
+		};
+		vkCmdCopyBuffer(workspace.command_buffer, workspace.World_src.handle, workspace.World.handle, 1, &copy_region);
+	}
+
 	if (!spot_lights.empty() || !sun_lights.empty() || !sphere_lights.empty()) {
 		{ //copy lights into Light_src:
 			assert(workspace.Light_src.allocation.mapped);
@@ -1496,16 +1671,14 @@ void RTGRenderer::render(RTG &rtg_, RTG::RenderParams const &render_params) {
 			.srcAccessMask = VK_ACCESS_MEMORY_WRITE_BIT,
 			.dstAccessMask = VK_ACCESS_MEMORY_READ_BIT,
 		};
-		//TODO: change to 2 pipeline barrier, buffer
 		vkCmdPipelineBarrier( workspace.command_buffer,
 			VK_PIPELINE_STAGE_TRANSFER_BIT, //srcStageMask
-			VK_PIPELINE_STAGE_VERTEX_INPUT_BIT, //dstStageMask
+			VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, //dstStageMask
 			0, //dependencyFlags
 			1, &memory_barrier, //memoryBarriers (count, data)
 			0, nullptr, //bufferMemoryBarriers (count, data)
 			0, nullptr //imageMemoryBarriers (count, data)
 		);
-
 	}
 
 	{//render pass:
@@ -1996,7 +2169,7 @@ void RTGRenderer::update(float dt) {
 		sun_lights.clear();
 		sphere_lights.clear();
 		spot_lights.clear();
-
+		spot_light_from_world.clear();
 		// culling resources
 		glm::mat4x4 frustum_view_from_world = culling_camera == SceneCamera ? view_from_world[0] : view_from_world[1];
 
@@ -2023,7 +2196,7 @@ void RTGRenderer::update(float dt) {
 					Scene::Light::ParamSun sun_param = std::get<Scene::Light::ParamSun>(cur_light.additional_params);
 					sun_lights.emplace_back(LambertianPipeline::SunLight{
 						.DIRECTION = glm::vec4(light_direction, 0.0f),
-						.ENERGY = sun_param.strength * tint,
+						.ENERGY = sun_param.strength * tint / float(M_PI),
 						.SIN_ANGLE = sin(sun_param.angle/2.0f)
 					});
 				}
@@ -2034,7 +2207,7 @@ void RTGRenderer::update(float dt) {
 					sphere_lights.emplace_back(LambertianPipeline::SphereLight{
 						.POSITION = glm::vec4(light_position, 0.0f),
 						.RADIUS = sphere_param.radius,
-						.ENERGY = sphere_param.power * tint,
+						.ENERGY = sphere_param.power * tint / float(M_PI),
 						.LIMIT = sphere_param.limit,
 					});
 				}
@@ -2051,11 +2224,29 @@ void RTGRenderer::update(float dt) {
 						.shadow_size = cur_light.shadow,
 						.DIRECTION = light_direction,
 						.RADIUS = spot_param.radius,
-						.ENERGY = spot_param.power * tint,
+						.ENERGY = spot_param.power * tint / float(M_PI),
 						.LIMIT = spot_param.limit,
 						.CONE_ANGLES = glm::vec4(inner_angle, outer_angle, 0.0f, 0.0f),
 					});
 					total_shadow_size += cur_light.shadow * cur_light.shadow;
+
+					{
+						float aspect = 1.0f; 
+						float near = 0.001f;
+						float far;
+						if (spot_param.limit == 0.0f) {
+							far = std::sqrt(glm::length(spot_lights.back().ENERGY) / (4.0f * 0.001f));
+						}
+						else {
+							far = spot_param.limit;
+						}
+						glm::mat4 projection = glm::make_mat4(perspective(glm::radians(spot_param.fov), aspect, near, far).data());
+						glm::vec3 up = glm::vec3(0.0f, 0.0f, 1.0f);
+						glm::mat4 view = glm::make_mat4(look_at(light_position.x, light_position.y,light_position.z, 
+							(light_position + light_direction).x, (light_position + light_direction).y,(light_position + light_direction).z, 
+							0.0f, 0.0f, 1.0f).data());
+						spot_light_from_world.emplace_back(projection * view);
+					}
 				}
 			}
 
@@ -2261,8 +2452,15 @@ void RTGRenderer::update(float dt) {
 
 	{// shadow map atlas organization
 		// sort spot light by the shadow size
-		std::sort(spot_lights.begin(), spot_lights.end(), [](LambertianPipeline::SpotLight a, LambertianPipeline::SpotLight b) {
-			return a.shadow_size > b.shadow_size;
+		spot_light_sorted_indices.clear();
+		spot_light_sorted_indices.resize(spot_lights.size());
+
+		for (uint32_t i = 0; i < spot_lights.size(); ++i) {
+			spot_light_sorted_indices[i] = i;
+		}
+
+		std::sort(spot_light_sorted_indices.begin(), spot_light_sorted_indices.end(), [&](uint32_t a, uint32_t b) {
+			return spot_lights[a].shadow_size > spot_lights[b].shadow_size;
 		});
 
 		// reduce shadow map size if requesting too many
@@ -2271,8 +2469,7 @@ void RTGRenderer::update(float dt) {
 			total_shadow_size/= 4;
 			++reduction;
 		}
-		shadow_atlas.update_regions(spot_lights, reduction);
-		shadow_atlas.debug();
+		shadow_atlas.update_regions(spot_lights, spot_light_sorted_indices, reduction);
 		//reset total_shadow_size
 		total_shadow_size = 0;
 	}

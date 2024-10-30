@@ -107,7 +107,7 @@ vec3 computeDirectLight(vec3 worldNormal, vec3 viewDir, vec3 reflectDir, vec3 al
         float NdotL = max(dot(worldNormal, L), -light.SIN_ANGLE);
 		float factor = (NdotL + light.SIN_ANGLE) / (light.SIN_ANGLE * 2.0f);
 		bool aboveHorizon = bool(floor(factor));
-        vec3 diffuse = (float(aboveHorizon) * NdotL + float(!aboveHorizon) * (factor * light.SIN_ANGLE)) * (light.ENERGY * (albedo / PI));
+        vec3 diffuse = (float(aboveHorizon) * NdotL + float(!aboveHorizon) * (factor * light.SIN_ANGLE)) * (light.ENERGY * albedo);
 		light_energy += diffuse;
     }
 
@@ -117,7 +117,7 @@ vec3 computeDirectLight(vec3 worldNormal, vec3 viewDir, vec3 reflectDir, vec3 al
         vec3 L = normalize(light.POSITION - position);
         float d = length(light.POSITION - position);
 		
-		vec3 e = light.ENERGY / (4 * PI * max(d, light.RADIUS) * max(d, light.RADIUS));
+		vec3 e = light.ENERGY / (4 * max(d, light.RADIUS) * max(d, light.RADIUS));
         float attenuation = light.LIMIT == 0.0f ? 1.0f : max(0.0, 1.0 - pow(d / light.LIMIT, 4.0));
 		vec3 diffuse = vec3(0.0,0.0,0.0);
 		if (light.RADIUS == 0.0 || light.RADIUS >= d) {
@@ -146,7 +146,7 @@ vec3 computeDirectLight(vec3 worldNormal, vec3 viewDir, vec3 reflectDir, vec3 al
         vec3 L = normalize(light.POSITION - position);
         float d = length(light.POSITION - position);
 
-		vec3 e = light.ENERGY / (4 * PI * max(d, light.RADIUS) * max(d, light.RADIUS));
+		vec3 e = light.ENERGY / (4 * max(d, light.RADIUS) * max(d, light.RADIUS));
         float attenuation = light.LIMIT == 0.0f ? 1.0f : max(0.0, 1.0 - pow(d / light.LIMIT, 4.0));
 
         float angleToLight = clamp(acos(dot(L, light.DIRECTION)), light.CONE_ANGLES.x, light.CONE_ANGLES.y);
