@@ -128,17 +128,16 @@ struct RTGRenderer : RTG::Application {
 		
         struct SpotLight {
 			glm::vec3 POSITION;
-			uint32_t SHADOW_SIZE = 0;
+			uint32_t shadow_size = 0; //unused in shaders, padding
 			glm::vec3 DIRECTION;
 			float RADIUS;
 			glm::vec3 ENERGY;
 			float LIMIT;
-			glm::vec2 CONE_ANGLES;
-			uint32_t SHADOW_X;
-			uint32_t SHADOW_Y;
+			glm::vec4 CONE_ANGLES; // z and w are padding
 			glm::mat4x4 LIGHT_FROM_WORLD;
+
 		};
-		static_assert(sizeof(SpotLight) == 4*4 + 4*3 + 4 + 4*3 + 4 + 4 * 4 + 16*4, "SpotLight is the expected size.");
+		static_assert(sizeof(SpotLight) == 16*4 + 4*4 + 4*3 + 4 + 4*3 + 4 + 4 * 4, "SpotLight is the expected size.");
 		
 		struct Transform {
             glm::mat4x4 CLIP_FROM_LOCAL;

@@ -21,8 +21,7 @@ struct SpotLight {
 	vec3 ENERGY; // divided by pi 
 	float LIMIT;
 	vec2 CONE_ANGLES;//cosine of the inner and outer angles
-	uint SHADOW_X;
-	uint SHADOW_Y;
+
 	mat4 LIGHT_FROM_WORLD;
 };
 

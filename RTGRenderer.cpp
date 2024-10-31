@@ -1471,9 +1471,6 @@ void RTGRenderer::render(RTG &rtg_, RTG::RenderParams const &render_params) {
 			for (uint32_t i = 0; i < scene.spot_lights_sorted_indices.size(); ++i) {
 				uint32_t light_index = scene.spot_lights_sorted_indices[i].spot_lights_index;
 				ShadowAtlas::Region& region = shadow_atlas.regions[light_index];
-				spot_lights[light_index].SHADOW_SIZE = region.size;
-				spot_lights[light_index].SHADOW_X = region.x;
-				spot_lights[light_index].SHADOW_Y = region.y;
 				if (region.size == 0) continue; // skip shadow of size 0
 
 				spot_lights[light_index].LIGHT_FROM_WORLD = ShadowAtlas::calculate_shadow_atlas_matrix(spot_light_from_world[i],region,shadow_atlas_length);
@@ -2277,7 +2274,7 @@ void RTGRenderer::update(float dt) {
 					float inner_angle = (1.0f - spot_param.blend) * outer_angle;
 					spot_lights.emplace_back(LambertianPipeline::SpotLight{
 						.POSITION = glm::vec4(light_position, 0.0f),
-						.SHADOW_SIZE = cur_light.shadow,
+						.shadow_size = cur_light.shadow,
 						.DIRECTION = light_direction,
 						.RADIUS = spot_param.radius,
 						.ENERGY = spot_param.power * tint / float(M_PI),
