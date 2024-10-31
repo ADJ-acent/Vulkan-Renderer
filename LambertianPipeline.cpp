@@ -36,19 +36,19 @@ void RTGRenderer::LambertianPipeline::create(RTG &rtg, VkRenderPass render_pass,
 				.descriptorCount = 1,
 				.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT
 			},
-            VkDescriptorSetLayoutBinding{
+            VkDescriptorSetLayoutBinding{// sun light
 				.binding = 3,
 				.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
 				.descriptorCount = 1,
 				.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT
 			},
-            VkDescriptorSetLayoutBinding{
+            VkDescriptorSetLayoutBinding{// sphere light
 				.binding = 4,
 				.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
 				.descriptorCount = 1,
 				.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT
 			},
-            VkDescriptorSetLayoutBinding{
+            VkDescriptorSetLayoutBinding{ // spot light
 				.binding = 5,
 				.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
 				.descriptorCount = 1,

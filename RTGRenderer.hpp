@@ -243,6 +243,11 @@ struct RTGRenderer : RTG::Application {
         Helpers::AllocatedBuffer Transforms_src; //host coherent; mapped
         Helpers::AllocatedBuffer Transforms; //device-local
         VkDescriptorSet Transforms_descriptors; //references Transforms
+
+		// // locations for LambertianPipeline::Transforms data: (streamed to GPU per-frame):
+        // std::vector<Helpers::AllocatedBuffer> Transforms_src; //host coherent; mapped
+        // std::vector<Helpers::AllocatedBuffer Transforms; //device-local
+        // VkDescriptorSet Transforms_descriptors; //references Transforms
 	};
 	std::vector< Workspace > workspaces;
 
@@ -318,6 +323,12 @@ struct RTGRenderer : RTG::Application {
 		uint32_t material_index;
 	};
 	std::vector< ObjectInstance > lambertian_instances, environment_instances, mirror_instances, pbr_instances;
+
+	struct ObjectLightInstance {
+		ObjectVertices vertices;
+		Transform transform;
+	};
+	std::vector<std::vector<ObjectLightInstance>> object_light_instances;
 
 	std::vector<LambertianPipeline::SunLight> sun_lights;
 	std::vector<LambertianPipeline::SphereLight> sphere_lights;

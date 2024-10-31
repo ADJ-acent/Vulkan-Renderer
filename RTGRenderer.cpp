@@ -1973,7 +1973,6 @@ void RTGRenderer::update(float dt) {
 		if (view_camera == InSceneCamera::SceneCamera) {
 			CLIP_FROM_WORLD = clip_from_view[0] * view_from_world[0];
 			world.CAMERA_POSITION = eye;
-			std::cout<<"\n\n\ncam: "<<glm::to_string(CLIP_FROM_WORLD)<<std::endl;
 		}
 
 	} 
@@ -2013,7 +2012,6 @@ void RTGRenderer::update(float dt) {
 	{// get light frustums for shadow atlas
 		spot_light_from_world.clear();
 		light_frustums.resize(scene.spot_lights_sorted_indices.size());
-std::cout<<"\n\n\n\n\n\n\n";
 		for (uint32_t i = 0; i < scene.spot_lights_sorted_indices.size(); ++i) {
 			Scene::Light& cur_light = scene.lights[scene.spot_lights_sorted_indices[i]];
 			assert(cur_light.light_type == Scene::Light::LightType::Spot); // only support spot for now
@@ -2041,11 +2039,11 @@ std::cout<<"\n\n\n\n\n\n\n";
 					far = spot_param.limit;
 				}
 
-				glm::mat4 projection = glm::make_mat4(perspective(glm::radians(spot_param.fov), aspect, near, far).data());
-				glm::mat4 view = glm::make_mat4(look_at(eye.x, eye.y,eye.z, 
+				glm::mat4 projection = glm::make_mat4(perspective(spot_param.fov, aspect, near, far).data());
+				glm::mat4 view = glm::make_mat4(look_at(
+					eye.x, eye.y,eye.z, 
 					target.x, target.y,target.z, 
 					0.0f, 0.0f, up).data());
-					std::cout<<"world view: "<< (glm::to_string(projection * view))<<std::endl;
 				spot_light_from_world.emplace_back(projection * view);
 
 
