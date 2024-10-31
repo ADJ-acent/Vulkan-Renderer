@@ -91,6 +91,8 @@ struct RTGRenderer : RTG::Application {
 		void destroy(RTG &);
 	} shadow_pipeline;
 
+	static constexpr uint32_t shadow_atlas_length = 2048;
+
 	struct LambertianPipeline {
 		//descriptor set layouts:
 		VkDescriptorSetLayout set0_World = VK_NULL_HANDLE;
@@ -105,8 +107,9 @@ struct RTGRenderer : RTG::Application {
 			uint32_t SUN_LIGHT_COUNT;
 			uint32_t SPHERE_LIGHT_COUNT;
 			uint32_t SPOT_LIGHT_COUNT;
+			uint32_t SHADOW_ATLAS_SIZE = shadow_atlas_length;
         };
-        static_assert(sizeof(World) == 4*3 + 4 + 4 + 4 + 4, "World is the expected size.");
+        static_assert(sizeof(World) == 4*3 + 4 + 4 + 4 + 4 + 4, "World is the expected size.");
 
 		struct SunLight {
 			glm::vec4 DIRECTION; // w padding
@@ -125,14 +128,17 @@ struct RTGRenderer : RTG::Application {
 		
         struct SpotLight {
 			glm::vec3 POSITION;
-			uint32_t shadow_size; // only used to sort shadow map atlas, not used in shaders, 
+			uint32_t SHADOW_SIZE = 0;
 			glm::vec3 DIRECTION;
 			float RADIUS;
 			glm::vec3 ENERGY;
 			float LIMIT;
-			glm::vec4 CONE_ANGLES; // z and w are padding
+			glm::vec2 CONE_ANGLES;
+			uint32_t SHADOW_X;
+			uint32_t SHADOW_Y;
+			glm::mat4x4 LIGHT_FROM_WORLD;
 		};
-		static_assert(sizeof(SpotLight) == 4*4 + 4*3 + 4 + 4*3 + 4 + 4 * 4, "SpotLight is the expected size.");
+		static_assert(sizeof(SpotLight) == 4*4 + 4*3 + 4 + 4*3 + 4 + 4 * 4 + 16*4, "SpotLight is the expected size.");
 		
 		struct Transform {
             glm::mat4x4 CLIP_FROM_LOCAL;
@@ -335,7 +341,7 @@ struct RTGRenderer : RTG::Application {
 	std::vector<LambertianPipeline::SpotLight> spot_lights;
 	std::vector<glm::mat4x4> spot_light_from_world;
 	uint64_t total_shadow_size = 0;
-	static constexpr uint32_t shadow_atlas_length = 2048;
+	
 	Helpers::AllocatedImage shadow_atlas_image;
 
 	struct ShadowAtlas {

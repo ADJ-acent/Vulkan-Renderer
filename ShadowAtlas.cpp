@@ -10,7 +10,7 @@ void RTGRenderer::ShadowAtlas::update_regions(std::vector<RTGRenderer::Lambertia
     std::vector<point> ladder;
     for (uint32_t i : sorted_indices) {
         
-        const uint32_t texture_size = spot_lights[i].shadow_size >> reduction;
+        const uint32_t texture_size = spot_lights[i].SHADOW_SIZE >> reduction;
 
         // allocate a texture region
         regions[i] = {pen.x, pen.y, texture_size};

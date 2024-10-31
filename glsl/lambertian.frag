@@ -14,6 +14,7 @@ layout(set=0,binding=0,std140) uniform World {
 	uint SUN_LIGHT_COUNT;
 	uint SPHERE_LIGHT_COUNT;
 	uint SPOT_LIGHT_COUNT;
+	uint SHADOW_ATLAS_SIZE;
 };
 layout(set=0, binding=1) uniform samplerCube ENVIRONMENT;
 
@@ -28,6 +29,8 @@ layout(set=0, binding=4, std140) readonly buffer SphereLights {
 layout(set=0, binding=5, std140) readonly buffer SpotLights {
 	SpotLight SPOTLIGHTS[];
 };
+
+layout(set=0, binding=6) uniform sampler2DShadow SHADOW_ATLAS;
 
 layout(set=2, binding=0) uniform sampler2D NORMAL;
 layout(set=2, binding=1) uniform sampler2D DISPLACEMENT;
@@ -78,6 +81,15 @@ vec3 computeDirectLightDiffuse(vec3 worldNormal, vec3 albedo) {
     // Spot Lights
     for (uint i = 0; i < SPOT_LIGHT_COUNT; ++i) {
         SpotLight light = SPOTLIGHTS[i];
+
+		float shadowTerm = 1.0f;
+		//calculate shadow
+		if (light.SHADOW_SIZE > 0) {
+			vec4 lightSpacePosition = light.LIGHT_FROM_WORLD * vec4(position, 1.0f);
+			vec2 atlasTexCoord = (lightSpacePosition.xy) * (float(light.SHADOW_SIZE) / float(SHADOW_ATLAS_SIZE)) + vec2(light.SHADOW_X, light.SHADOW_Y) / float(SHADOW_ATLAS_SIZE) * lightSpacePosition.w;
+			shadowTerm = textureProj(SHADOW_ATLAS, vec4(atlasTexCoord, lightSpacePosition.zw));
+		}
+
         vec3 L = normalize(light.POSITION - position);
         float d = length(light.POSITION - position);
 
@@ -90,14 +102,14 @@ vec3 computeDirectLightDiffuse(vec3 worldNormal, vec3 albedo) {
 
 		if (light.RADIUS == 0.0 || light.RADIUS >= d) {
 			float NdotL = max(dot(worldNormal, L), 0);
-			light_energy += albedo * e * (NdotL * attenuation * smoothFalloff / PI);
+			light_energy += albedo * e * (shadowTerm * NdotL * attenuation * smoothFalloff / PI);
 		}
 		else {
 			float sinHalfTheta = light.RADIUS / d;
 			float NdotL = max(dot(worldNormal, L), -sinHalfTheta);
 			float factor = (NdotL + sinHalfTheta) / (sinHalfTheta * 2.0f);
 			bool aboveHorizon = bool(floor(factor));
-			light_energy += (float(aboveHorizon) * NdotL + float(!aboveHorizon) * (factor * sinHalfTheta)) * (albedo * e * (attenuation * smoothFalloff / PI));
+			light_energy += (float(aboveHorizon) * NdotL + float(!aboveHorizon) * (factor * sinHalfTheta)) * (albedo * e * (shadowTerm * attenuation * smoothFalloff / PI));
 		}
     }
 

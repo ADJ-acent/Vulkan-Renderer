@@ -455,7 +455,7 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_) {
 			},
 			VkDescriptorPoolSize{
 				.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-				.descriptorCount = 2 * per_workspace, //one descriptor per set, one set per workspace
+				.descriptorCount = 3 * per_workspace, //one descriptor per set, one set per workspace
 			},
 			VkDescriptorPoolSize{
 				.type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
@@ -620,7 +620,13 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_) {
 				.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
 			};
 
-			std::array< VkWriteDescriptorSet, 7 > writes{
+			VkDescriptorImageInfo ShadowAtlas_info{
+				.sampler = shadow_sampler,
+				.imageView = Shadow_atlas_view,
+				.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+			};
+
+			std::array< VkWriteDescriptorSet, 8 > writes{
 				VkWriteDescriptorSet{
 					.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
 					.dstSet = workspace.Camera_descriptors,
@@ -689,6 +695,16 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_) {
 					.descriptorCount = 1,
 					.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
 					.pBufferInfo = &SpotLight_info,
+				},
+
+				VkWriteDescriptorSet{
+					.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+					.dstSet = workspace.World_descriptors,
+					.dstBinding = 6,
+					.dstArrayElement = 0,
+					.descriptorCount = 1,
+					.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+					.pImageInfo = &ShadowAtlas_info,
 				},
 			};
 
@@ -1455,7 +1471,11 @@ void RTGRenderer::render(RTG &rtg_, RTG::RenderParams const &render_params) {
 			for (uint32_t i = 0; i < scene.spot_lights_sorted_indices.size(); ++i) {
 				uint32_t light_index = scene.spot_lights_sorted_indices[i];
 				ShadowAtlas::Region& region = shadow_atlas.regions[light_index];
+				spot_lights[light_index].SHADOW_SIZE = region.size;
+				spot_lights[light_index].SHADOW_X = region.x;
+				spot_lights[light_index].SHADOW_Y = region.y;
 				if (region.size == 0) continue; // skip shadow of size 0
+				spot_lights[light_index].LIGHT_FROM_WORLD = spot_light_from_world[i];
 				{//push time:
 					ShadowAtlasPipeline::Light push{
 						.LIGHT_FROM_WORLD = spot_light_from_world[i],
@@ -1963,7 +1983,7 @@ void RTGRenderer::update(float dt) {
 		glm::vec3 forward = -glm::vec3(cur_camera_transform[2]);
 		glm::vec3 target = eye + forward;
 
-		float up = (glm::dot(forward,glm::vec3(1,0,0)) >= 0.0f) ? 1.0f : -1.0f;
+		float up = (glm::dot(forward,glm::vec3(1,0,0)) >= 0.0f) ? -1.0f : 1.0f;
 		view_from_world[0] = glm::make_mat4(look_at(
 			eye.x, eye.y, eye.z, //eye
 			target.x, target.y, target.z, //target
@@ -2028,12 +2048,12 @@ void RTGRenderer::update(float dt) {
 				cur_light_transform *= scene.nodes[cur_light.local_to_world[j]].transform.parent_from_local();
 			}
 			
-			{//create frustum and light from world matrices
+			{//create light frustum and light from world matrices
 				glm::vec3 eye = glm::vec3(cur_light_transform[3]);
 				glm::vec3 forward = -glm::vec3(cur_light_transform[2]);
 				glm::vec3 target = eye + forward;
 
-				float up = (glm::dot(forward,glm::vec3(1,0,0)) >= 0.0f) ? 1.0f : -1.0f;
+				float up = (glm::dot(forward,glm::vec3(1,0,0)) >= 0.0f) ? -1.0f : 1.0f;
 				
 				Scene::Light::ParamSpot spot_param = std::get<Scene::Light::ParamSpot>(cur_light.additional_params);
 				float aspect = 1.0f; 
@@ -2256,7 +2276,7 @@ void RTGRenderer::update(float dt) {
 					float inner_angle = (1.0f - spot_param.blend) * outer_angle;
 					spot_lights.emplace_back(LambertianPipeline::SpotLight{
 						.POSITION = glm::vec4(light_position, 0.0f),
-						.shadow_size = cur_light.shadow,
+						.SHADOW_SIZE = cur_light.shadow,
 						.DIRECTION = light_direction,
 						.RADIUS = spot_param.radius,
 						.ENERGY = spot_param.power * tint / float(M_PI),
