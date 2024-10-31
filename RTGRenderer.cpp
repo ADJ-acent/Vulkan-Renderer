@@ -1041,13 +1041,6 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_) {
 				cur_camera.far //far
 			).data());
 
-			scene_cam_frustum = make_frustum(
-				cur_camera.vfov, //vfov
-				cur_camera.aspect, //aspect
-				cur_camera.near, //near
-				cur_camera.far //far
-			);
-
 			clip_from_view[1] = glm::make_mat4(perspective(
 				60.0f * float(M_PI) / 180.0f, //vfov
 				rtg.swapchain_extent.width / float(rtg.swapchain_extent.height), //aspect
@@ -1064,12 +1057,6 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_) {
 
 		user_camera.type = UserCamera;
 		debug_camera.type = DebugCamera;
-		user_cam_frustum = make_frustum(
-			60.0f * float(M_PI) / 180.0f, //vfov
-			rtg.swapchain_extent.width / float(rtg.swapchain_extent.height), //aspect
-			0.1f, //near
-			1000.0f //far
-		);
 
 	}
 }
@@ -1465,11 +1452,13 @@ void RTGRenderer::render(RTG &rtg_, RTG::RenderParams const &render_params) {
 				vkCmdBindVertexBuffers(workspace.command_buffer, 0, uint32_t(vertex_buffers.size()), vertex_buffers.data(), offsets.data());
 
 			}
-			for (uint32_t light_index : spot_light_sorted_indices) {
+			for (uint32_t i = 0; i < scene.spot_lights_sorted_indices.size(); ++i) {
+				uint32_t light_index = scene.spot_lights_sorted_indices[i];
 				ShadowAtlas::Region& region = shadow_atlas.regions[light_index];
+				if (region.size == 0) continue; // skip shadow of size 0
 				{//push time:
 					ShadowAtlasPipeline::Light push{
-						.LIGHT_FROM_WORLD = spot_light_from_world[light_index],
+						.LIGHT_FROM_WORLD = spot_light_from_world[i],
 					};
 					vkCmdPushConstants(workspace.command_buffer, shadow_pipeline.layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(push), &push);
 				}
@@ -1967,10 +1956,11 @@ void RTGRenderer::update(float dt) {
 		glm::vec3 forward = -glm::vec3(cur_camera_transform[2]);
 		glm::vec3 target = eye + forward;
 
+		float up = (glm::dot(forward,glm::vec3(1,0,0)) >= 0.0f) ? 1.0f : -1.0f;
 		view_from_world[0] = glm::make_mat4(look_at(
 			eye.x, eye.y, eye.z, //eye
 			target.x, target.y, target.z, //target
-			0.0f, 0.0f, 1.0f //up
+			0.0f, 0.0f, up //up
 		).data());
 
 		clip_from_view[0] = glm::make_mat4(perspective(
@@ -1980,16 +1970,10 @@ void RTGRenderer::update(float dt) {
 			cur_camera.far //far
 		).data());
 
-		scene_cam_frustum = make_frustum(
-			cur_camera.vfov, //vfov
-			cur_camera.aspect, //aspect
-			cur_camera.near, //near
-			cur_camera.far //far
-		);
-
 		if (view_camera == InSceneCamera::SceneCamera) {
 			CLIP_FROM_WORLD = clip_from_view[0] * view_from_world[0];
 			world.CAMERA_POSITION = eye;
+			std::cout<<"\n\n\ncam: "<<glm::to_string(CLIP_FROM_WORLD)<<std::endl;
 		}
 
 	} 
@@ -2004,12 +1988,6 @@ void RTGRenderer::update(float dt) {
 				1000.0f //far
 			).data());
 
-			user_cam_frustum = make_frustum(
-				60.0f * float(M_PI) / 180.0f, //vfov
-				rtg.swapchain_extent.width / float(rtg.swapchain_extent.height), //aspect
-				0.1f, //near
-				1000.0f //far
-			);
 			clip_from_view[2] = clip_from_view[1];
 			FreeCamera& cam = (view_camera == InSceneCamera::UserCamera) ? user_camera : debug_camera;
 			update_free_camera(cam);
@@ -2020,20 +1998,73 @@ void RTGRenderer::update(float dt) {
 		world.CAMERA_POSITION = cur_camera.eye;
 	}
 
+	const std::array<glm::vec4, 8> clip_space_coordinates = {
+		glm::vec4(1.0f,  1.0f, 0.0f, 1.0f),   // Near top right
+		glm::vec4(-1.0f,  1.0f, 0.0f, 1.0f),  // Near top left
+		glm::vec4(1.0f, -1.0f, 0.0f, 1.0f),   // Near bottom right
+		glm::vec4(-1.0f, -1.0f, 0.0f, 1.0f),  // Near bottom left
+		glm::vec4(1.0f,  1.0f, 1.0f, 1.0f),   // Far top right
+		glm::vec4(-1.0f,  1.0f, 1.0f, 1.0f),  // Far top left
+		glm::vec4(1.0f, -1.0f, 1.0f, 1.0f),   // Far bottom right
+		glm::vec4(-1.0f, -1.0f, 1.0f, 1.0f)   // Far bottom left
+	};
+	std::vector<std::array<glm::vec3, 8>> light_frustums;
+
+	{// get light frustums for shadow atlas
+		spot_light_from_world.clear();
+		light_frustums.resize(scene.spot_lights_sorted_indices.size());
+std::cout<<"\n\n\n\n\n\n\n";
+		for (uint32_t i = 0; i < scene.spot_lights_sorted_indices.size(); ++i) {
+			Scene::Light& cur_light = scene.lights[scene.spot_lights_sorted_indices[i]];
+			assert(cur_light.light_type == Scene::Light::LightType::Spot); // only support spot for now
+			total_shadow_size += cur_light.shadow * cur_light.shadow;
+			glm::mat4x4 cur_light_transform = scene.nodes[cur_light.local_to_world[0]].transform.parent_from_local();
+			for (int j = 1; j < cur_light.local_to_world.size(); ++j) {
+				cur_light_transform *= scene.nodes[cur_light.local_to_world[j]].transform.parent_from_local();
+			}
+			
+			{//create frustum and light from world matrices
+				glm::vec3 eye = glm::vec3(cur_light_transform[3]);
+				glm::vec3 forward = -glm::vec3(cur_light_transform[2]);
+				glm::vec3 target = eye + forward;
+
+				float up = (glm::dot(forward,glm::vec3(1,0,0)) >= 0.0f) ? 1.0f : -1.0f;
+				
+				Scene::Light::ParamSpot spot_param = std::get<Scene::Light::ParamSpot>(cur_light.additional_params);
+				float aspect = 1.0f; 
+				float near = 0.001f;
+				float far;
+				if (spot_param.limit == 0.0f) {
+					far = std::sqrt(glm::length(spot_param.power * cur_light.tint) / (float(M_PI) * 4.0f * 0.001f));
+				}
+				else {
+					far = spot_param.limit;
+				}
+
+				glm::mat4 projection = glm::make_mat4(perspective(glm::radians(spot_param.fov), aspect, near, far).data());
+				glm::mat4 view = glm::make_mat4(look_at(eye.x, eye.y,eye.z, 
+					target.x, target.y,target.z, 
+					0.0f, 0.0f, up).data());
+					std::cout<<"world view: "<< (glm::to_string(projection * view))<<std::endl;
+				spot_light_from_world.emplace_back(projection * view);
+
+
+				glm::mat4x4 world_from_clip = glm::inverse(spot_light_from_world.back());
+				// Transform clip space to world space and apply perspective divide
+				for (int j = 0; j < 8; ++j) {
+					glm::vec4 world_space_vertex = world_from_clip * clip_space_coordinates[j];
+					light_frustums[i][j] = glm::vec3(world_space_vertex) / world_space_vertex.w;
+				}
+
+			}
+		}
+	}
+
 	lines_vertices.clear();
 	std::array<glm::vec3, 8> frustum_vertices;
+
 	if (rtg.configuration.culling_settings == 1) { // frustum culling is on
 		glm::mat4x4 world_from_clip = glm::inverse(culling_camera == SceneCamera ? clip_from_view[0] * view_from_world[0] : clip_from_view[1]* view_from_world[1]);
-		std::array<glm::vec4, 8> clip_space_coordinates = {
-			glm::vec4(1.0f,  1.0f, 0.0f, 1.0f),   // Near top right
-			glm::vec4(-1.0f,  1.0f, 0.0f, 1.0f),  // Near top left
-			glm::vec4(1.0f, -1.0f, 0.0f, 1.0f),   // Near bottom right
-			glm::vec4(-1.0f, -1.0f, 0.0f, 1.0f),  // Near bottom left
-			glm::vec4(1.0f,  1.0f, 1.0f, 1.0f),   // Far top right
-			glm::vec4(-1.0f,  1.0f, 1.0f, 1.0f),  // Far top left
-			glm::vec4(1.0f, -1.0f, 1.0f, 1.0f),   // Far bottom right
-			glm::vec4(-1.0f, -1.0f, 1.0f, 1.0f)   // Far bottom left
-		};
 		// Transform clip space to world space and apply perspective divide
 		for (int j = 0; j < 8; ++j) {
 			glm::vec4 world_space_vertex = world_from_clip * clip_space_coordinates[j];
@@ -2044,16 +2075,6 @@ void RTGRenderer::update(float dt) {
 		if (view_camera == DebugCamera) {
 			if (rtg.configuration.culling_settings != 1) {
 				glm::mat4x4 world_from_clip = glm::inverse(culling_camera == SceneCamera ? clip_from_view[0] * view_from_world[0] : clip_from_view[1]* view_from_world[1]);
-				std::array<glm::vec4, 8> clip_space_coordinates = {
-					glm::vec4(1.0f,  1.0f, 0.0f, 1.0f),   // Near top right
-					glm::vec4(-1.0f,  1.0f, 0.0f, 1.0f),  // Near top left
-					glm::vec4(1.0f, -1.0f, 0.0f, 1.0f),   // Near bottom right
-					glm::vec4(-1.0f, -1.0f, 0.0f, 1.0f),  // Near bottom left
-					glm::vec4(1.0f,  1.0f, 1.0f, 1.0f),   // Far top right
-					glm::vec4(-1.0f,  1.0f, 1.0f, 1.0f),  // Far top left
-					glm::vec4(1.0f, -1.0f, 1.0f, 1.0f),   // Far bottom right
-					glm::vec4(-1.0f, -1.0f, 1.0f, 1.0f)   // Far bottom left
-				};
 				// Transform clip space to world space and apply perspective divide
 				for (int j = 0; j < 8; ++j) {
 					glm::vec4 world_space_vertex = world_from_clip * clip_space_coordinates[j];
@@ -2228,25 +2249,6 @@ void RTGRenderer::update(float dt) {
 						.LIMIT = spot_param.limit,
 						.CONE_ANGLES = glm::vec4(inner_angle, outer_angle, 0.0f, 0.0f),
 					});
-					total_shadow_size += cur_light.shadow * cur_light.shadow;
-
-					{
-						float aspect = 1.0f; 
-						float near = 0.001f;
-						float far;
-						if (spot_param.limit == 0.0f) {
-							far = std::sqrt(glm::length(spot_lights.back().ENERGY) / (4.0f * 0.001f));
-						}
-						else {
-							far = spot_param.limit;
-						}
-						glm::mat4 projection = glm::make_mat4(perspective(glm::radians(spot_param.fov), aspect, near, far).data());
-						glm::vec3 up = glm::vec3(0.0f, 0.0f, 1.0f);
-						glm::mat4 view = glm::make_mat4(look_at(light_position.x, light_position.y,light_position.z, 
-							(light_position + light_direction).x, (light_position + light_direction).y,(light_position + light_direction).z, 
-							0.0f, 0.0f, 1.0f).data());
-						spot_light_from_world.emplace_back(projection * view);
-					}
 				}
 			}
 
@@ -2451,17 +2453,6 @@ void RTGRenderer::update(float dt) {
 	}
 
 	{// shadow map atlas organization
-		// sort spot light by the shadow size
-		spot_light_sorted_indices.clear();
-		spot_light_sorted_indices.resize(spot_lights.size());
-
-		for (uint32_t i = 0; i < spot_lights.size(); ++i) {
-			spot_light_sorted_indices[i] = i;
-		}
-
-		std::sort(spot_light_sorted_indices.begin(), spot_light_sorted_indices.end(), [&](uint32_t a, uint32_t b) {
-			return spot_lights[a].shadow_size > spot_lights[b].shadow_size;
-		});
 
 		// reduce shadow map size if requesting too many
 		uint8_t reduction = 0;
@@ -2469,7 +2460,7 @@ void RTGRenderer::update(float dt) {
 			total_shadow_size/= 4;
 			++reduction;
 		}
-		shadow_atlas.update_regions(spot_lights, spot_light_sorted_indices, reduction);
+		shadow_atlas.update_regions(spot_lights, scene.spot_lights_sorted_indices, reduction);
 		//reset total_shadow_size
 		total_shadow_size = 0;
 	}

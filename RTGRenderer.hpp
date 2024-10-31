@@ -323,7 +323,6 @@ struct RTGRenderer : RTG::Application {
 	std::vector<LambertianPipeline::SphereLight> sphere_lights;
 	std::vector<LambertianPipeline::SpotLight> spot_lights;
 	std::vector<glm::mat4x4> spot_light_from_world;
-	std::vector<uint32_t> spot_light_sorted_indices;
 	uint64_t total_shadow_size = 0;
 	static constexpr uint32_t shadow_atlas_length = 2048;
 	Helpers::AllocatedImage shadow_atlas_image;
@@ -369,7 +368,6 @@ struct RTGRenderer : RTG::Application {
 	bool shift_down = false;
 	bool upside_down = false;
 
-	CullingFrustum scene_cam_frustum, user_cam_frustum;
 	// perspective and view matrices for scene, user, and debug cameras
 	std::array<glm::mat4x4, 3> clip_from_view;
 	std::array<glm::mat4x4, 3> view_from_world;

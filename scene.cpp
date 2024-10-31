@@ -5,6 +5,7 @@
 #include <fstream>
 #include <iostream>
 #include <unordered_map>
+#include <algorithm>
 
 Scene::Scene(std::string filename, std::optional<std::string> camera, uint8_t animation_setting_)
 :animation_setting(animation_setting_)
@@ -748,7 +749,8 @@ void Scene::load(std::string filename, std::optional<std::string> requested_came
     { //build the camera and light local to world transform vectors
 
         std::vector<uint32_t> cur_transform_list;
-		std::function<void(uint32_t)> fill_camera_transform_and_count_lights = [&](uint32_t i) {
+        int spot_light_index = 0;
+		std::function<void(uint32_t)> fill_camera_light_transform = [&](uint32_t i) {
 			const Scene::Node& cur_node = nodes[i];
             cur_transform_list.push_back(i);
             if (cur_node.light_index != -1) {
@@ -760,6 +762,12 @@ void Scene::load(std::string filename, std::optional<std::string> requested_came
                 }
                 else if (lights[cur_node.light_index].light_type == Light::Spot) {
                     light_instance_count.spot_light++;
+                    // only increment shadow for spot light for now
+                    if (lights[cur_node.light_index].shadow != 0.0f) {
+                        lights[cur_node.light_index].local_to_world = cur_transform_list;
+                        spot_lights_sorted_indices.emplace_back(spot_light_index);
+                        spot_light_index++;
+                    }
                 }
             }
 			if (cur_node.cameras_index != -1) {
@@ -770,15 +778,21 @@ void Scene::load(std::string filename, std::optional<std::string> requested_came
             }
 			// look for cameras and lights in children
 			for (uint32_t child_index : cur_node.children) {
-				fill_camera_transform_and_count_lights(child_index);
+				fill_camera_light_transform(child_index);
 			}
 			cur_transform_list.pop_back();
 		};
 
 		//traverse the scene hiearchy:
 		for (uint32_t i = 0; i < root_nodes.size(); ++i) {
-			fill_camera_transform_and_count_lights(root_nodes[i]);
+			fill_camera_light_transform(root_nodes[i]);
 		}
+
+        std::sort(spot_lights_sorted_indices.begin(), spot_lights_sorted_indices.end(), [&](uint32_t a, uint32_t b) {
+            assert(lights[a].shadow != 0.0f && lights[b].shadow != 0.0f);
+			return lights[a].shadow > lights[b].shadow;
+		});
+
 	}
     // could not find requested camera
     if (requested_camera.has_value() && requested_camera_index == -1) {
