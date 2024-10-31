@@ -1487,24 +1487,28 @@ void RTGRenderer::render(RTG &rtg_, RTG::RenderParams const &render_params) {
 				}
 
 				//draw all instances:
-				for (ObjectInstance const &inst : lambertian_instances) {
-					uint32_t index = uint32_t(&inst - &lambertian_instances[0]);
+				for (uint32_t index : in_spot_light_instances[i][static_cast<uint32_t>(Scene::Material::Lambertian)]) {
+					ObjectInstance const &inst = lambertian_instances[index];
+
 					vkCmdDraw(workspace.command_buffer, inst.vertices.count, 1, inst.vertices.first, index);
 				}
 
 				uint32_t index_offset = uint32_t(lambertian_instances.size());// account for lambertian size
-				for (ObjectInstance const &inst : environment_instances) {
-					uint32_t index = uint32_t(&inst - &environment_instances[0]) + index_offset; 
+				for (uint32_t index : in_spot_light_instances[i][static_cast<uint32_t>(Scene::Material::Environment)]) {
+					ObjectInstance const &inst = environment_instances[index];
+					index += index_offset; 
 					vkCmdDraw(workspace.command_buffer, inst.vertices.count, 1, inst.vertices.first, index);
 				}
 				index_offset = uint32_t(lambertian_instances.size() + environment_instances.size());// account for lambertian and environment size
-				for (ObjectInstance const &inst : mirror_instances) {
-					uint32_t index = uint32_t(&inst - &mirror_instances[0]) + index_offset;
+				for (uint32_t index : in_spot_light_instances[i][static_cast<uint32_t>(Scene::Material::Mirror)]) {
+					ObjectInstance const &inst = mirror_instances[index];
+					index += index_offset; 
 					vkCmdDraw(workspace.command_buffer, inst.vertices.count, 1, inst.vertices.first, index);
 				}
 				index_offset = uint32_t(lambertian_instances.size() + environment_instances.size() + mirror_instances.size());// account for lambertian, environment, and mirror size
-				for (ObjectInstance const &inst : pbr_instances) {
-					uint32_t index = uint32_t(&inst - &pbr_instances[0]) + index_offset;
+				for (uint32_t index : in_spot_light_instances[i][static_cast<uint32_t>(Scene::Material::PBR)]) {
+					ObjectInstance const &inst = pbr_instances[index];
+					index += index_offset; 
 					vkCmdDraw(workspace.command_buffer, inst.vertices.count, 1, inst.vertices.first, index);
 				}
 			}
@@ -1794,8 +1798,8 @@ void RTGRenderer::render(RTG &rtg_, RTG::RenderParams const &render_params) {
 			// set 1 and 2 still bound
 
 			//draw all instances:
-			for (ObjectInstance const &inst : lambertian_instances) {
-				uint32_t index = uint32_t(&inst - &lambertian_instances[0]);
+			for (uint32_t index : in_view_instances[static_cast<uint32_t>(Scene::Material::Lambertian)]) {
+				ObjectInstance const &inst = lambertian_instances[index];
 				//bind texture descriptor set:
 				vkCmdBindDescriptorSets(
 					workspace.command_buffer, //command buffer
@@ -1825,8 +1829,9 @@ void RTGRenderer::render(RTG &rtg_, RTG::RenderParams const &render_params) {
 
 			//draw all instances:
 			uint32_t index_offset = uint32_t(lambertian_instances.size());// account for lambertian size
-			for (ObjectInstance const &inst : environment_instances) {
-				uint32_t index = uint32_t(&inst - &environment_instances[0]) + index_offset; 
+			for (uint32_t index : in_view_instances[static_cast<uint32_t>(Scene::Material::Environment)]) {
+				ObjectInstance const &inst = environment_instances[index];
+				index += index_offset;
 				//bind texture descriptor set:
 				vkCmdBindDescriptorSets(
 					workspace.command_buffer, //command buffer
@@ -1854,8 +1859,9 @@ void RTGRenderer::render(RTG &rtg_, RTG::RenderParams const &render_params) {
 
 			//draw all instances:
 			uint32_t index_offset = uint32_t(lambertian_instances.size() + environment_instances.size());// account for lambertian and environment size
-			for (ObjectInstance const &inst : mirror_instances) {
-				uint32_t index = uint32_t(&inst - &mirror_instances[0]) + index_offset;
+			for (uint32_t index : in_view_instances[static_cast<uint32_t>(Scene::Material::Mirror)]) {
+				ObjectInstance const &inst = mirror_instances[index];
+				index += index_offset;
 				//bind texture descriptor set:
 				vkCmdBindDescriptorSets(
 					workspace.command_buffer, //command buffer
@@ -1882,8 +1888,9 @@ void RTGRenderer::render(RTG &rtg_, RTG::RenderParams const &render_params) {
 
 			//draw all instances:
 			uint32_t index_offset = uint32_t(lambertian_instances.size() + environment_instances.size() + mirror_instances.size());// account for lambertian, environment, and mirror size
-			for (ObjectInstance const &inst : pbr_instances) {
-				uint32_t index = uint32_t(&inst - &pbr_instances[0]) + index_offset;
+			for (uint32_t index : in_view_instances[static_cast<uint32_t>(Scene::Material::PBR)]) {
+				ObjectInstance const &inst = pbr_instances[index];
+				index += index_offset;
 				//bind texture descriptor set:
 				vkCmdBindDescriptorSets(
 					workspace.command_buffer, //command buffer
@@ -2180,6 +2187,15 @@ void RTGRenderer::update(float dt) {
 	}
 
 	{ //fill object instances with scene hiearchy, optionally draw debug lines when on debug camera, fill light information
+		for (uint32_t i = 0; i < in_view_instances.size(); ++i) {
+			in_view_instances[i].clear();
+		}
+		in_spot_light_instances.resize(scene.spot_lights_sorted_indices.size());
+		for (uint32_t i = 0; i < in_spot_light_instances.size(); ++i) {
+			for (uint32_t j = 0; j < in_spot_light_instances[0].size(); ++j) {
+				in_spot_light_instances[i][j].clear();
+			}
+		}
 		lambertian_instances.clear();
 		environment_instances.clear();
 		mirror_instances.clear();
@@ -2257,9 +2273,9 @@ void RTGRenderer::update(float dt) {
 			if (int32_t cur_mesh_index = cur_node.mesh_index; cur_mesh_index != -1) {
 				glm::mat4x4 WORLD_FROM_LOCAL = transform_stack.back();
 				glm::mat4x4 WORLD_FROM_LOCAL_NORMAL = glm::mat4x4(glm::inverse(glm::transpose(glm::mat3(WORLD_FROM_LOCAL))));
-				{//debug draws and frustum culling
+				OBB obb = AABB_transform_to_OBB(WORLD_FROM_LOCAL, mesh_AABBs[cur_mesh_index]);
+				{//draw debug obb and frustum
 					
-					OBB obb = AABB_transform_to_OBB(WORLD_FROM_LOCAL, mesh_AABBs[cur_mesh_index]);
 					if (view_camera == DebugCamera) {//debug draw the OBBs
 						std::array<glm::vec3,8> vertices = {
 							obb.center + obb.extents[0] * obb.axes[0] + obb.extents[1]*obb.axes[1] + obb.extents[2]*obb.axes[2],
@@ -2370,18 +2386,25 @@ void RTGRenderer::update(float dt) {
 						});
 					}
 					
-					if (rtg.configuration.culling_settings == 1 && !check_frustum_obb_intersection(frustum_vertices, obb)) {
-						transform_stack.pop_back();
-						return;
-					}
 				}
 
 				if (uint32_t cur_material_index = scene.meshes[cur_mesh_index].material_index; cur_material_index != -1) { /// has some material
 					const Scene::Material& cur_material = scene.materials[scene.meshes[cur_mesh_index].material_index];
-					// if (scene.meshes[cur_mesh_index].name == "Plane") {
-					// 	std::cout<<cur_material_index<<" , "<<cur_material.name<<", "<< std::get<Scene::Material::MatLambertian>(cur_material.material_textures).albedo_index<<std::endl;
-					// }
-					if (cur_material.material_type == Scene::Material::MaterialType::Environment) {
+					uint32_t instance_index = 0;
+					if (cur_material.material_type == Scene::Material::MaterialType::Lambertian) {
+						instance_index = uint32_t(lambertian_instances.size());
+						lambertian_instances.emplace_back(ObjectInstance{
+							.vertices = mesh_vertices[cur_mesh_index],
+							.transform{
+								.CLIP_FROM_LOCAL = CLIP_FROM_WORLD * WORLD_FROM_LOCAL,
+								.WORLD_FROM_LOCAL = WORLD_FROM_LOCAL,
+								.WORLD_FROM_LOCAL_NORMAL = WORLD_FROM_LOCAL_NORMAL,
+							},
+							.material_index = cur_material_index,
+						});
+					}
+					else if (cur_material.material_type == Scene::Material::MaterialType::Environment) {
+						instance_index = uint32_t(environment_instances.size());
 						environment_instances.emplace_back(ObjectInstance{
 							.vertices = mesh_vertices[cur_mesh_index],
 							.transform{
@@ -2393,6 +2416,7 @@ void RTGRenderer::update(float dt) {
 						});
 					}
 					else if (cur_material.material_type == Scene::Material::MaterialType::Mirror) {
+						instance_index = uint32_t(mirror_instances.size());
 						mirror_instances.emplace_back(ObjectInstance{
 							.vertices = mesh_vertices[cur_mesh_index],
 							.transform{
@@ -2403,18 +2427,8 @@ void RTGRenderer::update(float dt) {
 							.material_index = cur_material_index,
 						});
 					}
-					else if (cur_material.material_type == Scene::Material::MaterialType::Lambertian) {
-						lambertian_instances.emplace_back(ObjectInstance{
-							.vertices = mesh_vertices[cur_mesh_index],
-							.transform{
-								.CLIP_FROM_LOCAL = CLIP_FROM_WORLD * WORLD_FROM_LOCAL,
-								.WORLD_FROM_LOCAL = WORLD_FROM_LOCAL,
-								.WORLD_FROM_LOCAL_NORMAL = WORLD_FROM_LOCAL_NORMAL,
-							},
-							.material_index = cur_material_index,
-						});
-					}
 					else if (cur_material.material_type == Scene::Material::MaterialType::PBR) {
+						instance_index = uint32_t(pbr_instances.size());
 						pbr_instances.emplace_back(ObjectInstance{
 							.vertices = mesh_vertices[cur_mesh_index],
 							.transform{
@@ -2425,8 +2439,24 @@ void RTGRenderer::update(float dt) {
 							.material_index = cur_material_index,
 						});
 					}
+					if (rtg.configuration.culling_settings == 1 && check_frustum_obb_intersection(frustum_vertices, obb)) {
+						in_view_instances[static_cast<uint32_t>(cur_material.material_type)].push_back(instance_index);
+					}
+					for (uint32_t frustum_i = 0; frustum_i < in_spot_light_instances.size(); ++frustum_i) {
+						if (check_frustum_obb_intersection(light_frustums[frustum_i], obb)) {
+							in_spot_light_instances[frustum_i][static_cast<uint32_t>(cur_material.material_type)].push_back(instance_index);
+						}
+					}
 				}
 				else {
+					if (rtg.configuration.culling_settings == 1 && check_frustum_obb_intersection(frustum_vertices, obb)) {
+						in_view_instances[0].push_back(uint32_t(lambertian_instances.size()));
+					}
+					for (uint32_t frustum_i = 0; frustum_i < in_spot_light_instances.size(); ++frustum_i) {
+						if (check_frustum_obb_intersection(light_frustums[i], obb)) {
+							in_spot_light_instances[frustum_i][0].push_back(uint32_t(lambertian_instances.size()));
+						}
+					}
 					// use lambertian pipeline to render the default albedo, displacement and normal maps
 					lambertian_instances.emplace_back(ObjectInstance{
 						.vertices = mesh_vertices[cur_mesh_index],

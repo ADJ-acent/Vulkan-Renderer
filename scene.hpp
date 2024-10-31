@@ -62,10 +62,10 @@ struct Scene
 
     struct Material {        
         enum MaterialType : uint8_t {
-            Lambertian,
-            PBR,
-            Mirror,
-            Environment
+            Lambertian = 0,
+            Environment = 1,
+            Mirror = 2,
+            PBR = 3,
         } material_type;
         std::string name;
         uint32_t normal_index = 3;
