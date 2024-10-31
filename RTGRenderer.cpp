@@ -1476,7 +1476,8 @@ void RTGRenderer::render(RTG &rtg_, RTG::RenderParams const &render_params) {
 				spot_lights[light_index].SHADOW_Y = region.y;
 				if (region.size == 0) continue; // skip shadow of size 0
 				spot_lights[light_index].LIGHT_FROM_WORLD = spot_light_from_world[i];
-				{//push time:
+				//spot_lights[light_index].LIGHT_FROM_WORLD = ShadowAtlas::calculate_shadow_atlas_matrix(spot_light_from_world[i],region,shadow_atlas_length);
+				{//push light:
 					ShadowAtlasPipeline::Light push{
 						.LIGHT_FROM_WORLD = spot_light_from_world[i],
 					};

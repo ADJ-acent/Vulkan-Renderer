@@ -85,9 +85,14 @@ vec3 computeDirectLightDiffuse(vec3 worldNormal, vec3 albedo) {
 		float shadowTerm = 1.0f;
 		//calculate shadow
 		if (light.SHADOW_SIZE > 0) {
-			vec4 lightSpacePosition = light.LIGHT_FROM_WORLD * vec4(position, 1.0f);
-			vec2 atlasTexCoord = (lightSpacePosition.xy) * (float(light.SHADOW_SIZE) / float(SHADOW_ATLAS_SIZE)) + vec2(light.SHADOW_X, light.SHADOW_Y) / float(SHADOW_ATLAS_SIZE) * lightSpacePosition.w;
-			shadowTerm = textureProj(SHADOW_ATLAS, vec4(atlasTexCoord, lightSpacePosition.zw));
+			vec4 lightSpacePositionHomogenous = light.LIGHT_FROM_WORLD * vec4(position, 1.0);
+
+			vec2 normalizedTexCoord = (lightSpacePositionHomogenous.xy + lightSpacePositionHomogenous.w) * 0.5; // [0, w]
+			vec2 scaledTexCoord = normalizedTexCoord * (float(light.SHADOW_SIZE) / float(SHADOW_ATLAS_SIZE)); // [0, textureSize (relative to atlas size) * w]
+			vec2 atlasTexCoord = scaledTexCoord + vec2(light.SHADOW_X, light.SHADOW_Y) / float(SHADOW_ATLAS_SIZE) * lightSpacePositionHomogenous.w; // add offset in atlas
+			
+			shadowTerm = textureProj(SHADOW_ATLAS, vec4(atlasTexCoord, lightSpacePositionHomogenous.zw));
+			// shadowTerm = textureProj(SHADOW_ATLAS, lightSpacePositionHomogenous);
 		}
 
         vec3 L = normalize(light.POSITION - position);

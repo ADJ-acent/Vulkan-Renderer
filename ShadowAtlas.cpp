@@ -46,3 +46,31 @@ void RTGRenderer::ShadowAtlas::debug()
     
     }
 }
+
+glm::mat4 RTGRenderer::ShadowAtlas::calculate_shadow_atlas_matrix(const glm::mat4& light_from_world, const Region& region, const int atlas_size) {
+    // int shadow_size = region.size;
+    // int shadow_x = region.x;
+    // int shadow_y = region.y;
+    glm::mat4 shadow_matrix = light_from_world;
+
+    //mapping x and y [-w, w] to [0, w]
+    glm::mat4 ndc_to_tex_coord = glm::mat4(
+        0.5f, 0.0f, 0.0f, 0.5f,   
+        0.0f, 0.5f, 0.0f, 0.5f,   
+        0.0f, 0.0f, 1.0f, 0.0f,   
+        0.0f, 0.0f, 0.0f, 1.0f    
+    );
+    shadow_matrix = ndc_to_tex_coord * shadow_matrix;
+    return shadow_matrix;
+    // //Scale by shadow map size relative to atlas size
+    // float shadow_scale = static_cast<float>(shadow_size) / static_cast<float>(atlas_size);
+    // glm::mat4 scale_to_shadow_map = glm::scale(glm::mat4(1.0f), glm::vec3(shadow_scale, shadow_scale, 1.0f));
+    // shadow_matrix = scale_to_shadow_map * shadow_matrix;
+
+    // //Offset for atlas placement
+    // glm::vec2 offset = glm::vec2(shadow_x, shadow_y) / static_cast<float>(atlas_size);
+    // glm::mat4 offset_to_atlas = glm::translate(glm::mat4(1.0f), glm::vec3(offset, 0.0f));
+    // shadow_matrix = offset_to_atlas * shadow_matrix;
+
+    // return shadow_matrix;
+}
