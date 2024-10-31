@@ -1469,14 +1469,14 @@ void RTGRenderer::render(RTG &rtg_, RTG::RenderParams const &render_params) {
 
 			}
 			for (uint32_t i = 0; i < scene.spot_lights_sorted_indices.size(); ++i) {
-				uint32_t light_index = scene.spot_lights_sorted_indices[i];
+				uint32_t light_index = scene.spot_lights_sorted_indices[i].spot_lights_index;
 				ShadowAtlas::Region& region = shadow_atlas.regions[light_index];
 				spot_lights[light_index].SHADOW_SIZE = region.size;
 				spot_lights[light_index].SHADOW_X = region.x;
 				spot_lights[light_index].SHADOW_Y = region.y;
 				if (region.size == 0) continue; // skip shadow of size 0
-				spot_lights[light_index].LIGHT_FROM_WORLD = spot_light_from_world[i];
-				//spot_lights[light_index].LIGHT_FROM_WORLD = ShadowAtlas::calculate_shadow_atlas_matrix(spot_light_from_world[i],region,shadow_atlas_length);
+
+				spot_lights[light_index].LIGHT_FROM_WORLD = ShadowAtlas::calculate_shadow_atlas_matrix(spot_light_from_world[i],region,shadow_atlas_length);
 				{//push light:
 					ShadowAtlasPipeline::Light push{
 						.LIGHT_FROM_WORLD = spot_light_from_world[i],
@@ -1984,7 +1984,7 @@ void RTGRenderer::update(float dt) {
 		glm::vec3 forward = -glm::vec3(cur_camera_transform[2]);
 		glm::vec3 target = eye + forward;
 
-		float up = (glm::dot(forward,glm::vec3(1,0,0)) >= 0.0f) ? -1.0f : 1.0f;
+		float up = (glm::dot(forward,glm::vec3(1,0,0)) >= 0.0f) ? 1.0f : -1.0f;
 		view_from_world[0] = glm::make_mat4(look_at(
 			eye.x, eye.y, eye.z, //eye
 			target.x, target.y, target.z, //target
@@ -2041,12 +2041,12 @@ void RTGRenderer::update(float dt) {
 		spot_light_from_world.clear();
 		light_frustums.resize(scene.spot_lights_sorted_indices.size());
 		for (uint32_t i = 0; i < scene.spot_lights_sorted_indices.size(); ++i) {
-			Scene::Light& cur_light = scene.lights[scene.spot_lights_sorted_indices[i]];
+			Scene::Light& cur_light = scene.lights[scene.spot_lights_sorted_indices[i].lights_index];
 			assert(cur_light.light_type == Scene::Light::LightType::Spot); // only support spot for now
 			total_shadow_size += cur_light.shadow * cur_light.shadow;
-			glm::mat4x4 cur_light_transform = scene.nodes[cur_light.local_to_world[0]].transform.parent_from_local();
-			for (int j = 1; j < cur_light.local_to_world.size(); ++j) {
-				cur_light_transform *= scene.nodes[cur_light.local_to_world[j]].transform.parent_from_local();
+			glm::mat4x4 cur_light_transform = scene.nodes[scene.spot_lights_sorted_indices[i].local_to_world[0]].transform.parent_from_local();
+			for (int j = 1; j < scene.spot_lights_sorted_indices[i].local_to_world.size(); ++j) {
+				cur_light_transform *= scene.nodes[scene.spot_lights_sorted_indices[i].local_to_world[j]].transform.parent_from_local();
 			}
 			
 			{//create light frustum and light from world matrices
@@ -2054,7 +2054,7 @@ void RTGRenderer::update(float dt) {
 				glm::vec3 forward = -glm::vec3(cur_light_transform[2]);
 				glm::vec3 target = eye + forward;
 
-				float up = (glm::dot(forward,glm::vec3(1,0,0)) >= 0.0f) ? -1.0f : 1.0f;
+				float up = (glm::dot(forward,glm::vec3(1,0,0)) >= 0.0f) ? 1.0f : -1.0f;
 				
 				Scene::Light::ParamSpot spot_param = std::get<Scene::Light::ParamSpot>(cur_light.additional_params);
 				float aspect = 1.0f; 

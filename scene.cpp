@@ -764,8 +764,7 @@ void Scene::load(std::string filename, std::optional<std::string> requested_came
                     light_instance_count.spot_light++;
                     // only increment shadow for spot light for now
                     if (lights[cur_node.light_index].shadow != 0.0f) {
-                        lights[cur_node.light_index].local_to_world = cur_transform_list;
-                        spot_lights_sorted_indices.emplace_back(spot_light_index);
+                        spot_lights_sorted_indices.push_back(LightInstance{uint32_t(spot_light_index), uint32_t(cur_node.light_index), cur_transform_list});
                         spot_light_index++;
                     }
                 }
@@ -788,9 +787,9 @@ void Scene::load(std::string filename, std::optional<std::string> requested_came
 			fill_camera_light_transform(root_nodes[i]);
 		}
 
-        std::sort(spot_lights_sorted_indices.begin(), spot_lights_sorted_indices.end(), [&](uint32_t a, uint32_t b) {
-            assert(lights[a].shadow != 0.0f && lights[b].shadow != 0.0f);
-			return lights[a].shadow > lights[b].shadow;
+        std::sort(spot_lights_sorted_indices.begin(), spot_lights_sorted_indices.end(), [&](LightInstance a, LightInstance b) {
+            assert(lights[a.lights_index].shadow != 0.0f && lights[b.lights_index].shadow != 0.0f);
+			return lights[a.lights_index].shadow > lights[b.lights_index].shadow;
 		});
 
 	}

@@ -126,9 +126,13 @@ struct Scene
             float fov  = 0.0f;
             float blend = 0.0f;
         };
-
-        std::vector<uint32_t> local_to_world; // list of node indices to get from local to world (index 0 is a root node), only for shadows
         std::variant<ParamSun, ParamSphere, ParamSpot> additional_params;
+    };
+
+    struct LightInstance {
+        uint32_t spot_lights_index;
+        uint32_t lights_index;
+        std::vector<uint32_t> local_to_world; // list of node indices to get from local to world (index 0 is a root node), only for shadows
     };
 
     struct {
@@ -177,7 +181,7 @@ struct Scene
     int32_t requested_camera_index = -1;
 
     std::vector<Light> lights;
-    std::vector<uint32_t> spot_lights_sorted_indices; // sorted by the shadow size
+    std::vector<LightInstance> spot_lights_sorted_indices; // sorted by the shadow size, each pait is spot_light index, light index
     std::vector<Mesh> meshes;
     uint32_t vertices_count = 0;
 

@@ -354,7 +354,7 @@ struct RTGRenderer : RTG::Application {
 		std::vector<Region> regions;
 
 		//spot lights must be sorted
-		void update_regions(std::vector<RTGRenderer::LambertianPipeline::SpotLight> &, std::vector<uint32_t> &, uint8_t reduction);
+		void update_regions(std::vector<RTGRenderer::LambertianPipeline::SpotLight> &, std::vector<Scene::LightInstance> &, uint8_t reduction);
 		void debug();
 		static glm::mat4 calculate_shadow_atlas_matrix(const glm::mat4& light_from_world, const Region& region, const int atlas_size);
 
