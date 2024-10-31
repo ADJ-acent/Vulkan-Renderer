@@ -359,7 +359,7 @@ struct RTGRenderer : RTG::Application {
 		static glm::mat4 calculate_shadow_atlas_matrix(const glm::mat4& light_from_world, const Region& region, const int atlas_size);
 
 		ShadowAtlas(uint32_t size_) : size(size_) {};
-	} shadow_atlas = ShadowAtlas(shadow_atlas_length);
+	} shadow_atlas;
 	
 	enum InSceneCamera{
 		SceneCamera = 0,
