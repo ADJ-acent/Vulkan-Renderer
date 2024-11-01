@@ -53,13 +53,10 @@ vec3 FresnelSchlickRoughness(float cosTheta, float roughness, vec3 F0)
     return F0 + (max(vec3(1.0 - roughness), F0) - F0) * pow(clamp(1.0 - cosTheta, 0.0, 1.0), 5.0);
 }
 
-vec3 FresnelSchlick(float cosTheta, vec3 F0)
-{
-	return F0 + (1.0 - F0) * pow(1.0 - cosTheta, 5.0);
-}
 
-//referenced https://github.com/SaschaWillems/Vulkan/blob/master/shaders/glsl/pbrtexture/pbrtexture.frag
-float D_GGX(float dotNH, float roughness)
+// derived from https://blog.selfshadow.com/publications/s2013-shading-course/karis/s2013_pbs_epic_notes_v2.pdf
+// and referenced https://github.com/SaschaWillems/Vulkan/blob/master/shaders/glsl/pbrtexture/pbrtexture.frag
+float SpecularD(float dotNH, float roughness)
 {
 	float alpha = roughness * roughness;
 	float alpha2 = alpha * alpha;
@@ -67,13 +64,18 @@ float D_GGX(float dotNH, float roughness)
 	return (alpha2)/(PI * denom*denom); 
 }
 
-float G_SchlicksmithGGX(float dotNL, float dotNV, float roughness)
+float SpecularG(float dotNL, float dotNV, float roughness)
 {
 	float r = (roughness + 1.0);
 	float k = (r*r) / 8.0;
 	float GL = dotNL / (dotNL * (1.0 - k) + k);
 	float GV = dotNV / (dotNV * (1.0 - k) + k);
 	return GL * GV;
+}
+
+vec3 SpecularF(float dotVH, vec3 F0)
+{
+	return F0 + (1.0 - F0) * pow(2.0, (-5.55473*dotVH - 6.98316)* dotVH);
 }
 
 vec3 specularContribution(vec3 albedo, vec3 L, vec3 V, vec3 N, vec3 F0, float metalness, float roughness)
@@ -83,16 +85,17 @@ vec3 specularContribution(vec3 albedo, vec3 L, vec3 V, vec3 N, vec3 F0, float me
 	float dotNH = clamp(dot(N, H), 0.0, 1.0);
 	float dotNV = clamp(dot(N, V), 0.0, 1.0);
 	float dotNL = clamp(dot(N, L), 0.0, 1.0);
+	float dotVH = clamp(dot(V, H), 0.0, 1.0);
 
 	vec3 color = vec3(0.0);
 
 	if (dotNL > 0.0) {
-		// D = Normal distribution (Distribution of the microfacets)
-		float D = D_GGX(dotNH, roughness); 
-		// G = Geometric shadowing term (Microfacets shadowing)
-		float G = G_SchlicksmithGGX(dotNL, dotNV, roughness);
-		// F = Fresnel factor (Reflectance depending on angle of incidence)
-		vec3 F = FresnelSchlick(dotNV, F0);		
+
+		float D = SpecularD(dotNH, roughness); 
+
+		float G = SpecularG(dotNL, dotNV, roughness);
+
+		vec3 F = SpecularF(dotVH, F0);		
 		vec3 spec = D * F * G / (4.0 * dotNL * dotNV + 0.001);		
 		vec3 kD = (vec3(1.0) - F) * (1.0 - metalness);			
 		color += (kD * albedo / PI + spec) * dotNL;
@@ -124,9 +127,12 @@ vec3 computeDirectLight(vec3 worldNormal, vec3 viewDir, vec3 reflectDir, vec3 al
 		vec3 e = light.ENERGY / (4 * max(d, light.RADIUS) * max(d, light.RADIUS));
         float attenuation = light.LIMIT == 0.0f ? 1.0f : max(0.0, 1.0 - pow(d / light.LIMIT, 4.0));
 		vec3 diffuse = vec3(0.0,0.0,0.0);
-		if (light.RADIUS == 0.0 || light.RADIUS >= d) {
+		if (light.RADIUS == 0.0) {
 			float NdotL = max(dot(worldNormal, L), 0);
 			diffuse = albedo * e * (NdotL * attenuation / PI);
+		}
+		else if (light.RADIUS >= d) {
+			diffuse = albedo * e * (attenuation / PI);
 		}
 		else {
 			float sinHalfTheta = light.RADIUS / d;
@@ -137,11 +143,14 @@ vec3 computeDirectLight(vec3 worldNormal, vec3 viewDir, vec3 reflectDir, vec3 al
 		}
 
 		//specular
-		// vec3 centerToRay = dot(L,reflectDir) * reflectDir - L;
-		// vec3 closestPoint = L + centerToRay * clamp(light.RADIUS / length(centerToRay), 0.0, 1.0);
-		// vec3 specular = specularContribution(albedo, normalize(closestPoint), viewDir, worldNormal, F0, metalness, roughness);
+		vec3 centerToRay = dot(L,reflectDir) * reflectDir - L;
+		vec3 closestPoint = L + centerToRay * clamp(light.RADIUS / length(centerToRay), 0.0, 1.0);
+		vec3 specular = e * attenuation * specularContribution(albedo, normalize(closestPoint), viewDir, worldNormal, F0, metalness, roughness);
+		float alpha = roughness * roughness;
+		float alpha_prime = clamp(alpha + light.RADIUS / 2 * d, 0.0001, 1.0);
+		specular *= (alpha * alpha / (alpha_prime * alpha_prime));
 
-		light_energy += diffuse;
+		light_energy += diffuse + specular;
     }
 	
     // Spot Lights
@@ -161,13 +170,24 @@ vec3 computeDirectLight(vec3 worldNormal, vec3 viewDir, vec3 reflectDir, vec3 al
 		vec3 e = light.ENERGY / (4 * max(d, light.RADIUS) * max(d, light.RADIUS));
         float attenuation = light.LIMIT == 0.0f ? 1.0f : max(0.0, 1.0 - pow(d / light.LIMIT, 4.0));
 
-        float angleToLight = clamp(acos(dot(L, light.DIRECTION)), light.CONE_ANGLES.x, light.CONE_ANGLES.y);
+        float angleToLight = acos(dot(L, light.DIRECTION));
 
-    	float smoothFalloff = (angleToLight - light.CONE_ANGLES.y) / (light.CONE_ANGLES.x - light.CONE_ANGLES.y);
+		float smoothFalloff = 1.0;
+		if (light.CONE_ANGLES.x == light.CONE_ANGLES.y) {
+			smoothFalloff = angleToLight <= light.CONE_ANGLES.y ? 1.0f : 0.0f;
+		}
+		else  {
+        	float angleToLightClamped = clamp(angleToLight, light.CONE_ANGLES.x, light.CONE_ANGLES.y);
+    		smoothFalloff = (angleToLightClamped - light.CONE_ANGLES.y) / (light.CONE_ANGLES.x - light.CONE_ANGLES.y);
+ 		}
+
 		vec3 diffuse = vec3(0.0,0.0,0.0);
-		if (light.RADIUS == 0.0 || light.RADIUS >= d) {
+		if (light.RADIUS == 0.0) {
 			float NdotL = max(dot(worldNormal, L), 0);
 			diffuse = albedo * e * (shadowTerm * NdotL * attenuation * smoothFalloff / PI);
+		}
+		else if (light.RADIUS >= d) {
+			diffuse = albedo * e * (attenuation / PI);
 		}
 		else {
 			float sinHalfTheta = light.RADIUS / d;
@@ -178,14 +198,15 @@ vec3 computeDirectLight(vec3 worldNormal, vec3 viewDir, vec3 reflectDir, vec3 al
 		}
 
 		//specular
-		// vec3 centerToRay = dot(L,reflectDir) * reflectDir - L;
-		// vec3 closestPoint = L + centerToRay * clamp(light.RADIUS / length(centerToRay), 0.0, 1.0);
-		// float alpha = roughness * roughness;
-		// float alpha_prime = clamp(alpha + light.RADIUS / 2 * d, 0.0, 1.0);
-		// vec3 specular = specularContribution(albedo, L, viewDir, worldNormal, F0, metalness, roughness);
+		vec3 centerToRay = dot(L,reflectDir) * reflectDir - L;
+		vec3 closestPoint = L + centerToRay * clamp(light.RADIUS / length(centerToRay), 0.0, 1.0);
+		vec3 specular = e * smoothFalloff * attenuation * shadowTerm * specularContribution(albedo, normalize(closestPoint), viewDir, worldNormal, F0, metalness, roughness);
+		float alpha = roughness * roughness;
+		float alpha_prime = clamp(alpha + light.RADIUS / 2 * d, 0.0001, 1.0);
+		specular *= (alpha * alpha / (alpha_prime * alpha_prime));
 
-		light_energy += diffuse;
-    }
+		light_energy += diffuse + specular;
+    }	
 
     return light_energy;
 
@@ -204,11 +225,11 @@ void main() {
     // Transform the normal from tangent space to world space
     vec3 worldNormal = TBN * tangentNormal;
 
-	float roughness = texture(ROUGHNESS, texCoord).r * ENVIRONMENT_MIPS;
+	float roughness = texture(ROUGHNESS, texCoord).r;
 
 	vec3 viewDir = normalize(CAMERA_POSITION - position);
 	vec3 reflectDir = reflect(-viewDir,worldNormal);
-	vec3 radiance = textureLod(ENVIRONMENT, reflectDir, roughness).rgb;
+	vec3 radiance = textureLod(ENVIRONMENT, reflectDir, roughness * ENVIRONMENT_MIPS).rgb;
 	vec3 irradiance = textureLod(ENVIRONMENT, worldNormal, ENVIRONMENT_MIPS).rgb;
 
 	vec2 brdfCoord = vec2(max(dot(viewDir, worldNormal), 0.0),roughness);

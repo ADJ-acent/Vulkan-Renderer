@@ -63,9 +63,12 @@ vec3 computeDirectLightDiffuse(vec3 worldNormal, vec3 albedo) {
 		vec3 e = light.ENERGY / (4 * max(d, light.RADIUS) * max(d, light.RADIUS));
         float attenuation = light.LIMIT == 0.0f ? 1.0f : max(0.0, 1.0 - pow(d / light.LIMIT, 4.0));
 
-		if (light.RADIUS == 0.0 || light.RADIUS >= d) {
+		if (light.RADIUS == 0.0) {
 			float NdotL = max(dot(worldNormal, L), 0);
 			light_energy += albedo * e * (NdotL * attenuation / PI);
+		}
+		else if (light.RADIUS >= d) {
+			light_energy += albedo * e * (attenuation / PI);
 		}
 		else {
 			float sinHalfTheta = light.RADIUS / d;
@@ -94,13 +97,24 @@ vec3 computeDirectLightDiffuse(vec3 worldNormal, vec3 albedo) {
 		vec3 e = light.ENERGY / (4 * max(d, light.RADIUS) * max(d, light.RADIUS));
         float attenuation = light.LIMIT == 0.0f ? 1.0f : max(0.0, 1.0 - pow(d / light.LIMIT, 4.0));
 
-        float angleToLight = clamp(acos(dot(L, light.DIRECTION)), light.CONE_ANGLES.x, light.CONE_ANGLES.y);
+		float angleToLight = acos(dot(L, light.DIRECTION));
 
-    	float smoothFalloff = (angleToLight - light.CONE_ANGLES.y) / (light.CONE_ANGLES.x - light.CONE_ANGLES.y);
 
-		if (light.RADIUS == 0.0 || light.RADIUS >= d) {
+		float smoothFalloff = 1.0;
+		if (light.CONE_ANGLES.x == light.CONE_ANGLES.y) {
+			smoothFalloff = angleToLight <= light.CONE_ANGLES.y ? 1.0f : 0.0f;
+		}
+		else  {
+        	float angleToLightClamped = clamp(angleToLight, light.CONE_ANGLES.x, light.CONE_ANGLES.y);
+    		smoothFalloff = (angleToLightClamped - light.CONE_ANGLES.y) / (light.CONE_ANGLES.x - light.CONE_ANGLES.y);
+		}
+
+		if (light.RADIUS == 0.0) {
 			float NdotL = max(dot(worldNormal, L), 0);
 			light_energy += albedo * e * (shadowTerm * NdotL * attenuation * smoothFalloff / PI);
+		}
+		else if (light.RADIUS >= d) {
+			light_energy += albedo * e * (attenuation / PI);
 		}
 		else {
 			float sinHalfTheta = light.RADIUS / d;
