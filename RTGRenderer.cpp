@@ -2055,7 +2055,7 @@ void RTGRenderer::update(float dt) {
 				
 				Scene::Light::ParamSpot spot_param = std::get<Scene::Light::ParamSpot>(cur_light.additional_params);
 				float aspect = 1.0f; 
-				float near = 0.001f;
+				float near = 0.02f;
 				float far;
 				if (spot_param.limit == 0.0f) {
 					far = std::sqrt(glm::length(spot_param.power * cur_light.tint) / (float(M_PI) * 4.0f * 0.001f));

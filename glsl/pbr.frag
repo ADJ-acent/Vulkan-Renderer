@@ -78,7 +78,7 @@ vec3 SpecularF(float dotVH, vec3 F0)
 	return F0 + (1.0 - F0) * pow(2.0, (-5.55473*dotVH - 6.98316)* dotVH);
 }
 
-vec3 specularContribution(vec3 albedo, vec3 L, vec3 V, vec3 N, vec3 F0, float metalness, float roughness)
+vec3 specularContribution(vec3 L, vec3 V, vec3 N, vec3 F0, float roughness)
 {
 	// Precalculate vectors and dot products	
 	vec3 H = normalize (V + L);
@@ -96,9 +96,8 @@ vec3 specularContribution(vec3 albedo, vec3 L, vec3 V, vec3 N, vec3 F0, float me
 		float G = SpecularG(dotNL, dotNV, roughness);
 
 		vec3 F = SpecularF(dotVH, F0);		
-		vec3 spec = D * F * G / (4.0 * dotNL * dotNV + 0.001);		
-		vec3 kD = (vec3(1.0) - F) * (1.0 - metalness);			
-		color += (kD * albedo / PI + spec) * dotNL;
+		vec3 spec = D * F * G / (4.0 * dotNL * dotNV + 0.001);			
+		color += spec * dotNL;
 	}
 
 	return color;
@@ -107,21 +106,22 @@ vec3 specularContribution(vec3 albedo, vec3 L, vec3 V, vec3 N, vec3 F0, float me
 vec3 computeDirectLight(vec3 worldNormal, vec3 viewDir, vec3 reflectDir, vec3 albedo, float roughness, vec3 F0, float metalness) {
     vec3 light_energy = vec3(0.0);
 
-    // Sun Lights
-    for (uint i = 0; i < SUN_LIGHT_COUNT; ++i) {
-        SunLight light = SUNLIGHTS[i];
-        vec3 L = normalize(light.DIRECTION);
-        float NdotL = max(dot(worldNormal, L), -light.SIN_ANGLE);
-		float factor = (NdotL + light.SIN_ANGLE) / (light.SIN_ANGLE * 2.0f);
-		bool aboveHorizon = bool(floor(factor));
-        vec3 diffuse = (float(aboveHorizon) * NdotL + float(!aboveHorizon) * (factor * light.SIN_ANGLE)) * (light.ENERGY * albedo);
-		light_energy += diffuse;
-    }
+    // // Sun Lights
+    // for (uint i = 0; i < SUN_LIGHT_COUNT; ++i) {
+    //     SunLight light = SUNLIGHTS[i];
+    //     vec3 L = normalize(light.DIRECTION);
+    //     float NdotL = max(dot(worldNormal, L), -light.SIN_ANGLE);
+	// 	float factor = (NdotL + light.SIN_ANGLE) / (light.SIN_ANGLE * 2.0f);
+	// 	bool aboveHorizon = bool(floor(factor));
+    //     vec3 diffuse = (float(aboveHorizon) * NdotL + float(!aboveHorizon) * (factor * light.SIN_ANGLE)) * (light.ENERGY * albedo);
+	// 	light_energy += diffuse;
+    // }
 
     // Sphere Lights
     for (uint i = 0; i < SPHERE_LIGHT_COUNT; ++i) {
         SphereLight light = SPHERELIGHTS[i];
-        vec3 L = normalize(light.POSITION - position);
+		vec3 lightRelativePosition = light.POSITION - position;
+        vec3 L = normalize(lightRelativePosition);
         float d = length(light.POSITION - position);
 		
 		vec3 e = light.ENERGY / (4 * max(d, light.RADIUS) * max(d, light.RADIUS));
@@ -143,11 +143,13 @@ vec3 computeDirectLight(vec3 worldNormal, vec3 viewDir, vec3 reflectDir, vec3 al
 		}
 
 		//specular
-		vec3 centerToRay = dot(L,reflectDir) * reflectDir - L;
-		vec3 closestPoint = L + centerToRay * clamp(light.RADIUS / length(centerToRay), 0.0, 1.0);
-		vec3 specular = e * attenuation * specularContribution(albedo, normalize(closestPoint), viewDir, worldNormal, F0, metalness, roughness);
+		vec3 centerToRay = dot(lightRelativePosition,reflectDir) * reflectDir - lightRelativePosition;
+		vec3 toLightSurface = centerToRay * clamp(light.RADIUS / length(centerToRay), 0.0, 1.0);
+		vec3 closestPoint = lightRelativePosition + toLightSurface;
+		vec3 specularEnergy = (light.RADIUS < 1.0) ? (light.ENERGY / 4): light.ENERGY / (4 * light.RADIUS * light.RADIUS);
+		vec3 specular = e * attenuation * specularContribution(normalize(closestPoint), viewDir, worldNormal, F0, roughness);
 		float alpha = roughness * roughness;
-		float alpha_prime = clamp(alpha + light.RADIUS / 2 * d, 0.0001, 1.0);
+		float alpha_prime = clamp(alpha + light.RADIUS / 2 * d, 0.0, 1.0);
 		specular *= (alpha * alpha / (alpha_prime * alpha_prime));
 
 		light_energy += diffuse + specular;
@@ -164,7 +166,8 @@ vec3 computeDirectLight(vec3 worldNormal, vec3 viewDir, vec3 reflectDir, vec3 al
 			shadowTerm = textureProj(SHADOW_ATLAS, lightSpacePositionHomogenous);
 		}
 
-        vec3 L = normalize(light.POSITION - position);
+        vec3 lightRelativePosition = light.POSITION - position;
+        vec3 L = normalize(lightRelativePosition);
         float d = length(light.POSITION - position);
 
 		vec3 e = light.ENERGY / (4 * max(d, light.RADIUS) * max(d, light.RADIUS));
@@ -198,11 +201,13 @@ vec3 computeDirectLight(vec3 worldNormal, vec3 viewDir, vec3 reflectDir, vec3 al
 		}
 
 		//specular
-		vec3 centerToRay = dot(L,reflectDir) * reflectDir - L;
-		vec3 closestPoint = L + centerToRay * clamp(light.RADIUS / length(centerToRay), 0.0, 1.0);
-		vec3 specular = e * smoothFalloff * attenuation * shadowTerm * specularContribution(albedo, normalize(closestPoint), viewDir, worldNormal, F0, metalness, roughness);
+		vec3 centerToRay = dot(lightRelativePosition,reflectDir) * reflectDir - lightRelativePosition;
+		vec3 toLightSurface = centerToRay * clamp(light.RADIUS / length(centerToRay), 0.0, 1.0);
+		vec3 closestPoint = lightRelativePosition + toLightSurface;
+		vec3 specularEnergy = (light.RADIUS < 1.0) ? (light.ENERGY / 4): light.ENERGY / (4 * light.RADIUS * light.RADIUS);
+		vec3 specular = e * shadowTerm * smoothFalloff * attenuation * specularContribution(normalize(closestPoint), viewDir, worldNormal, F0, roughness);
 		float alpha = roughness * roughness;
-		float alpha_prime = clamp(alpha + light.RADIUS / 2 * d, 0.0001, 1.0);
+		float alpha_prime = clamp(alpha + light.RADIUS / 2 * d, 0.0, 1.0);
 		specular *= (alpha * alpha / (alpha_prime * alpha_prime));
 
 		light_energy += diffuse + specular;
@@ -225,10 +230,10 @@ void main() {
     // Transform the normal from tangent space to world space
     vec3 worldNormal = TBN * tangentNormal;
 
-	float roughness = texture(ROUGHNESS, texCoord).r;
+	float roughness = max(texture(ROUGHNESS, texCoord).r,0.1);
 
 	vec3 viewDir = normalize(CAMERA_POSITION - position);
-	vec3 reflectDir = reflect(-viewDir,worldNormal);
+	vec3 reflectDir = normalize(reflect(-viewDir,worldNormal));
 	vec3 radiance = textureLod(ENVIRONMENT, reflectDir, roughness * ENVIRONMENT_MIPS).rgb;
 	vec3 irradiance = textureLod(ENVIRONMENT, worldNormal, ENVIRONMENT_MIPS).rgb;
 
