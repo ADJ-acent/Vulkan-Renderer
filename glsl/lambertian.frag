@@ -87,8 +87,13 @@ vec3 computeDirectLightDiffuse(vec3 worldNormal, vec3 albedo) {
 		float shadowTerm = 1.0f;
 		//calculate shadow
 		if (light.SHADOW_SIZE > 0) {
-			vec4 lightSpacePositionHomogenous = light.LIGHT_FROM_WORLD * vec4(position, 1.0);
-			shadowTerm = textureProj(SHADOW_ATLAS, lightSpacePositionHomogenous);
+			vec4 clipPosition = light.LIGHT_FROM_WORLD * vec4(position, 1.0);
+			if (!(clipPosition.x < - clipPosition.w || clipPosition.x > clipPosition.w || 
+				clipPosition.y < - clipPosition.w || clipPosition.y > clipPosition.w ||
+				clipPosition.z < - clipPosition.w || clipPosition.z > clipPosition.w)) {
+				vec4 lightSpacePositionHomogenous = light.ATLAS_COORD_FROM_WORLD * vec4(position, 1.0);
+				shadowTerm = textureProj(SHADOW_ATLAS, lightSpacePositionHomogenous);
+			}
 		}
 
         vec3 L = normalize(light.POSITION - position);
@@ -114,7 +119,7 @@ vec3 computeDirectLightDiffuse(vec3 worldNormal, vec3 albedo) {
 			light_energy += albedo * e * (shadowTerm * NdotL * attenuation * smoothFalloff / PI);
 		}
 		else if (light.RADIUS >= d) {
-			light_energy += albedo * e * (attenuation / PI);
+			light_energy += albedo * e * (attenuation * smoothFalloff / PI);
 		}
 		else {
 			float sinHalfTheta = light.RADIUS / d;

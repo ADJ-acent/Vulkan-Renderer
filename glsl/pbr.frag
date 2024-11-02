@@ -97,7 +97,7 @@ vec3 specularContribution(vec3 L, vec3 V, vec3 N, vec3 F0, float roughness)
 
 		vec3 F = SpecularF(dotVH, F0);		
 		vec3 spec = D * F * G / (4.0 * dotNL * dotNV + 0.001);			
-		color += spec * dotNL;
+		color += spec * dotNL * dotNH; // seems like specular is a bit too high, punishing with dotNH
 	}
 
 	return color;
@@ -105,17 +105,25 @@ vec3 specularContribution(vec3 L, vec3 V, vec3 N, vec3 F0, float roughness)
 
 vec3 computeDirectLight(vec3 worldNormal, vec3 viewDir, vec3 reflectDir, vec3 albedo, float roughness, vec3 F0, float metalness) {
     vec3 light_energy = vec3(0.0);
+	
+    // Sun Lights
+    for (uint i = 0; i < SUN_LIGHT_COUNT; ++i) {
+        SunLight light = SUNLIGHTS[i];
+        vec3 L = normalize(light.DIRECTION);
+        float NdotL = max(dot(worldNormal, L), -light.SIN_ANGLE);
+		float factor = (NdotL + light.SIN_ANGLE) / (light.SIN_ANGLE * 2.0f);
+		bool aboveHorizon = bool(floor(factor));
+        vec3 diffuse = (float(aboveHorizon) * NdotL + float(!aboveHorizon) * (factor * light.SIN_ANGLE)) * (light.ENERGY * albedo);
 
-    // // Sun Lights
-    // for (uint i = 0; i < SUN_LIGHT_COUNT; ++i) {
-    //     SunLight light = SUNLIGHTS[i];
-    //     vec3 L = normalize(light.DIRECTION);
-    //     float NdotL = max(dot(worldNormal, L), -light.SIN_ANGLE);
-	// 	float factor = (NdotL + light.SIN_ANGLE) / (light.SIN_ANGLE * 2.0f);
-	// 	bool aboveHorizon = bool(floor(factor));
-    //     vec3 diffuse = (float(aboveHorizon) * NdotL + float(!aboveHorizon) * (factor * light.SIN_ANGLE)) * (light.ENERGY * albedo);
-	// 	light_energy += diffuse;
-    // }
+		//specular
+		// float angleToSun = acos(dot(L, reflectDir)); // no need to divide by magnitude as both are unit vector
+		
+		// vec3 sunAngle = asin(light.SIN_ANGLE);
+		// vec3 toLightSurface = centerToRay * clamp(light.RADIUS / length(centerToRay), 0.0, 1.0);
+		// vec3 closestPoint = lightRelativePosition + toLightSurface;
+
+		light_energy += diffuse;
+    }
 
     // Sphere Lights
     for (uint i = 0; i < SPHERE_LIGHT_COUNT; ++i) {
@@ -160,10 +168,15 @@ vec3 computeDirectLight(vec3 worldNormal, vec3 viewDir, vec3 reflectDir, vec3 al
         SpotLight light = SPOTLIGHTS[i];
 
 		float shadowTerm = 1.0f;
-		//calculate shadow
+		// calculate shadow
 		if (light.SHADOW_SIZE > 0) {
-			vec4 lightSpacePositionHomogenous = light.LIGHT_FROM_WORLD * vec4(position, 1.0);
-			shadowTerm = textureProj(SHADOW_ATLAS, lightSpacePositionHomogenous);
+			vec4 clipPosition = light.LIGHT_FROM_WORLD * vec4(position, 1.0);
+			if (!(clipPosition.x < - clipPosition.w || clipPosition.x > clipPosition.w || 
+				clipPosition.y < - clipPosition.w || clipPosition.y > clipPosition.w ||
+				clipPosition.z < - clipPosition.w || clipPosition.z > clipPosition.w)) {
+				vec4 lightSpacePositionHomogenous = light.ATLAS_COORD_FROM_WORLD * vec4(position, 1.0);
+				shadowTerm = textureProj(SHADOW_ATLAS, lightSpacePositionHomogenous);
+			}
 		}
 
         vec3 lightRelativePosition = light.POSITION - position;
@@ -205,7 +218,8 @@ vec3 computeDirectLight(vec3 worldNormal, vec3 viewDir, vec3 reflectDir, vec3 al
 		vec3 toLightSurface = centerToRay * clamp(light.RADIUS / length(centerToRay), 0.0, 1.0);
 		vec3 closestPoint = lightRelativePosition + toLightSurface;
 		vec3 specularEnergy = (light.RADIUS < 1.0) ? (light.ENERGY / 4): light.ENERGY / (4 * light.RADIUS * light.RADIUS);
-		vec3 specular = e * shadowTerm * smoothFalloff * attenuation * specularContribution(normalize(closestPoint), viewDir, worldNormal, F0, roughness);
+		vec3 specularC = specularContribution(normalize(closestPoint), viewDir, worldNormal, F0, roughness);
+		vec3 specular = specularEnergy * shadowTerm * smoothFalloff * attenuation * specularC;
 		float alpha = roughness * roughness;
 		float alpha_prime = clamp(alpha + light.RADIUS / 2 * d, 0.0, 1.0);
 		specular *= (alpha * alpha / (alpha_prime * alpha_prime));
@@ -250,5 +264,5 @@ void main() {
 	
 	vec3 specular = radiance * (environment_brdf.r * F + environment_brdf.g);
 
-	outColor = vec4(ACESFitted(kD/PI * albedo * irradiance + specular) + light_energy, 1.0f);
+	outColor = vec4(ACESFitted(kD/PI * albedo * irradiance + specular + light_energy), 1.0f);
 }

@@ -91,7 +91,7 @@ struct RTGRenderer : RTG::Application {
 		void destroy(RTG &);
 	} shadow_pipeline;
 
-	static constexpr uint32_t shadow_atlas_length = 2048;
+	static constexpr uint32_t shadow_atlas_length = 4096;
 
 	struct LambertianPipeline {
 		//descriptor set layouts:
@@ -135,9 +135,10 @@ struct RTGRenderer : RTG::Application {
 			float LIMIT;
 			glm::vec4 CONE_ANGLES; // z and w are padding
 			glm::mat4x4 LIGHT_FROM_WORLD;
+			glm::mat4x4 ATLAS_COORD_FROM_WORLD;
 
 		};
-		static_assert(sizeof(SpotLight) == 16*4 + 4*4 + 4*3 + 4 + 4*3 + 4 + 4 * 4, "SpotLight is the expected size.");
+		static_assert(sizeof(SpotLight) == 4*4 + 4*3 + 4 + 4*3 + 4 + 4 * 4 + 16*4 + 16*4, "SpotLight is the expected size.");
 		
 		struct Transform {
             glm::mat4x4 CLIP_FROM_LOCAL;
