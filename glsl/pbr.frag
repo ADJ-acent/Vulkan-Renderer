@@ -97,7 +97,7 @@ vec3 specularContribution(vec3 L, vec3 V, vec3 N, vec3 F0, float roughness)
 
 		vec3 F = SpecularF(dotVH, F0);		
 		vec3 spec = D * F * G / (4.0 * dotNL * dotNV + 0.001);			
-		color += spec * dotNL * dotNH; // seems like specular is a bit too high, punishing with dotNH
+		color += spec * dotNL * dotNH * 0.5; // seems like specular is a bit too high, punishing with dotNH
 	}
 
 	return color;
@@ -116,13 +116,19 @@ vec3 computeDirectLight(vec3 worldNormal, vec3 viewDir, vec3 reflectDir, vec3 al
         vec3 diffuse = (float(aboveHorizon) * NdotL + float(!aboveHorizon) * (factor * light.SIN_ANGLE)) * (light.ENERGY * albedo);
 
 		//specular
-		// float angleToSun = acos(dot(L, reflectDir)); // no need to divide by magnitude as both are unit vector
-		
-		// vec3 sunAngle = asin(light.SIN_ANGLE);
-		// vec3 toLightSurface = centerToRay * clamp(light.RADIUS / length(centerToRay), 0.0, 1.0);
-		// vec3 closestPoint = lightRelativePosition + toLightSurface;
-
-		light_energy += diffuse;
+		// phi is angle between reflected direction and light direction, theta is the sun angle spread
+		float phi = acos(dot(L, reflectDir)); // no need to divide by magnitude as both are unit vector
+		float theta = asin(light.SIN_ANGLE);
+		vec3 updatedLightDirection = reflectDir;
+		if (phi > theta) {
+			float t = theta / phi;
+			updatedLightDirection = normalize((sin((1.0 - t) * phi) * L + sin(t * phi) * reflectDir) / sin(phi));
+		}
+		vec3 specular = light.ENERGY * specularContribution(updatedLightDirection, viewDir, worldNormal, F0, roughness);
+		float alpha = roughness * roughness;
+		float alpha_prime = clamp(alpha + light.SIN_ANGLE, 0.0, 1.0);
+		specular *= (alpha * alpha / (alpha_prime * alpha_prime));
+		light_energy += diffuse + specular ;
     }
 
     // Sphere Lights
