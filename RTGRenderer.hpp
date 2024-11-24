@@ -2,10 +2,11 @@
 
 #include "PosColVertex.hpp"
 #include "PosNorTanTexVertex.hpp"
-#include "mat4.hpp"
 
 #include "RTG.hpp"
 #include "Scene.hpp"
+#include "Cloud.hpp"
+#include "mat4.hpp"
 #include "frustum_culling.hpp"
 
 #include "GLM.hpp"
@@ -219,6 +220,25 @@ struct RTGRenderer : RTG::Application {
 		void destroy(RTG &);
 	} pbr_pipeline;
 
+	struct CloudPipeline {
+		//descriptor set layouts:
+		VkDescriptorSetLayout set0_World = VK_NULL_HANDLE;// sun position, cloud voxel, noise voxel
+        VkDescriptorSetLayout set1_Transforms = VK_NULL_HANDLE; // cloud transforms
+
+		//types for descriptors same as objects pipeline
+		
+		//no push constants
+
+		VkPipelineLayout layout = VK_NULL_HANDLE;
+
+		using Vertex = PosNorTanTexVertex;
+
+		VkPipeline handle = VK_NULL_HANDLE;
+
+		void create(RTG &, VkRenderPass render_pass, uint32_t subpass);
+		void destroy(RTG &);
+	} cloud_pipeline;
+
 	//pools from which per-workspace things are allocated:
 	VkCommandPool command_pool = VK_NULL_HANDLE;
 	
@@ -281,6 +301,8 @@ struct RTGRenderer : RTG::Application {
 	VkSampler shadow_sampler = VK_NULL_HANDLE;
 	VkFramebuffer shadow_framebuffer = VK_NULL_HANDLE;
 
+	Helpers::AllocatedImage Cloud_noise;
+	
 	struct {
 		size_t sun_light_size;
 		size_t sun_light_alignment;

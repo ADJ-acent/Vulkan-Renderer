@@ -9,7 +9,6 @@
 #include "rgbe.hpp"
 #include "data_path.hpp"
 
-#define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
 
 #include <array>
@@ -247,8 +246,12 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_), s
 	pbr_pipeline.create(rtg, render_pass, 0);
 	shadow_pipeline.create(rtg, shadow_atlas_pass, 0);
 
-	//create environment texture
-	{
+	{//create cloud voxel textures
+		Cloud_noise = Cloud::load_noise(rtg);
+	}
+
+	
+	{//create environment texture
 		std::string environment_source;
 		if (scene.environment.source == "") {
 			environment_source  = data_path("../resource/default_environment.png");

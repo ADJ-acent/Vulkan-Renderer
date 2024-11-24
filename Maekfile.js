@@ -40,6 +40,7 @@ const viewer_objs = [
 	maek.CPP('PosNorTanTexVertex.cpp'),
 	maek.CPP('PosNorTexVertex.cpp'),
 	maek.CPP('ShadowAtlas.cpp'),
+	maek.CPP('Cloud.cpp'),
 	maek.CPP('scene.cpp'),
 	maek.CPP('frustum_culling.cpp'),
 	maek.CPP('sejp.cpp'),

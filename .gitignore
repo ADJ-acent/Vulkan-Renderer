@@ -6,3 +6,4 @@ bin/main.exe
 bin/main.pdb
 bin/*
 .vs/
+resource/NubisVoxelCloudsPack/*

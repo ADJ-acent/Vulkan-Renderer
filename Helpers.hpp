@@ -69,6 +69,7 @@ struct Helpers {
 	// NOTE: synchronizes *hard* against the GPU; inefficient to use for streaming data!
 	void transfer_to_buffer(void *data, size_t size, AllocatedBuffer &target);
 	void transfer_to_image(void *data, size_t size, AllocatedImage &image); //NOTE: image layout after call is VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
+	void transfer_to_image_layered(void *data, size_t size, AllocatedImage &image, uint32_t layer_count = 1);
 	void transfer_to_image_cube(void* data, size_t size, AllocatedImage& target, uint8_t mip_level = 1);
 	VkDeviceSize get_cube_buffer_offset(uint32_t base_width, uint32_t base_height, uint32_t face, uint32_t level, size_t bytes_per_pixel);
 	void gpu_image_transfer_to_buffer(AllocatedBuffer &target, AllocatedImage &image, 

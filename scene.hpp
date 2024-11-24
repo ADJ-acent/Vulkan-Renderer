@@ -146,6 +146,11 @@ struct Scene
         std::string source = "";
     };
 
+    struct Cloud {
+        std::string name;
+        std::string folder_path = "";
+    };
+
     // Node 
     struct Node {
         std::string name;
@@ -189,6 +194,7 @@ struct Scene
     uint32_t MatPBR_count;
     uint32_t MatLambertian_count;
     uint32_t MatEnvMirror_count; // both environment and mirror just need normal and displacement
+    std::vector<Cloud> clouds;
 
     std::vector<Texture> textures;
 

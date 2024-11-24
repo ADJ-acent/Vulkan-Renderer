@@ -340,6 +340,139 @@ void Helpers::transfer_to_image(void *data, size_t size, AllocatedImage &target)
 	destroy_buffer(std::move(transfer_src));
 }
 
+void Helpers::transfer_to_image_layered(void *data, size_t size, AllocatedImage &image, uint32_t layer_count)
+{
+	assert(image.handle); 
+
+    size_t bytes_per_pixel = vkuFormatElementSize(image.format);
+
+    AllocatedBuffer transfer_src = create_buffer(
+        size,
+        VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+        Mapped
+    );
+
+    std::memcpy(transfer_src.allocation.data(), data, size);
+
+    VK(vkResetCommandBuffer(transfer_command_buffers[0], 0));
+
+    VkCommandBufferBeginInfo begin_info{
+        .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+        .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
+ 
+    };
+	std::cout<<"\n\n\n\n\n\n\n"<<"WH: "<<image.extent.width<<", "<<image.extent.height<<std::endl;
+    VK(vkBeginCommandBuffer(transfer_command_buffers[0], &begin_info));
+
+    VkImageSubresourceRange all_layers{
+        .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+        .baseMipLevel = 0,
+        .levelCount = 1,
+        .baseArrayLayer = 0,   // Start from layer 0
+        .layerCount = layer_count,
+    };
+
+    { // Image memory barrier for all layers
+        VkImageMemoryBarrier barrier{
+            .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+            .srcAccessMask = 0,
+            .dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,
+            .oldLayout = VK_IMAGE_LAYOUT_UNDEFINED, 
+            .newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+            .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .image = image.handle,
+            .subresourceRange = all_layers,
+        };
+
+        vkCmdPipelineBarrier(
+            transfer_command_buffers[0], 
+            VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, 
+            VK_PIPELINE_STAGE_TRANSFER_BIT, 
+            0, 
+            0, nullptr, 
+            0, nullptr, 
+            1, &barrier 
+        );
+    }
+
+    { // Copy buffer to all layers of the image
+        std::vector<VkBufferImageCopy> regions(layer_count); // Array of layers
+
+        for (uint8_t layer = 0; layer < layer_count; ++layer) {
+			
+			regions[layer] = {
+				.bufferOffset = image.extent.width * image.extent.height * bytes_per_pixel * layer,
+				.bufferRowLength = image.extent.width,
+				.bufferImageHeight = image.extent.height,
+				.imageSubresource{
+					.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+					.mipLevel = 0,
+					.baseArrayLayer = layer,   // Layer index
+					.layerCount = 1,       // One layer per region
+				},
+				.imageOffset{ .x = 0, .y = 0, .z = 0 },
+				.imageExtent{
+					.width = image.extent.width,
+					.height = image.extent.height,
+					.depth = 1
+				},
+			};
+			
+        }
+
+        vkCmdCopyBufferToImage(
+            transfer_command_buffers[0],
+            transfer_src.handle,
+            image.handle,
+            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+            uint32_t(regions.size()), regions.data() // Copy all regions
+        );
+    }
+
+    { // Image memory barrier for all layers
+        VkImageMemoryBarrier barrier{
+            .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+            .srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,
+            .dstAccessMask = VK_ACCESS_SHADER_READ_BIT,
+            .oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+            .newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+            .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .image = image.handle,
+            .subresourceRange = all_layers,
+        };
+
+        vkCmdPipelineBarrier(
+            transfer_command_buffers[0], 
+            VK_PIPELINE_STAGE_TRANSFER_BIT, 
+            VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 
+            0, 
+            0, nullptr,
+            0, nullptr,
+            1, &barrier 
+        );
+    }
+
+	//end and submit the command buffer
+	VK( vkEndCommandBuffer(transfer_command_buffers[0]) );
+
+	VkSubmitInfo submit_info{
+		.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+		.commandBufferCount = 1,
+		.pCommandBuffers = &transfer_command_buffers[0]
+	};
+
+	VK(vkQueueSubmit(rtg.graphics_queue, 1, &submit_info, VK_NULL_HANDLE));
+
+	//wait for command buffer to finish executing
+	VK(vkQueueWaitIdle(rtg.graphics_queue));
+
+	//destroy the source buffer
+	destroy_buffer(std::move(transfer_src));
+}
+
 void Helpers::transfer_to_image_cube(void* data, size_t size, AllocatedImage& target, uint8_t mip_level) {
     assert(target.handle); 
 
@@ -513,8 +646,8 @@ void Helpers::gpu_image_transfer_to_buffer(AllocatedBuffer &target, AllocatedIma
 	{ // copy the source buffer to the image
 		VkBufferImageCopy region{
 			.bufferOffset = 0,
-			.bufferRowLength = image.extent.width,
-			.bufferImageHeight = image.extent.height,
+			.bufferRowLength = 0,
+			.bufferImageHeight = 0,
 			.imageSubresource{
 				.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
 				.mipLevel = 0,

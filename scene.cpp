@@ -172,6 +172,8 @@ void Scene::load(std::string filename, std::optional<std::string> requested_came
                     
                 }
 
+            } else if (type.value() == "CLOUD") {
+                
             } else if (type.value() == "MESH") {
                 std::string mesh_name = object_i.find("name")->second.as_string().value();
                 int32_t cur_mesh_index;
