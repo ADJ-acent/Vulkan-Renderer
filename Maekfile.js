@@ -99,6 +99,11 @@ const shadow_shaders = [
 ];
 main_objs.push( maek.CPP('ShadowAtlasPipeline.cpp', undefined, { depends:[...shadow_shaders] } ) );
 
+const cloud_shaders = [
+	maek.GLSLC('glsl/cloud.comp', 'spv/cloud.comp', {GLSLCFlags: []}),
+]
+main_objs.push( maek.CPP('CloudPipeline.cpp', undefined, { depends:[...cloud_shaders] } ) );
+
 const main_exe = maek.LINK([...main_objs, ...viewer_objs], 'bin/viewer');
 
 //default targets:

@@ -230,9 +230,7 @@ struct RTGRenderer : RTG::Application {
 		//no push constants
 
 		VkPipelineLayout layout = VK_NULL_HANDLE;
-
-		using Vertex = PosNorTanTexVertex;
-
+		
 		VkPipeline handle = VK_NULL_HANDLE;
 
 		void create(RTG &, VkRenderPass render_pass, uint32_t subpass);
@@ -301,8 +299,9 @@ struct RTGRenderer : RTG::Application {
 	VkSampler shadow_sampler = VK_NULL_HANDLE;
 	VkFramebuffer shadow_framebuffer = VK_NULL_HANDLE;
 
-	Helpers::AllocatedImage Cloud_noise;
-	
+	Helpers::AllocatedImage3D Cloud_noise;
+	std::vector<Cloud::NVDF> Clouds_NVDFs;
+
 	struct {
 		size_t sun_light_size;
 		size_t sun_light_alignment;

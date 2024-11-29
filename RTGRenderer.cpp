@@ -248,6 +248,9 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_), s
 
 	{//create cloud voxel textures
 		Cloud_noise = Cloud::load_noise(rtg);
+		Clouds_NVDFs.clear();
+		Clouds_NVDFs.push_back(Cloud::load_cloud(rtg, std::string("../resource/NubisVoxelCloudsPack/NVDFs/Examples/ParkouringCloud/TGA/")));
+		Clouds_NVDFs.push_back(Cloud::load_cloud(rtg, std::string("../resource/NubisVoxelCloudsPack/NVDFs/Examples/StormbirdCloud/TGA/")));
 	}
 
 	
@@ -1109,6 +1112,12 @@ RTGRenderer::~RTGRenderer() {
 		rtg.helpers.destroy_image(std::move(World_environment));
 	}
 
+	for (auto& cloud_nvdf : Clouds_NVDFs) {
+		rtg.helpers.destroy_image_3D(std::move(cloud_nvdf.field_data));
+		rtg.helpers.destroy_image_3D(std::move(cloud_nvdf.modeling_data));
+	}
+	Clouds_NVDFs.clear();
+	rtg.helpers.destroy_image_3D(std::move(Cloud_noise));
 
 	if (texture_sampler) {
 		vkDestroySampler(rtg.device, texture_sampler, nullptr);
@@ -1142,6 +1151,7 @@ RTGRenderer::~RTGRenderer() {
 	mirror_pipeline.destroy(rtg);
 	pbr_pipeline.destroy(rtg);
 	shadow_pipeline.destroy(rtg);
+	cloud_pipeline.destroy(rtg);
 	
 	rtg.helpers.destroy_buffer(std::move(object_vertices));
 
