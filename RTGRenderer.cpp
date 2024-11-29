@@ -245,6 +245,7 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_), s
 	mirror_pipeline.create(rtg, render_pass, 0);
 	pbr_pipeline.create(rtg, render_pass, 0);
 	shadow_pipeline.create(rtg, shadow_atlas_pass, 0);
+	cloud_pipeline.create(rtg);
 
 	{//create cloud voxel textures
 		Cloud_noise = Cloud::load_noise(rtg);

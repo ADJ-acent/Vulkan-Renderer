@@ -233,7 +233,7 @@ struct RTGRenderer : RTG::Application {
 		
 		VkPipeline handle = VK_NULL_HANDLE;
 
-		void create(RTG &, VkRenderPass render_pass, uint32_t subpass);
+		void create(RTG &);
 		void destroy(RTG &);
 	} cloud_pipeline;
 

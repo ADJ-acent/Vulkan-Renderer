@@ -8,7 +8,7 @@ static uint32_t comp_code[] =
 #include "spv/cloud.comp.inl"
 ;
 
-void RTGRenderer::CloudPipeline::create(RTG &rtg, VkRenderPass render_pass, uint32_t subpass) {
+void RTGRenderer::CloudPipeline::create(RTG &rtg) {
     VkShaderModule comp_module = rtg.helpers.create_shader_module(comp_code);
 
     {//the set0_World layout holds cloud information and sun information
