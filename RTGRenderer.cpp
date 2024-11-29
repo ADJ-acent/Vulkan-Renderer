@@ -247,11 +247,95 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_), s
 	shadow_pipeline.create(rtg, shadow_atlas_pass, 0);
 	cloud_pipeline.create(rtg);
 
-	{//create cloud voxel textures
-		Cloud_noise = Cloud::load_noise(rtg);
-		Clouds_NVDFs.clear();
-		Clouds_NVDFs.push_back(Cloud::load_cloud(rtg, std::string("../resource/NubisVoxelCloudsPack/NVDFs/Examples/ParkouringCloud/TGA/")));
-		Clouds_NVDFs.push_back(Cloud::load_cloud(rtg, std::string("../resource/NubisVoxelCloudsPack/NVDFs/Examples/StormbirdCloud/TGA/")));
+	{//cloud resources
+		{// lodad cloud voxel data as 3D images
+			Cloud_noise = Cloud::load_noise(rtg);
+			Clouds_NVDFs.clear();
+			Clouds_NVDFs.push_back(Cloud::load_cloud(rtg, std::string("../resource/NubisVoxelCloudsPack/NVDFs/Examples/ParkouringCloud/TGA/")));
+			Clouds_NVDFs.push_back(Cloud::load_cloud(rtg, std::string("../resource/NubisVoxelCloudsPack/NVDFs/Examples/StormbirdCloud/TGA/")));
+		}
+
+		{//make image view for voxel datas
+
+			VkImageViewCreateInfo create_info{
+				.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+				.flags = 0,
+				.image = Cloud_noise.handle,
+				.viewType = VK_IMAGE_VIEW_TYPE_3D,
+				.format = Cloud_noise.format,
+				// .components sets swizzling and is fine when zero-initialized
+				.subresourceRange{
+					.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+					.baseMipLevel = 0,
+					.levelCount = 1,
+					.baseArrayLayer = 0,
+					.layerCount = 1,
+				},
+			};
+
+			VK(vkCreateImageView(rtg.device, &create_info, nullptr, &Cloud_noise_view));
+
+			for (Cloud::NVDF& cloud_nvdf : Clouds_NVDFs) {
+				VkImageViewCreateInfo field_view_create_info{
+					.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+					.flags = 0,
+					.image = cloud_nvdf.field_data.handle,
+					.viewType = VK_IMAGE_VIEW_TYPE_3D,
+					.format = cloud_nvdf.field_data.format,
+					// .components sets swizzling and is fine when zero-initialized
+					.subresourceRange{
+						.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+						.baseMipLevel = 0,
+						.levelCount = 1,
+						.baseArrayLayer = 0,
+						.layerCount = 1,
+					},
+				};
+
+				VK(vkCreateImageView(rtg.device, &field_view_create_info, nullptr, &cloud_nvdf.field_data_view));
+
+				VkImageViewCreateInfo model_view_create_info{
+					.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+					.flags = 0,
+					.image = cloud_nvdf.modeling_data.handle,
+					.viewType = VK_IMAGE_VIEW_TYPE_3D,
+					.format = cloud_nvdf.modeling_data.format,
+					// .components sets swizzling and is fine when zero-initialized
+					.subresourceRange{
+						.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+						.baseMipLevel = 0,
+						.levelCount = 1,
+						.baseArrayLayer = 0,
+						.layerCount = 1,
+					},
+				};
+
+				VK(vkCreateImageView(rtg.device, &model_view_create_info, nullptr, &cloud_nvdf.modeling_data_view));
+			}
+		}
+
+		{//make a sampler for clouds
+			VkSamplerCreateInfo create_info{
+				.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
+				.flags = 0,
+				.magFilter = VK_FILTER_LINEAR,
+				.minFilter = VK_FILTER_LINEAR,
+				.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR,
+				.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+				.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+				.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+				.mipLodBias = 0.0f,
+				.anisotropyEnable = VK_TRUE,
+				.maxAnisotropy = 16.0f, 
+				.compareEnable = VK_FALSE,
+				.compareOp = VK_COMPARE_OP_ALWAYS, //doesn't matter if compare isn't enabled
+				.minLod = 0.0f,
+				.maxLod = 0.0f,
+				.borderColor = VK_BORDER_COLOR_FLOAT_TRANSPARENT_BLACK,
+				.unnormalizedCoordinates = VK_FALSE,
+			};
+			VK(vkCreateSampler(rtg.device, &create_info, nullptr, &cloud_sampler));
+		}
 	}
 
 	
@@ -1114,11 +1198,30 @@ RTGRenderer::~RTGRenderer() {
 	}
 
 	for (auto& cloud_nvdf : Clouds_NVDFs) {
-		rtg.helpers.destroy_image_3D(std::move(cloud_nvdf.field_data));
-		rtg.helpers.destroy_image_3D(std::move(cloud_nvdf.modeling_data));
+		if (cloud_nvdf.field_data_view)
+			vkDestroyImageView(rtg.device, cloud_nvdf.field_data_view, nullptr);
+		if (cloud_nvdf.modeling_data_view)
+			vkDestroyImageView(rtg.device, cloud_nvdf.modeling_data_view, nullptr);
+
+		if (cloud_nvdf.field_data.handle)
+			rtg.helpers.destroy_image_3D(std::move(cloud_nvdf.field_data));
+		if (cloud_nvdf.modeling_data.handle)
+			rtg.helpers.destroy_image_3D(std::move(cloud_nvdf.modeling_data));
 	}
 	Clouds_NVDFs.clear();
-	rtg.helpers.destroy_image_3D(std::move(Cloud_noise));
+
+	if (Cloud_noise_view) {
+		vkDestroyImageView(rtg.device, Cloud_noise_view, nullptr);
+		Cloud_noise_view = VK_NULL_HANDLE;
+	}
+	if (Cloud_noise.handle) {
+		rtg.helpers.destroy_image_3D(std::move(Cloud_noise));
+	}
+
+	if (cloud_sampler) {
+		vkDestroySampler(rtg.device, cloud_sampler, nullptr);
+		cloud_sampler = VK_NULL_HANDLE;
+	}
 
 	if (texture_sampler) {
 		vkDestroySampler(rtg.device, texture_sampler, nullptr);

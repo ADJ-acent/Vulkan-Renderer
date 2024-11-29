@@ -300,6 +300,8 @@ struct RTGRenderer : RTG::Application {
 	VkFramebuffer shadow_framebuffer = VK_NULL_HANDLE;
 
 	Helpers::AllocatedImage3D Cloud_noise;
+	VkImageView Cloud_noise_view;
+	VkSampler cloud_sampler;
 	std::vector<Cloud::NVDF> Clouds_NVDFs;
 
 	struct {

@@ -437,6 +437,14 @@ RTG::RTG(Configuration const &configuration_) : helpers(*this) {
 				});
 			}
 
+			VkPhysicalDeviceFeatures features;
+			vkGetPhysicalDeviceFeatures(physical_device, &features);
+
+			VkPhysicalDeviceFeatures enabled_features = {};
+			if (features.samplerAnisotropy) {
+				enabled_features.samplerAnisotropy = true;
+			}
+
 			VkDeviceCreateInfo create_info{
 				.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
 				.queueCreateInfoCount = uint32_t(queue_create_infos.size()),
@@ -450,7 +458,7 @@ RTG::RTG(Configuration const &configuration_) : helpers(*this) {
 				.ppEnabledExtensionNames = device_extensions.data(),
 
 				//pass a pointer to a VkPhysicalDeviceFeatures to request specific features: (e.g., thick lines)
-				.pEnabledFeatures = nullptr,
+				.pEnabledFeatures = &enabled_features,
 			};
 
 			#if defined(__APPLE__)
