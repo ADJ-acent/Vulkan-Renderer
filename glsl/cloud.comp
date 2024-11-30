@@ -2,6 +2,8 @@
 
 #define WORKGROUP_SIZE 32
 
+layout(local_size_x = WORKGROUP_SIZE, local_size_y = WORKGROUP_SIZE) in;
+
 layout(set = 0, binding = 0, rgba32f) uniform image2D targetImage;
 
 layout(set = 1, binding = 0) uniform sampler3D modelingParkourTexture;
@@ -12,7 +14,7 @@ layout(set = 1, binding = 2) uniform sampler3D modelingStormbirdTexture;
 
 layout(set = 1, binding = 3) uniform sampler3D fieldStormbirdTexture;
 
-layout(set = 2, binding = 4) uniform sampler3D cloudNoiseTexture;
+layout(set = 1, binding = 4) uniform sampler3D cloudNoiseTexture;
 
 void main()
 {
@@ -21,5 +23,5 @@ void main()
     ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
     vec2 uv = vec2(pixel) / dimension; 
 
-    imageStore(targetImage, pixel, vec4(1,0,0,1));
+    imageStore(targetImage, pixel, vec4(uv.x,uv.y,0,1));
 }

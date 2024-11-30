@@ -269,6 +269,10 @@ struct RTGRenderer : RTG::Application {
         Helpers::AllocatedBuffer Transforms; //device-local
         VkDescriptorSet Transforms_descriptors; //references Transforms
 
+		// Storage Image for Cloud Rendering
+		Helpers::AllocatedImage Cloud_target;
+		VkImageView Cloud_target_view;
+		VkDescriptorSet Cloud_target_descriptors; //references the target image for the compute shader
 	};
 	std::vector< Workspace > workspaces;
 

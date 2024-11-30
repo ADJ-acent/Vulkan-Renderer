@@ -106,7 +106,7 @@ namespace Cloud {
 
         { // model data
             Helpers::AllocatedImage3D &model_data_image = cloud_nvdf.modeling_data;
-            const std::string& cloud_path = data_path(std::string(directory + "field_data."));
+            const std::string& cloud_path = data_path(std::string(directory + "modeling_data."));
             std::vector<unsigned char*> images(cloud_voxel_layers);
             uint32_t width = 0, height = 0;
             for (uint16_t i = 0; i < cloud_voxel_layers; ++i) {

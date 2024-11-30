@@ -559,7 +559,7 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_), s
 		VkDescriptorPoolCreateInfo create_info{
 			.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
 			.flags = 0, //because CREATE_FREE_DESCRIPTOR_SET_BIT isn't included, *can't* free individual descriptors allocated from this pool
-			.maxSets = 4 * per_workspace, //three sets per workspace
+			.maxSets = 6 * per_workspace, //three sets per workspace
 			.poolSizeCount = uint32_t(pool_sizes.size()),
 			.pPoolSizes = pool_sizes.data(),
 		};
@@ -567,7 +567,7 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_), s
 		VK(vkCreateDescriptorPool(rtg.device, &create_info, nullptr, &descriptor_pool));
 	}
 
-	{ //allocate descriptor set for Cloud descriptor
+	{ //allocate descriptor sets for Cloud descriptor
 		VkDescriptorSetAllocateInfo alloc_info{
 			.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
 			.descriptorPool = descriptor_pool,
@@ -727,6 +727,17 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_), s
 
 			VK(vkAllocateDescriptorSets(rtg.device, &alloc_info, &workspace.World_descriptors));
 			//NOTE: will actually fill in this descriptor set just a bit lower
+		}
+
+		{//allocate descriptor set for tagert image in cloud compute shader
+			VkDescriptorSetAllocateInfo alloc_info{
+				.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+				.descriptorPool = descriptor_pool,
+				.descriptorSetCount = 1,
+				.pSetLayouts = &cloud_pipeline.set0_Image,
+			};
+
+			VK(vkAllocateDescriptorSets(rtg.device, &alloc_info, &workspace.Cloud_target_descriptors));
 		}
 
 		{// set light infos
@@ -1503,6 +1514,36 @@ void RTGRenderer::on_swapchain(RTG &rtg_, RTG::SwapchainEvent const &swapchain) 
 		VK(vkCreateFramebuffer(rtg.device, &create_info, nullptr, &swapchain_framebuffers[i]));
 	}
 	std::cout<< "There are "<< swapchain.image_views.size() << " images in the swapchain" <<std::endl;
+
+	// target image for cloud rendering
+	for (auto& workspace : workspaces) {
+		workspace.Cloud_target = rtg.helpers.create_image(
+			swapchain.extent,
+			rtg.surface_format.format,
+			VK_IMAGE_TILING_OPTIMAL,
+			VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT, //will sample and upload
+			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, //should be device-local
+			Helpers::Unmapped
+		);
+
+		VkImageViewCreateInfo create_info{
+			.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+			.flags = 0,
+			.image = workspace.Cloud_target.handle,
+			.viewType = VK_IMAGE_VIEW_TYPE_2D,
+			.format = workspace.Cloud_target.format,
+			// .components sets swizzling and is fine when zero-initialized
+			.subresourceRange{
+				.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+				.baseMipLevel = 0,
+				.levelCount = 1,
+				.baseArrayLayer = 0,
+				.layerCount = 1,
+			},
+		};
+
+		VK(vkCreateImageView(rtg.device, &create_info, nullptr, &workspace.Cloud_target_view));
+	}
 }
 
 void RTGRenderer::destroy_framebuffers() {
@@ -1518,6 +1559,16 @@ void RTGRenderer::destroy_framebuffers() {
 	swapchain_depth_image_view = VK_NULL_HANDLE;
 
 	rtg.helpers.destroy_image(std::move(swapchain_depth_image));
+
+	for (auto& workspace : workspaces) {
+		if (workspace.Cloud_target_view) {
+			vkDestroyImageView(rtg.device, workspace.Cloud_target_view, nullptr);
+			workspace.Cloud_target_view = VK_NULL_HANDLE;
+		}
+		if (workspace.Cloud_target.handle) {
+			rtg.helpers.destroy_image(std::move(workspace.Cloud_target));
+		}
+	}
 }
 
 
@@ -2148,6 +2199,73 @@ void RTGRenderer::render(RTG &rtg_, RTG::RenderParams const &render_params) {
 
 	{// cloud rendering
 		vkCmdBindPipeline(workspace.command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, cloud_pipeline.handle);
+		{// transfer target image to desired format: VK_IMAGE_LAYOUT_GENERAL
+			VkImageSubresourceRange whole_image{
+				.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+				.baseMipLevel = 0,
+				.levelCount = 1,
+				.baseArrayLayer = 0,
+				.layerCount = 1,
+			};
+			VkImageMemoryBarrier barrier{
+				.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+				.srcAccessMask = 0,
+				.dstAccessMask = VK_ACCESS_SHADER_WRITE_BIT,
+				.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED, //throw away old image
+				.newLayout = VK_IMAGE_LAYOUT_GENERAL,
+				.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+				.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+				.image = workspace.Cloud_target.handle,
+				.subresourceRange = whole_image,
+			};
+
+			vkCmdPipelineBarrier(
+				workspace.command_buffer, //commandBuffer
+				VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, //srcStageMask
+				VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, //dstStageMask
+				0, //dependencyFlags
+				0, nullptr, //memory barrier count, pointer
+				0, nullptr, //buffer memory barrier count, pointer
+				1, &barrier //image memory barrier count, pointer
+			);
+		}
+
+		{
+			VkDescriptorImageInfo Cloud_target_info{
+				.sampler = texture_sampler,
+				.imageView = workspace.Cloud_target_view,
+				.imageLayout = VK_IMAGE_LAYOUT_GENERAL,
+			};
+
+			std::array< VkWriteDescriptorSet, 1 > writes{
+				VkWriteDescriptorSet{
+					.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+					.dstSet = workspace.Cloud_target_descriptors,
+					.dstBinding = 0,
+					.dstArrayElement = 0,
+					.descriptorCount = 1,
+					.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+					.pImageInfo = &Cloud_target_info,
+				}
+			};
+
+			vkUpdateDescriptorSets(
+				rtg.device, //device
+				uint32_t(writes.size()), //descriptorWriteCount
+				writes.data(), //pDescriptorWrites
+				0, //descriptorCopyCount
+				nullptr //pDescriptorCopies
+			);
+		}
+		vkCmdBindDescriptorSets(
+			workspace.command_buffer, //command buffer
+			VK_PIPELINE_BIND_POINT_COMPUTE, //pipeline bind point
+			cloud_pipeline.layout, //pipeline layout
+			0, //first set
+			1, &workspace.Cloud_target_descriptors, //descriptor sets count, ptr
+			0, nullptr //dynamic offsets count, ptr
+		);
+
 		vkCmdBindDescriptorSets(
 			workspace.command_buffer, //command buffer
 			VK_PIPELINE_BIND_POINT_COMPUTE, //pipeline bind point
@@ -2157,12 +2275,140 @@ void RTGRenderer::render(RTG &rtg_, RTG::RenderParams const &render_params) {
 			0, nullptr //dynamic offsets count, ptr
 		);
 		const glm::ivec2 swapchain_dimensions(swapchain_depth_image.extent.width, swapchain_depth_image.extent.height);
+
+		uint32_t groups_x = (swapchain_dimensions.x + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE;
+		uint32_t groups_y = (swapchain_dimensions.y + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE;
+
 		vkCmdDispatch(workspace.command_buffer,
-			static_cast<uint32_t>((swapchain_dimensions.x + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE),
-			static_cast<uint32_t>((swapchain_dimensions.y + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE),
-			1);
+			groups_x,
+			groups_y,
+			1
+		);
 	}
+
+	// VkMemoryBarrier memoryBarrier{
+	// 	.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER,
+	// 	.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT, // Writes from the compute shader
+	// 	.dstAccessMask = VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_MEMORY_WRITE_BIT, // Reads/writes by subsequent operations
+	// };
+
+	// vkCmdPipelineBarrier(
+	// 	workspace.command_buffer,               
+	// 	VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,   
+	// 	VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,     
+	// 	0,                                      
+	// 	1, &memoryBarrier,                      
+	// 	0, nullptr,                             
+	// 	0, nullptr                              
+	// );
 	
+	{
+		VkExtent3D image_extent = { workspace.Cloud_target.extent.width, workspace.Cloud_target.extent.height, 1 };
+		VkImageMemoryBarrier barriers[2] = {
+		// Barrier for compute storage image
+		{
+			.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+			.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT, // From compute shader
+			.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT,
+			.oldLayout = VK_IMAGE_LAYOUT_GENERAL,
+			.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+			.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+			.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+			.image = workspace.Cloud_target.handle,
+			.subresourceRange = {
+				.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+				.baseMipLevel = 0,
+				.levelCount = 1,
+				.baseArrayLayer = 0,
+				.layerCount = 1,
+			},
+		},
+		// Barrier for framebuffer image
+		{
+			.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+			.srcAccessMask = 0,
+			.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,
+			.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+			.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+			.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+			.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+			.image = rtg.swapchain_images[render_params.image_index],
+			.subresourceRange = {
+				.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+				.baseMipLevel = 0,
+				.levelCount = 1,
+				.baseArrayLayer = 0,
+				.layerCount = 1,
+			},
+		},
+	};
+
+	vkCmdPipelineBarrier(
+		workspace.command_buffer,
+		VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, // From compute shader
+		VK_PIPELINE_STAGE_TRANSFER_BIT,      // For transfer operation
+		0,
+		0, nullptr,
+		0, nullptr,
+		2, barriers
+	);
+
+
+	VkImageCopy copyRegion = {
+		.srcSubresource = {
+			.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+			.mipLevel = 0,
+			.baseArrayLayer = 0,
+			.layerCount = 1,
+		},
+		.srcOffset = {0, 0, 0},
+		.dstSubresource = {
+			.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+			.mipLevel = 0,
+			.baseArrayLayer = 0,
+			.layerCount = 1,
+		},
+		.dstOffset = {0, 0, 0},
+		.extent = image_extent,
+	};
+
+	vkCmdCopyImage(
+		workspace.command_buffer,
+		workspace.Cloud_target.handle, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+		rtg.swapchain_images[render_params.image_index], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+		1, &copyRegion
+	);
+
+	// Transition framebuffer image for presentation
+	VkImageMemoryBarrier framebufferBarrier = {
+		.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+		.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,
+		.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+		.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+		.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+		.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+		.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+		.image = rtg.swapchain_images[render_params.image_index],
+		.subresourceRange = {
+			.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+			.baseMipLevel = 0,
+			.levelCount = 1,
+			.baseArrayLayer = 0,
+			.layerCount = 1,
+		},
+	};
+
+	vkCmdPipelineBarrier(
+		workspace.command_buffer,
+		VK_PIPELINE_STAGE_TRANSFER_BIT,
+		VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+		0,
+		0, nullptr,
+		0, nullptr,
+		1, &framebufferBarrier
+	);
+	}
+
 
 	//end recording:
 	VK(vkEndCommandBuffer(workspace.command_buffer));
