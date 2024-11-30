@@ -1,5 +1,25 @@
 #version 450
 
+#define WORKGROUP_SIZE 32
+
+layout(set = 0, binding = 0, rgba32f) uniform image2D targetImage;
+
+layout(set = 1, binding = 0) uniform sampler3D modelingParkourTexture;
+
+layout(set = 1, binding = 1) uniform sampler3D fieldParkourTexture;
+
+layout(set = 1, binding = 2) uniform sampler3D modelingStormbirdTexture;
+
+layout(set = 1, binding = 3) uniform sampler3D fieldStormbirdTexture;
+
+layout(set = 2, binding = 4) uniform sampler3D cloudNoiseTexture;
+
 void main()
 {
+    ivec2 dimension = imageSize(targetImage);
+
+    ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
+    vec2 uv = vec2(pixel) / dimension; 
+
+    imageStore(targetImage, pixel, vec4(1,0,0,1));
 }

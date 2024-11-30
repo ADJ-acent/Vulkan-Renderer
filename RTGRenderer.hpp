@@ -222,8 +222,9 @@ struct RTGRenderer : RTG::Application {
 
 	struct CloudPipeline {
 		//descriptor set layouts:
-		VkDescriptorSetLayout set0_World = VK_NULL_HANDLE;// sun position, cloud voxel, noise voxel
-        VkDescriptorSetLayout set1_Transforms = VK_NULL_HANDLE; // cloud transforms
+		VkDescriptorSetLayout set0_Image = VK_NULL_HANDLE; // target image
+        VkDescriptorSetLayout set1_Cloud = VK_NULL_HANDLE; // cloud voxel and noise data
+		VkDescriptorSetLayout set2_World = VK_NULL_HANDLE; // sun position, environment maps, etc
 
 		//types for descriptors same as objects pipeline
 		
@@ -303,6 +304,8 @@ struct RTGRenderer : RTG::Application {
 	VkImageView Cloud_noise_view;
 	VkSampler cloud_sampler;
 	std::vector<Cloud::NVDF> Clouds_NVDFs;
+
+	VkDescriptorSet Cloud_descriptors;
 
 	struct {
 		size_t sun_light_size;

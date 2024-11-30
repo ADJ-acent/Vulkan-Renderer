@@ -19,6 +19,8 @@
 #include <iostream>
 #include <fstream>
 
+static constexpr unsigned int WORKGROUP_SIZE = 32;
+
 RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_), shadow_atlas(ShadowAtlas(shadow_atlas_length)) {
 	{ //create command pool
 		VkCommandPoolCreateInfo create_info{
@@ -546,7 +548,7 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_), s
 			},
 			VkDescriptorPoolSize{
 				.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-				.descriptorCount = 3 * per_workspace, //one descriptor per set, one set per workspace
+				.descriptorCount = 5 * per_workspace, //one descriptor per set, one set per workspace
 			},
 			VkDescriptorPoolSize{
 				.type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
@@ -557,12 +559,113 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_), s
 		VkDescriptorPoolCreateInfo create_info{
 			.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
 			.flags = 0, //because CREATE_FREE_DESCRIPTOR_SET_BIT isn't included, *can't* free individual descriptors allocated from this pool
-			.maxSets = 3 * per_workspace, //three sets per workspace
+			.maxSets = 4 * per_workspace, //three sets per workspace
 			.poolSizeCount = uint32_t(pool_sizes.size()),
 			.pPoolSizes = pool_sizes.data(),
 		};
 
 		VK(vkCreateDescriptorPool(rtg.device, &create_info, nullptr, &descriptor_pool));
+	}
+
+	{ //allocate descriptor set for Cloud descriptor
+		VkDescriptorSetAllocateInfo alloc_info{
+			.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+			.descriptorPool = descriptor_pool,
+			.descriptorSetCount = 1,
+			.pSetLayouts = &cloud_pipeline.set1_Cloud,
+		};
+
+		VK(vkAllocateDescriptorSets(rtg.device, &alloc_info, &Cloud_descriptors));
+		assert(Clouds_NVDFs.size() >= 2);
+		VkDescriptorImageInfo Cloud_Model_Parkour_info{
+			.sampler = cloud_sampler,
+			.imageView = Clouds_NVDFs[0].modeling_data_view,
+			.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+		};
+
+		VkDescriptorImageInfo Cloud_Field_Parkour_info{
+			.sampler = cloud_sampler,
+			.imageView = Clouds_NVDFs[0].field_data_view,
+			.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+		};
+
+		VkDescriptorImageInfo Cloud_Model_Stormbird_info{
+			.sampler = cloud_sampler,
+			.imageView = Clouds_NVDFs[1].modeling_data_view,
+			.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+		};
+
+		VkDescriptorImageInfo Cloud_Field_Stormbird_info{
+			.sampler = cloud_sampler,
+			.imageView = Clouds_NVDFs[1].field_data_view,
+			.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+		};
+
+		VkDescriptorImageInfo Cloud_Noise_info{
+			.sampler = cloud_sampler,
+			.imageView = Cloud_noise_view,
+			.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+		};
+
+		std::array< VkWriteDescriptorSet, 5 > writes{
+			VkWriteDescriptorSet{
+				.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+				.dstSet = Cloud_descriptors,
+				.dstBinding = 0,
+				.dstArrayElement = 0,
+				.descriptorCount = 1,
+				.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+				.pImageInfo = &Cloud_Model_Parkour_info,
+			},
+
+			VkWriteDescriptorSet{
+				.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+				.dstSet = Cloud_descriptors,
+				.dstBinding = 1,
+				.dstArrayElement = 0,
+				.descriptorCount = 1,
+				.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+				.pImageInfo = &Cloud_Field_Parkour_info,
+			},
+
+			VkWriteDescriptorSet{
+				.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+				.dstSet = Cloud_descriptors,
+				.dstBinding = 2,
+				.dstArrayElement = 0,
+				.descriptorCount = 1,
+				.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+				.pImageInfo = &Cloud_Model_Stormbird_info,
+			},
+
+			VkWriteDescriptorSet{
+				.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+				.dstSet = Cloud_descriptors,
+				.dstBinding = 3,
+				.dstArrayElement = 0,
+				.descriptorCount = 1,
+				.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+				.pImageInfo = &Cloud_Field_Stormbird_info,
+			},
+
+			VkWriteDescriptorSet{
+				.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+				.dstSet = Cloud_descriptors,
+				.dstBinding = 4,
+				.dstArrayElement = 0,
+				.descriptorCount = 1,
+				.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+				.pImageInfo = &Cloud_Noise_info,
+			},
+		};
+
+		vkUpdateDescriptorSets(
+			rtg.device, //device
+			uint32_t(writes.size()), //descriptorWriteCount
+			writes.data(), //pDescriptorWrites
+			0, //descriptorCopyCount
+			nullptr //pDescriptorCopies
+		);
 	}
 
 	workspaces.resize(rtg.workspaces.size());
@@ -2041,6 +2144,23 @@ void RTGRenderer::render(RTG &rtg_, RTG::RenderParams const &render_params) {
 		}
 	
 		vkCmdEndRenderPass(workspace.command_buffer);
+	}
+
+	{// cloud rendering
+		vkCmdBindPipeline(workspace.command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, cloud_pipeline.handle);
+		vkCmdBindDescriptorSets(
+			workspace.command_buffer, //command buffer
+			VK_PIPELINE_BIND_POINT_COMPUTE, //pipeline bind point
+			cloud_pipeline.layout, //pipeline layout
+			1, //second set
+			1, &Cloud_descriptors, //descriptor sets count, ptr
+			0, nullptr //dynamic offsets count, ptr
+		);
+		const glm::ivec2 swapchain_dimensions(swapchain_depth_image.extent.width, swapchain_depth_image.extent.height);
+		vkCmdDispatch(workspace.command_buffer,
+			static_cast<uint32_t>((swapchain_dimensions.x + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE),
+			static_cast<uint32_t>((swapchain_dimensions.y + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE),
+			1);
 	}
 	
 
