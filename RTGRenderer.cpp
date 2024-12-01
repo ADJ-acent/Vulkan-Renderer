@@ -1519,8 +1519,8 @@ void RTGRenderer::on_swapchain(RTG &rtg_, RTG::SwapchainEvent const &swapchain) 
 	for (auto& workspace : workspaces) {
 		workspace.Cloud_target = rtg.helpers.create_image(
 			swapchain.extent,
-			rtg.surface_format.format,
-			VK_IMAGE_TILING_OPTIMAL,
+			VK_FORMAT_R8G8B8A8_SNORM,
+			VK_IMAGE_TILING_LINEAR,
 			VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT, //will sample and upload
 			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, //should be device-local
 			Helpers::Unmapped
@@ -2305,31 +2305,93 @@ void RTGRenderer::render(RTG &rtg_, RTG::RenderParams const &render_params) {
 	{
 		VkExtent3D image_extent = { workspace.Cloud_target.extent.width, workspace.Cloud_target.extent.height, 1 };
 		VkImageMemoryBarrier barriers[2] = {
-		// Barrier for compute storage image
-		{
-			.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
-			.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT, // From compute shader
-			.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT,
-			.oldLayout = VK_IMAGE_LAYOUT_GENERAL,
-			.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-			.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-			.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-			.image = workspace.Cloud_target.handle,
-			.subresourceRange = {
+			// Barrier for compute storage image
+			{
+				.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+				.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT, // From compute shader
+				.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT,
+				.oldLayout = VK_IMAGE_LAYOUT_GENERAL,
+				.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+				.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+				.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+				.image = workspace.Cloud_target.handle,
+				.subresourceRange = {
+					.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+					.baseMipLevel = 0,
+					.levelCount = 1,
+					.baseArrayLayer = 0,
+					.layerCount = 1,
+				},
+			},
+			// Barrier for framebuffer image
+			{
+				.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+				.srcAccessMask = 0,
+				.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,
+				.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+				.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+				.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+				.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+				.image = rtg.swapchain_images[render_params.image_index],
+				.subresourceRange = {
+					.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+					.baseMipLevel = 0,
+					.levelCount = 1,
+					.baseArrayLayer = 0,
+					.layerCount = 1,
+				},
+			},
+		};
+
+		vkCmdPipelineBarrier(
+			workspace.command_buffer,
+			VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, // From compute shader
+			VK_PIPELINE_STAGE_TRANSFER_BIT,      // For transfer operation
+			0,
+			0, nullptr,
+			0, nullptr,
+			2, barriers
+		);
+
+
+		VkImageBlit blitRegion = {
+			.srcSubresource = {
 				.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
-				.baseMipLevel = 0,
-				.levelCount = 1,
+				.mipLevel = 0,
 				.baseArrayLayer = 0,
 				.layerCount = 1,
 			},
-		},
-		// Barrier for framebuffer image
-		{
+			.srcOffsets = {
+				{0, 0, 0}, // srcOffset[0]
+				{(int32_t)image_extent.width, (int32_t)image_extent.height, 1} // srcOffset[1]
+			},
+			.dstSubresource = {
+				.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+				.mipLevel = 0,
+				.baseArrayLayer = 0,
+				.layerCount = 1,
+			},
+			.dstOffsets = {
+				{0, 0, 0}, // dstOffset[0]
+				{(int32_t)image_extent.width, (int32_t)image_extent.height, 1} // dstOffset[1]
+			}
+		};
+
+		vkCmdBlitImage(
+			workspace.command_buffer,
+			workspace.Cloud_target.handle, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+			rtg.swapchain_images[render_params.image_index], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+			1, &blitRegion,
+			VK_FILTER_NEAREST // no filter required
+		);
+
+		// Transition framebuffer image for presentation
+		VkImageMemoryBarrier framebuffer_barrier = {
 			.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
-			.srcAccessMask = 0,
-			.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,
-			.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
-			.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+			.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,
+			.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+			.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+			.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
 			.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
 			.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
 			.image = rtg.swapchain_images[render_params.image_index],
@@ -2340,73 +2402,17 @@ void RTGRenderer::render(RTG &rtg_, RTG::RenderParams const &render_params) {
 				.baseArrayLayer = 0,
 				.layerCount = 1,
 			},
-		},
-	};
+		};
 
-	vkCmdPipelineBarrier(
-		workspace.command_buffer,
-		VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, // From compute shader
-		VK_PIPELINE_STAGE_TRANSFER_BIT,      // For transfer operation
-		0,
-		0, nullptr,
-		0, nullptr,
-		2, barriers
-	);
-
-
-	VkImageCopy copyRegion = {
-		.srcSubresource = {
-			.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
-			.mipLevel = 0,
-			.baseArrayLayer = 0,
-			.layerCount = 1,
-		},
-		.srcOffset = {0, 0, 0},
-		.dstSubresource = {
-			.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
-			.mipLevel = 0,
-			.baseArrayLayer = 0,
-			.layerCount = 1,
-		},
-		.dstOffset = {0, 0, 0},
-		.extent = image_extent,
-	};
-
-	vkCmdCopyImage(
-		workspace.command_buffer,
-		workspace.Cloud_target.handle, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-		rtg.swapchain_images[render_params.image_index], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-		1, &copyRegion
-	);
-
-	// Transition framebuffer image for presentation
-	VkImageMemoryBarrier framebufferBarrier = {
-		.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
-		.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,
-		.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
-		.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-		.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
-		.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-		.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-		.image = rtg.swapchain_images[render_params.image_index],
-		.subresourceRange = {
-			.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
-			.baseMipLevel = 0,
-			.levelCount = 1,
-			.baseArrayLayer = 0,
-			.layerCount = 1,
-		},
-	};
-
-	vkCmdPipelineBarrier(
-		workspace.command_buffer,
-		VK_PIPELINE_STAGE_TRANSFER_BIT,
-		VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-		0,
-		0, nullptr,
-		0, nullptr,
-		1, &framebufferBarrier
-	);
+		vkCmdPipelineBarrier(
+			workspace.command_buffer,
+			VK_PIPELINE_STAGE_TRANSFER_BIT,
+			VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+			0,
+			0, nullptr,
+			0, nullptr,
+			1, &framebuffer_barrier
+		);
 	}
 
 
