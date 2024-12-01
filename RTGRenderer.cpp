@@ -717,6 +717,20 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_), s
 			Helpers::Unmapped
 		);
 
+		workspace.Cloud_World_src = rtg.helpers.create_buffer(
+			sizeof(CloudPipeline::CloudWorld),
+			VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+			Helpers::Mapped
+		);
+
+		workspace.Cloud_World = rtg.helpers.create_buffer(
+			sizeof(CloudPipeline::CloudWorld),
+			VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+			Helpers::Unmapped
+		);
+
 		{ //allocate descriptor set for World descriptor
 			VkDescriptorSetAllocateInfo alloc_info{
 				.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
@@ -734,10 +748,10 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_), s
 				.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
 				.descriptorPool = descriptor_pool,
 				.descriptorSetCount = 1,
-				.pSetLayouts = &cloud_pipeline.set0_Image,
+				.pSetLayouts = &cloud_pipeline.set0_World,
 			};
 
-			VK(vkAllocateDescriptorSets(rtg.device, &alloc_info, &workspace.Cloud_target_descriptors));
+			VK(vkAllocateDescriptorSets(rtg.device, &alloc_info, &workspace.Cloud_World_descriptors));
 		}
 
 		{// set light infos
@@ -831,7 +845,13 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_), s
 				.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
 			};
 
-			std::array< VkWriteDescriptorSet, 8 > writes{
+			VkDescriptorBufferInfo Cloud_World_info{
+				.buffer = workspace.Cloud_World.handle,
+				.offset = 0,
+				.range = workspace.Cloud_World.size,
+			};
+
+			std::array< VkWriteDescriptorSet, 9 > writes{
 				VkWriteDescriptorSet{
 					.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
 					.dstSet = workspace.Camera_descriptors,
@@ -910,6 +930,16 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_), s
 					.descriptorCount = 1,
 					.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
 					.pImageInfo = &ShadowAtlas_info,
+				},
+
+				VkWriteDescriptorSet{
+					.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+					.dstSet = workspace.Cloud_World_descriptors,
+					.dstBinding = 1,
+					.dstArrayElement = 0,
+					.descriptorCount = 1,
+					.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+					.pBufferInfo = &Cloud_World_info,
 				},
 			};
 
@@ -1416,6 +1446,13 @@ RTGRenderer::~RTGRenderer() {
 		}
 		// Camera descriptors are freed when the pool is destroyed
 
+		if (workspace.Cloud_World_src.handle != VK_NULL_HANDLE) {
+			rtg.helpers.destroy_buffer(std::move(workspace.Cloud_World_src));
+		}
+		if (workspace.Cloud_World.handle != VK_NULL_HANDLE) {
+			rtg.helpers.destroy_buffer(std::move(workspace.Cloud_World));
+		}
+
 		if (workspace.World_src.handle != VK_NULL_HANDLE) {
 			rtg.helpers.destroy_buffer(std::move(workspace.World_src));
 		}
@@ -1916,6 +1953,22 @@ void RTGRenderer::render(RTG &rtg_, RTG::RenderParams const &render_params) {
 		vkCmdCopyBuffer(workspace.command_buffer, workspace.World_src.handle, workspace.World.handle, 1, &copy_region);
 	}
 
+	{// upload cloud world info
+	assert(workspace.Cloud_World_src.size == sizeof(cloud_world));
+
+		//host-side copy into Cloud_World_src:
+		memcpy(workspace.Cloud_World_src.allocation.data(), &cloud_world, sizeof(cloud_world));
+
+		//add device-side copy from Cloud_World_src -> Cloud_World:
+		assert(workspace.Cloud_World_src.size == workspace.Cloud_World.size);
+		VkBufferCopy copy_region{
+			.srcOffset = 0,
+			.dstOffset = 0,
+			.size = workspace.Cloud_World_src.size,
+		};
+		vkCmdCopyBuffer(workspace.command_buffer, workspace.Cloud_World_src.handle, workspace.Cloud_World.handle, 1, &copy_region);
+	}
+
 	if (!spot_lights.empty() || !sun_lights.empty() || !sphere_lights.empty()) {
 		{ //copy lights into Light_src:
 			assert(workspace.Light_src.allocation.mapped);
@@ -2240,7 +2293,7 @@ void RTGRenderer::render(RTG &rtg_, RTG::RenderParams const &render_params) {
 			std::array< VkWriteDescriptorSet, 1 > writes{
 				VkWriteDescriptorSet{
 					.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-					.dstSet = workspace.Cloud_target_descriptors,
+					.dstSet = workspace.Cloud_World_descriptors,
 					.dstBinding = 0,
 					.dstArrayElement = 0,
 					.descriptorCount = 1,
@@ -2262,7 +2315,7 @@ void RTGRenderer::render(RTG &rtg_, RTG::RenderParams const &render_params) {
 			VK_PIPELINE_BIND_POINT_COMPUTE, //pipeline bind point
 			cloud_pipeline.layout, //pipeline layout
 			0, //first set
-			1, &workspace.Cloud_target_descriptors, //descriptor sets count, ptr
+			1, &workspace.Cloud_World_descriptors, //descriptor sets count, ptr
 			0, nullptr //dynamic offsets count, ptr
 		);
 

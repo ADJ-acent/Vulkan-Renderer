@@ -222,9 +222,16 @@ struct RTGRenderer : RTG::Application {
 
 	struct CloudPipeline {
 		//descriptor set layouts:
-		VkDescriptorSetLayout set0_Image = VK_NULL_HANDLE; // target image
+		VkDescriptorSetLayout set0_World = VK_NULL_HANDLE; // target image, camera information, sun position, environment maps, etc
         VkDescriptorSetLayout set1_Cloud = VK_NULL_HANDLE; // cloud voxel and noise data
-		VkDescriptorSetLayout set2_World = VK_NULL_HANDLE; // sun position, environment maps, etc
+
+		struct CloudWorld {
+			glm::mat4x4 CLIP_FROM_VIEW;
+			glm::mat4x4 VIEW_FROM_WORLD;
+			glm::vec4 CAMERA_POSITION;
+			float HALF_TAN_FOV;
+			float ASPECT_RATIO;
+		};
 
 		//types for descriptors same as objects pipeline
 		
@@ -272,7 +279,9 @@ struct RTGRenderer : RTG::Application {
 		// Storage Image for Cloud Rendering
 		Helpers::AllocatedImage Cloud_target;
 		VkImageView Cloud_target_view;
-		VkDescriptorSet Cloud_target_descriptors; //references the target image for the compute shader
+		Helpers::AllocatedBuffer Cloud_World_src; //host coherent; mapped
+		Helpers::AllocatedBuffer Cloud_World; //device-local
+		VkDescriptorSet Cloud_World_descriptors; //references the target image for the compute shader
 	};
 	std::vector< Workspace > workspaces;
 
@@ -309,7 +318,7 @@ struct RTGRenderer : RTG::Application {
 	VkSampler cloud_sampler;
 	std::vector<Cloud::NVDF> Clouds_NVDFs;
 
-	VkDescriptorSet Cloud_descriptors;
+	VkDescriptorSet Cloud_descriptors; // for static voxel data
 
 	struct {
 		size_t sun_light_size;
@@ -346,6 +355,8 @@ struct RTGRenderer : RTG::Application {
 	std::vector<LinesPipeline::Vertex> lines_vertices;
 
     LambertianPipeline::World world;
+
+	CloudPipeline::CloudWorld cloud_world;
 
 	using Transform = LambertianPipeline::Transform;
     
