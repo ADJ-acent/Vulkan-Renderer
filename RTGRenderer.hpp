@@ -226,9 +226,8 @@ struct RTGRenderer : RTG::Application {
         VkDescriptorSetLayout set1_Cloud = VK_NULL_HANDLE; // cloud voxel and noise data
 
 		struct CloudWorld {
-			glm::mat4x4 CLIP_FROM_VIEW;
 			glm::mat4x4 VIEW_FROM_WORLD;
-			glm::vec4 CAMERA_POSITION;
+			glm::vec3 CAMERA_POSITION;
 			float HALF_TAN_FOV;
 			float ASPECT_RATIO;
 		};

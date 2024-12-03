@@ -1265,6 +1265,10 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_), s
 			view_from_world[2] = view_from_world[1];
 			clip_from_view[2] = clip_from_view[1];
 			CLIP_FROM_WORLD = clip_from_view[1] * view_from_world[1];
+			
+			cloud_world.CAMERA_POSITION = {x, y, z};
+			cloud_world.HALF_TAN_FOV = tanf(60.0f * float(M_PI) / 360.0f);
+			cloud_world.ASPECT_RATIO = rtg.swapchain_extent.width / float(rtg.swapchain_extent.height);
 
 			view_camera = InSceneCamera::UserCamera;
 			culling_camera = InSceneCamera::UserCamera;
@@ -1302,6 +1306,9 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_), s
 			clip_from_view[2] = clip_from_view[1];
 
 			CLIP_FROM_WORLD = clip_from_view[0] * view_from_world[0];
+			cloud_world.HALF_TAN_FOV = tanf(cur_camera.vfov * 0.5f);
+			cloud_world.CAMERA_POSITION = eye;
+			cloud_world.ASPECT_RATIO = rtg.swapchain_extent.width / float(rtg.swapchain_extent.height);
 
 			view_camera = InSceneCamera::SceneCamera;
 		}
@@ -1954,7 +1961,7 @@ void RTGRenderer::render(RTG &rtg_, RTG::RenderParams const &render_params) {
 	}
 
 	{// upload cloud world info
-	assert(workspace.Cloud_World_src.size == sizeof(cloud_world));
+		assert(workspace.Cloud_World_src.size == sizeof(cloud_world));
 
 		//host-side copy into Cloud_World_src:
 		memcpy(workspace.Cloud_World_src.allocation.data(), &cloud_world, sizeof(cloud_world));
@@ -2338,22 +2345,6 @@ void RTGRenderer::render(RTG &rtg_, RTG::RenderParams const &render_params) {
 			1
 		);
 	}
-
-	// VkMemoryBarrier memoryBarrier{
-	// 	.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER,
-	// 	.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT, // Writes from the compute shader
-	// 	.dstAccessMask = VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_MEMORY_WRITE_BIT, // Reads/writes by subsequent operations
-	// };
-
-	// vkCmdPipelineBarrier(
-	// 	workspace.command_buffer,               
-	// 	VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,   
-	// 	VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,     
-	// 	0,                                      
-	// 	1, &memoryBarrier,                      
-	// 	0, nullptr,                             
-	// 	0, nullptr                              
-	// );
 	
 	{
 		VkExtent3D image_extent = { workspace.Cloud_target.extent.width, workspace.Cloud_target.extent.height, 1 };
@@ -2545,6 +2536,9 @@ void RTGRenderer::update(float dt) {
 		if (view_camera == InSceneCamera::SceneCamera) {
 			CLIP_FROM_WORLD = clip_from_view[0] * view_from_world[0];
 			world.CAMERA_POSITION = eye;
+			cloud_world.CAMERA_POSITION = eye;
+			cloud_world.HALF_TAN_FOV = tanf(cur_camera.vfov * 0.5f);
+			cloud_world.ASPECT_RATIO = cur_camera.aspect;
 		}
 
 	} 
@@ -2563,6 +2557,9 @@ void RTGRenderer::update(float dt) {
 			FreeCamera& cam = (view_camera == InSceneCamera::UserCamera) ? user_camera : debug_camera;
 			update_free_camera(cam);
 			last_aspect = float(rtg.swapchain_extent.width) / float(rtg.swapchain_extent.height);
+
+			cloud_world.HALF_TAN_FOV = tanf(60.0f * float(M_PI) / 360.0f);
+			cloud_world.ASPECT_RATIO = last_aspect;
 		}
 
 		FreeCamera& cur_camera = view_camera == InSceneCamera::UserCamera ? user_camera : debug_camera;
@@ -3065,6 +3062,10 @@ void RTGRenderer::update(float dt) {
 		total_shadow_size = 0;
 	}
 
+	{ // cloud world information
+		cloud_world.VIEW_FROM_WORLD = view_from_world[view_camera];
+	}
+
 }
 
 
@@ -3211,5 +3212,5 @@ void RTGRenderer::update_free_camera(FreeCamera &cam)
 	).data());
 
 	CLIP_FROM_WORLD = clip_from_view[type] * view_from_world[type];
-	
+	cloud_world.CAMERA_POSITION = cam.eye;
 }
