@@ -244,6 +244,25 @@ struct RTGRenderer : RTG::Application {
 		void destroy(RTG &);
 	} cloud_pipeline;
 
+	struct CloudLightGirdPipeline {
+		//descriptor set layouts:
+		VkDescriptorSetLayout set0_World = VK_NULL_HANDLE; // target image, camera information, sun position, environment maps, etc
+        VkDescriptorSetLayout set1_Cloud = VK_NULL_HANDLE; // cloud voxel and noise data
+
+		// same type as CloudPipeline
+
+		//types for descriptors same as objects pipeline
+		
+		//no push constants
+
+		VkPipelineLayout layout = VK_NULL_HANDLE;
+		
+		VkPipeline handle = VK_NULL_HANDLE;
+
+		void create(RTG &);
+		void destroy(RTG &);
+	} cloud_lightgrid_pipeline;
+
 	//pools from which per-workspace things are allocated:
 	VkCommandPool command_pool = VK_NULL_HANDLE;
 	
@@ -275,12 +294,16 @@ struct RTGRenderer : RTG::Application {
         Helpers::AllocatedBuffer Transforms; //device-local
         VkDescriptorSet Transforms_descriptors; //references Transforms
 
-		// Storage Image for Cloud Rendering
+		// Storage Image for Cloud Rendering Result
 		Helpers::AllocatedImage Cloud_target;
 		VkImageView Cloud_target_view;
+		// Storage Image for Cloud Rendering Light Grid
+		Helpers::AllocatedImage3D Cloud_lightgrid;
+		VkImageView Cloud_lightgrid_view;
 		Helpers::AllocatedBuffer Cloud_World_src; //host coherent; mapped
 		Helpers::AllocatedBuffer Cloud_World; //device-local
 		VkDescriptorSet Cloud_World_descriptors; //references the target image for the compute shader
+		VkDescriptorSet Cloud_LightGrid_World_descriptors; // used as world descriptor in light grid compute
 	};
 	std::vector< Workspace > workspaces;
 
@@ -314,7 +337,7 @@ struct RTGRenderer : RTG::Application {
 
 	Helpers::AllocatedImage3D Cloud_noise;
 	VkImageView Cloud_noise_view;
-	VkSampler cloud_sampler;
+	VkSampler cloud_sampler; // 3D Image Sampler
 	std::vector<Cloud::NVDF> Clouds_NVDFs;
 
 	VkDescriptorSet Cloud_descriptors; // for static voxel data

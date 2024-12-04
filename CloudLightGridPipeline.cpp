@@ -5,10 +5,10 @@
 #include "VK.hpp"
 
 static uint32_t comp_code[] = 
-#include "spv/cloud.comp.inl"
+#include "spv/cloud_lightgrid.comp.inl"
 ;
 
-void RTGRenderer::CloudPipeline::create(RTG &rtg) {
+void RTGRenderer::CloudLightGirdPipeline::create(RTG &rtg) {
     VkShaderModule comp_module = rtg.helpers.create_shader_module(comp_code);
 
     {//the set0_World layout holds the output image and world information
@@ -149,7 +149,7 @@ void RTGRenderer::CloudPipeline::create(RTG &rtg) {
     }
 }
 
-void RTGRenderer::CloudPipeline::destroy(RTG &rtg) {
+void RTGRenderer::CloudLightGirdPipeline::destroy(RTG &rtg) {
     if (set0_World != VK_NULL_HANDLE) {
 		vkDestroyDescriptorSetLayout(rtg.device, set0_World, nullptr);
 		set0_World = VK_NULL_HANDLE;

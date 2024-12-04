@@ -16,7 +16,7 @@ Scene::Scene(std::string filename, std::optional<std::string> camera, uint8_t an
 void Scene::load(std::string filename, std::optional<std::string> requested_camera)
 {
     if (filename.substr(filename.size()-4, 4) != ".s72") {
-        throw std::runtime_error("Scene " + filename + " is not a compatible format (s72 required). Last 4 char is " + filename.substr(filename.size()-5, 4));
+        throw std::runtime_error("Scene " + filename + " is not a compatible format (s72 required). Last 4 char is " + filename.substr(filename.size()-4, 4));
     }
     scene_path = filename.substr(0, filename.rfind('/'));;
     sejp::value val = sejp::load(filename);

@@ -248,6 +248,7 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_), s
 	pbr_pipeline.create(rtg, render_pass, 0);
 	shadow_pipeline.create(rtg, shadow_atlas_pass, 0);
 	cloud_pipeline.create(rtg);
+	cloud_lightgrid_pipeline.create(rtg);
 
 	{//cloud resources
 		{// lodad cloud voxel data as 3D images
@@ -730,6 +731,35 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_), s
 			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
 			Helpers::Unmapped
 		);
+		{// create 3D image and image view for the light grid
+			constexpr VkExtent3D lightgrid_extent = {256, 256, 32};
+			workspace.Cloud_lightgrid = rtg.helpers.create_image_3D(
+				lightgrid_extent, 
+				VK_FORMAT_R32G32B32A32_SFLOAT,
+				VK_IMAGE_TILING_OPTIMAL,
+				VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT,
+				VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+				Helpers::Unmapped
+			);
+
+			VkImageViewCreateInfo lightgrid_view_create_info{
+				.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+				.flags = 0,
+				.image = workspace.Cloud_lightgrid.handle,
+				.viewType = VK_IMAGE_VIEW_TYPE_3D,
+				.format = workspace.Cloud_lightgrid.format,
+				// .components sets swizzling and is fine when zero-initialized
+				.subresourceRange{
+					.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+					.baseMipLevel = 0,
+					.levelCount = 1,
+					.baseArrayLayer = 0,
+					.layerCount = 1,
+				},
+			};
+
+			VK(vkCreateImageView(rtg.device, &lightgrid_view_create_info, nullptr, &workspace.Cloud_lightgrid_view));
+		}
 
 		{ //allocate descriptor set for World descriptor
 			VkDescriptorSetAllocateInfo alloc_info{
@@ -752,6 +782,17 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_), s
 			};
 
 			VK(vkAllocateDescriptorSets(rtg.device, &alloc_info, &workspace.Cloud_World_descriptors));
+		}
+
+		{//allocate descriptor set for tagert image in cloud compute shader
+			VkDescriptorSetAllocateInfo alloc_info{
+				.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+				.descriptorPool = descriptor_pool,
+				.descriptorSetCount = 1,
+				.pSetLayouts = &cloud_pipeline.set0_World,
+			};
+
+			VK(vkAllocateDescriptorSets(rtg.device, &alloc_info, &workspace.Cloud_LightGrid_World_descriptors));
 		}
 
 		{// set light infos
@@ -851,7 +892,19 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_), s
 				.range = workspace.Cloud_World.size,
 			};
 
-			std::array< VkWriteDescriptorSet, 9 > writes{
+			VkDescriptorImageInfo Cloud_lightgrid_info{
+				.sampler = cloud_sampler,
+				.imageView = workspace.Cloud_lightgrid_view,
+				.imageLayout = VK_IMAGE_LAYOUT_GENERAL,
+			};
+
+			VkDescriptorImageInfo Cloud_lightgrid_sample_info{
+				.sampler = cloud_sampler,
+				.imageView = workspace.Cloud_lightgrid_view,
+				.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+			};
+
+			std::array< VkWriteDescriptorSet, 11 > writes{
 				VkWriteDescriptorSet{
 					.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
 					.dstSet = workspace.Camera_descriptors,
@@ -940,6 +993,26 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_), s
 					.descriptorCount = 1,
 					.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
 					.pBufferInfo = &Cloud_World_info,
+				},
+
+				VkWriteDescriptorSet{
+					.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+					.dstSet = workspace.Cloud_LightGrid_World_descriptors,
+					.dstBinding = 0,
+					.dstArrayElement = 0,
+					.descriptorCount = 1,
+					.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+					.pImageInfo = &Cloud_lightgrid_info,
+				},
+
+				VkWriteDescriptorSet{
+					.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+					.dstSet = workspace.Cloud_World_descriptors,
+					.dstBinding = 2,
+					.dstArrayElement = 0,
+					.descriptorCount = 1,
+					.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+					.pImageInfo = &Cloud_lightgrid_sample_info,
 				},
 			};
 
@@ -1407,6 +1480,7 @@ RTGRenderer::~RTGRenderer() {
 	pbr_pipeline.destroy(rtg);
 	shadow_pipeline.destroy(rtg);
 	cloud_pipeline.destroy(rtg);
+	cloud_lightgrid_pipeline.destroy(rtg);
 	
 	rtg.helpers.destroy_buffer(std::move(object_vertices));
 
@@ -1482,6 +1556,24 @@ RTGRenderer::~RTGRenderer() {
 			rtg.helpers.destroy_buffer(std::move(workspace.Transforms));
 		}
 		//Transforms_descriptors freed when pool is destroyed.
+
+		if (workspace.Cloud_lightgrid.handle) {
+			rtg.helpers.destroy_image_3D(std::move(workspace.Cloud_lightgrid));
+		}
+
+		if (workspace.Cloud_lightgrid_view != VK_NULL_HANDLE) {
+			vkDestroyImageView(rtg.device, workspace.Cloud_lightgrid_view, nullptr);
+			workspace.Cloud_lightgrid_view = VK_NULL_HANDLE;
+		}
+
+		if (workspace.Cloud_target.handle) {
+			rtg.helpers.destroy_image(std::move(workspace.Cloud_target));
+		}
+
+		if (workspace.Cloud_lightgrid_view != VK_NULL_HANDLE) {
+			vkDestroyImageView(rtg.device, workspace.Cloud_target_view, nullptr);
+			workspace.Cloud_target_view = VK_NULL_HANDLE;
+		}
 	}
 	workspaces.clear();
 
@@ -2258,16 +2350,120 @@ void RTGRenderer::render(RTG &rtg_, RTG::RenderParams const &render_params) {
 	}
 
 	{// cloud rendering
-		vkCmdBindPipeline(workspace.command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, cloud_pipeline.handle);
-		{// transfer target image to desired format: VK_IMAGE_LAYOUT_GENERAL
-			VkImageSubresourceRange whole_image{
-				.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
-				.baseMipLevel = 0,
-				.levelCount = 1,
-				.baseArrayLayer = 0,
-				.layerCount = 1,
-			};
-			VkImageMemoryBarrier barrier{
+		VkImageSubresourceRange whole_image{
+			.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+			.baseMipLevel = 0,
+			.levelCount = 1,
+			.baseArrayLayer = 0,
+			.layerCount = 1,
+		};
+		{ // cloud light grid
+			vkCmdBindPipeline(workspace.command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, cloud_lightgrid_pipeline.handle);
+
+			{// transfer target image to desired format: VK_IMAGE_LAYOUT_GENERAL
+				std::array<VkImageMemoryBarrier, 1> barriers{
+					VkImageMemoryBarrier{
+						.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+						.srcAccessMask = 0,
+						.dstAccessMask = VK_ACCESS_SHADER_WRITE_BIT,
+						.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED, //throw away old image
+						.newLayout = VK_IMAGE_LAYOUT_GENERAL,
+						.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+						.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+						.image = workspace.Cloud_lightgrid.handle,
+						.subresourceRange = whole_image,
+					},
+				};
+
+				vkCmdPipelineBarrier(
+					workspace.command_buffer, //commandBuffer
+					VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, //srcStageMask
+					VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, //dstStageMask
+					0, //dependencyFlags
+					0, nullptr, //memory barrier count, pointer
+					0, nullptr, //buffer memory barrier count, pointer
+					uint32_t(barriers.size()), barriers.data() //image memory barrier count, pointer
+				);
+			}
+
+			vkCmdBindDescriptorSets(
+				workspace.command_buffer, //command buffer
+				VK_PIPELINE_BIND_POINT_COMPUTE, //pipeline bind point
+				cloud_pipeline.layout, //pipeline layout
+				0, //first set
+				1, &workspace.Cloud_LightGrid_World_descriptors, //descriptor sets count, ptr
+				0, nullptr //dynamic offsets count, ptr
+			);
+
+			vkCmdBindDescriptorSets(
+				workspace.command_buffer, //command buffer
+				VK_PIPELINE_BIND_POINT_COMPUTE, //pipeline bind point
+				cloud_pipeline.layout, //pipeline layout
+				1, //second set
+				1, &Cloud_descriptors, //descriptor sets count, ptr
+				0, nullptr //dynamic offsets count, ptr
+			);
+
+			uint32_t groups_x = (workspace.Cloud_lightgrid.extent.width + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE;
+			uint32_t groups_y = (workspace.Cloud_lightgrid.extent.height + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE;
+
+			vkCmdDispatch(workspace.command_buffer,
+				groups_x,
+				groups_y,
+				workspace.Cloud_lightgrid.extent.depth
+			);
+		}
+
+		VkDescriptorImageInfo Cloud_target_info{
+			.sampler = texture_sampler,
+			.imageView = workspace.Cloud_target_view,
+			.imageLayout = VK_IMAGE_LAYOUT_GENERAL,
+		};
+
+		VkWriteDescriptorSet write = VkWriteDescriptorSet{
+			.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+			.dstSet = workspace.Cloud_World_descriptors,
+			.dstBinding = 0,
+			.dstArrayElement = 0,
+			.descriptorCount = 1,
+			.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+			.pImageInfo = &Cloud_target_info,
+		};
+
+		vkUpdateDescriptorSets(
+			rtg.device, //device
+			1, //descriptorWriteCount
+			&write, //pDescriptorWrites
+			0, //descriptorCopyCount
+			nullptr //pDescriptorCopies
+		);
+
+		std::array<VkImageMemoryBarrier, 1> lightgrid_barriers{
+			VkImageMemoryBarrier{
+				.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+				.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT,
+				.dstAccessMask = VK_ACCESS_SHADER_READ_BIT,
+				.oldLayout = VK_IMAGE_LAYOUT_GENERAL,
+				.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+				.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+				.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+				.image = workspace.Cloud_lightgrid.handle,
+				.subresourceRange = whole_image,
+			},
+		};
+
+		vkCmdPipelineBarrier(
+			workspace.command_buffer, //commandBuffer
+			VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, //srcStageMask
+			VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, //dstStageMask
+			0, //dependencyFlags
+			0, nullptr, //memory barrier count, pointer
+			0, nullptr, //buffer memory barrier count, pointer
+			uint32_t(lightgrid_barriers.size()), lightgrid_barriers.data() //image memory barrier count, pointer
+		);
+
+		std::array<VkImageMemoryBarrier, 1> target_barriers{
+			VkImageMemoryBarrier{
 				.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
 				.srcAccessMask = 0,
 				.dstAccessMask = VK_ACCESS_SHADER_WRITE_BIT,
@@ -2277,46 +2473,24 @@ void RTGRenderer::render(RTG &rtg_, RTG::RenderParams const &render_params) {
 				.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
 				.image = workspace.Cloud_target.handle,
 				.subresourceRange = whole_image,
-			};
+			
+			},
+		};
 
-			vkCmdPipelineBarrier(
-				workspace.command_buffer, //commandBuffer
-				VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, //srcStageMask
-				VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, //dstStageMask
-				0, //dependencyFlags
-				0, nullptr, //memory barrier count, pointer
-				0, nullptr, //buffer memory barrier count, pointer
-				1, &barrier //image memory barrier count, pointer
-			);
-		}
+		vkCmdPipelineBarrier(
+			workspace.command_buffer, //commandBuffer
+			VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, //srcStageMask
+			VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, //dstStageMask
+			0, //dependencyFlags
+			0, nullptr, //memory barrier count, pointer
+			0, nullptr, //buffer memory barrier count, pointer
+			uint32_t(target_barriers.size()), target_barriers.data() //image memory barrier count, pointer
+		);
 
-		{
-			VkDescriptorImageInfo Cloud_target_info{
-				.sampler = texture_sampler,
-				.imageView = workspace.Cloud_target_view,
-				.imageLayout = VK_IMAGE_LAYOUT_GENERAL,
-			};
+		
 
-			std::array< VkWriteDescriptorSet, 1 > writes{
-				VkWriteDescriptorSet{
-					.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-					.dstSet = workspace.Cloud_World_descriptors,
-					.dstBinding = 0,
-					.dstArrayElement = 0,
-					.descriptorCount = 1,
-					.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
-					.pImageInfo = &Cloud_target_info,
-				}
-			};
+		vkCmdBindPipeline(workspace.command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, cloud_pipeline.handle);
 
-			vkUpdateDescriptorSets(
-				rtg.device, //device
-				uint32_t(writes.size()), //descriptorWriteCount
-				writes.data(), //pDescriptorWrites
-				0, //descriptorCopyCount
-				nullptr //pDescriptorCopies
-			);
-		}
 		vkCmdBindDescriptorSets(
 			workspace.command_buffer, //command buffer
 			VK_PIPELINE_BIND_POINT_COMPUTE, //pipeline bind point
@@ -2326,14 +2500,6 @@ void RTGRenderer::render(RTG &rtg_, RTG::RenderParams const &render_params) {
 			0, nullptr //dynamic offsets count, ptr
 		);
 
-		vkCmdBindDescriptorSets(
-			workspace.command_buffer, //command buffer
-			VK_PIPELINE_BIND_POINT_COMPUTE, //pipeline bind point
-			cloud_pipeline.layout, //pipeline layout
-			1, //second set
-			1, &Cloud_descriptors, //descriptor sets count, ptr
-			0, nullptr //dynamic offsets count, ptr
-		);
 		const glm::ivec2 swapchain_dimensions(swapchain_depth_image.extent.width, swapchain_depth_image.extent.height);
 
 		uint32_t groups_x = (swapchain_dimensions.x + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE;
@@ -2346,7 +2512,7 @@ void RTGRenderer::render(RTG &rtg_, RTG::RenderParams const &render_params) {
 		);
 	}
 	
-	{
+	{ // transfer to swapchain
 		VkExtent3D image_extent = { workspace.Cloud_target.extent.width, workspace.Cloud_target.extent.height, 1 };
 		VkImageMemoryBarrier barriers[2] = {
 			// Barrier for compute storage image
@@ -3176,7 +3342,7 @@ void RTGRenderer::on_input(InputEvent const &event) {
 			upside_down = (int((abs(cam.elevation) + float(M_PI) / 2) / float(M_PI)) % 2 == 1);
 			break;
 		case InputEvent::Type::MouseWheel:
-			cam.radius = std::max(cam.radius - event.wheel.y*0.5f, 0.001f);
+			cam.radius = std::max(cam.radius - event.wheel.y*25.0f, 0.001f);
 			update_camera = true;
 			break;
 	}
