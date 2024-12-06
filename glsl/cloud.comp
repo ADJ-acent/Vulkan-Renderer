@@ -104,7 +104,7 @@ float GetFractionFromValue(float inValue, float inMin, float inMax) {
 float GetUprezzedVoxelCloudDensity(CloudRenderingRaymarchInfo inRaymarchInfo, vec3 inSamplePos, float inDimensionalProfile, float inType, float inDensityScale, float inMipLevel, bool inHFDetails)
 {
     // Step1-Apply wind offset
-    //inSamplePos -= vec3(world_info.CLOUD_OFFSET.x, world_info.CLOUD_OFFSET.y, 0.0) * world_info.TIME * 0.01;
+    inSamplePos -= vec3(world_info.CLOUD_OFFSET.x, world_info.CLOUD_OFFSET.y, 0.0) * world_info.TIME * 0.02;
 
     // Step2-Sample noise
     // float mipmap_level = GetVoxelCloudMipLevel(inRaymarchInfo, inMipLevel);
