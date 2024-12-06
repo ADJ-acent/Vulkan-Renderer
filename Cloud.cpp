@@ -6,7 +6,7 @@
 
 namespace Cloud {
     Helpers::AllocatedImage3D Cloud::load_noise(RTG &rtg) {
-        std::vector<unsigned char*> images(noise_count);
+        std::vector<float*> images(noise_count);
         uint32_t width = 0, height = 0;
         for (uint16_t i = 0; i < noise_count; ++i) {
             char buffer[4];
@@ -17,7 +17,7 @@ namespace Cloud {
             }
             
             int x, y, comp;
-            images[i] = static_cast<unsigned char*>(stbi_load((noise_path + number + ".tga").c_str(), &x, &y, &comp, 0));
+            images[i] = stbi_loadf((noise_path + number + ".tga").c_str(), &x, &y, &comp, 0);
             assert(comp == 4);
             assert(images[i] != NULL);
             if (width == 0 && height == 0) {
@@ -30,22 +30,22 @@ namespace Cloud {
         }
         uint32_t image_size = width * height * 4;
         uint32_t total_image_size = image_size * noise_count;
-        std::vector<unsigned char> merged_images(total_image_size);
+        std::vector<float> merged_images(total_image_size);
         for (size_t i = 0; i < noise_count; ++i) {
-            std::memcpy(merged_images.data() + i * image_size, images[i], image_size);
+            std::memcpy(merged_images.data() + i * image_size, images[i], image_size * 4);
         }
         
         Helpers::AllocatedImage3D noise = rtg.helpers.create_image_3D(
 			VkExtent3D{ .width = uint32_t(width), .height = uint32_t(height), .depth = uint32_t(noise_count) }, // size of each face
-			VK_FORMAT_R8G8B8A8_UNORM,
+			VK_FORMAT_R32G32B32A32_SFLOAT,
 			VK_IMAGE_TILING_OPTIMAL,
 			VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
 			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
 			Helpers::Unmapped
 		);
-        rtg.helpers.transfer_to_image_3D(merged_images.data(), total_image_size, noise);
+        rtg.helpers.transfer_to_image_3D(merged_images.data(), merged_images.size() * sizeof(merged_images[0]), noise);
         
-        for (unsigned char* image : images) {
+        for (float* image : images) {
             stbi_image_free(image);
         }
         return noise;
