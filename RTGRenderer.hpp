@@ -230,6 +230,9 @@ struct RTGRenderer : RTG::Application {
 			glm::vec3 CAMERA_POSITION;
 			float HALF_TAN_FOV;
 			float ASPECT_RATIO;
+			float TIME;
+			glm::vec2 CLOUD_OFFSET;
+			int CLOUD_TYPE;
 		};
 
 		//types for descriptors same as objects pipeline
@@ -338,6 +341,7 @@ struct RTGRenderer : RTG::Application {
 	Helpers::AllocatedImage3D Cloud_noise;
 	VkImageView Cloud_noise_view;
 	VkSampler cloud_sampler; // 3D Image Sampler
+	VkSampler noise_3D_sampler;
 	std::vector<Cloud::NVDF> Clouds_NVDFs;
 
 	VkDescriptorSet Cloud_descriptors; // for static voxel data

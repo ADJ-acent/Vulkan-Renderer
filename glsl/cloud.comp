@@ -23,7 +23,9 @@ layout(set = 0, binding = 1,std140) uniform World {
     vec3 CAMERA_POSITION;
     float HALF_TAN_FOV;
     float ASPECT_RATIO;
-    int cloud_type;
+    float TIME;
+    vec2 CLOUD_OFFSET;
+    int CLOUD_TYPE;
 } world_info;
 
 layout(set = 0, binding = 2) uniform sampler3D lightGrid;
@@ -89,9 +91,9 @@ float ValueRemap(float inValue, float inOldMin, float inOldMax, float inMin, flo
 
 float ValueErosion(float inValue, float inOldMin) {
     // derrived from Set-Range, this function uses the oldMin to erode or inflate the input value. - inValues inflate while + inValues erode
-    float old_min_max_range = (1.0 - inOldMin);
+    float old_min_max_range = 1.0 - inOldMin;
     float clamped_normalized = clamp((inValue - inOldMin) / old_min_max_range, 0, 1);
-    return (clamped_normalized);
+    return clamped_normalized;
 }
 
 float GetFractionFromValue(float inValue, float inMin, float inMax) {
@@ -102,11 +104,11 @@ float GetFractionFromValue(float inValue, float inMin, float inMax) {
 float GetUprezzedVoxelCloudDensity(CloudRenderingRaymarchInfo inRaymarchInfo, vec3 inSamplePos, float inDimensionalProfile, float inType, float inDensityScale, float inMipLevel, bool inHFDetails)
 {
     // Step1-Apply wind offset
-    // inSamplePos -= vec3(CLOUD_WIND_OFFSET.x, CLOUD_WIND_OFFSET.y, 0.0) * uiParam.animate_speed * time.totalTime;
+    //inSamplePos -= vec3(world_info.CLOUD_OFFSET.x, world_info.CLOUD_OFFSET.y, 0.0) * world_info.TIME * 0.01;
 
     // Step2-Sample noise
     // float mipmap_level = GetVoxelCloudMipLevel(inRaymarchInfo, inMipLevel);
-    // R��Low Freq "Curl-Alligator", G:High Freq "Curl-Alligator", B:Low Freq "Alligator", A: High Freq "Alligator"
+    // R: Low Freq "Curl-Alligator", G:High Freq "Curl-Alligator", B:Low Freq "Alligator", A: High Freq "Alligator"
 
     vec4 noise = texture(cloudNoiseTexture, inSamplePos); // TODO: check freq
 
@@ -200,7 +202,7 @@ Ray GenerateRay(vec2 uv) {
 VoxelCloudModelingData GetVoxelCloudModelingData(vec3 inSamplePosition, float inMipLevel) {
     VoxelCloudModelingData modeling_data;
     vec4 Modeling_NVDF;
-    if (true) {
+    if (world_info.CLOUD_TYPE == 0) {
         Modeling_NVDF.rgb = texture(modelingParkourTexture, inSamplePosition).rgb;
         Modeling_NVDF.a = texture(fieldParkourTexture, inSamplePosition).r;
 	} else {
@@ -412,7 +414,7 @@ void RaymarchVoxelClouds(Ray ray, vec3 lightDir, inout CloudRenderingPixelData i
         raymarch_info.mCloudDistance = modeling_data.mSdf; // raymarch_info.mCloudDistance = GetVoxelCloudDistance(sample_position);
 
         // Max SDF and Step Size
-        raymarch_info.mStepSize = max(raymarch_info.mCloudDistance/2, adaptive_step_size);
+        raymarch_info.mStepSize = max(raymarch_info.mCloudDistance * 0.6, adaptive_step_size);
         
         if (sample_coord.x >= 0.0 && sample_coord.x <= 1.0 && sample_coord.y >= 0.0 && sample_coord.y <= 1.0 && sample_coord.z >= 0.0 && sample_coord.z <= 1.0) { 
                     
