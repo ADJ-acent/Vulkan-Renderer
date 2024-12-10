@@ -12,7 +12,7 @@ void RTGRenderer::CloudLightGirdPipeline::create(RTG &rtg) {
     VkShaderModule comp_module = rtg.helpers.create_shader_module(comp_code);
 
     {//the set0_World layout holds the output image and world information
-		std::array<VkDescriptorSetLayoutBinding, 3> bindings{
+		std::array<VkDescriptorSetLayoutBinding, 5> bindings{
 			VkDescriptorSetLayoutBinding{
 				.binding = 0,
 				.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
@@ -28,6 +28,18 @@ void RTGRenderer::CloudLightGirdPipeline::create(RTG &rtg) {
 			VkDescriptorSetLayoutBinding{
 				.binding = 2,
 				.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+				.descriptorCount = 1,
+				.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT
+			},
+			VkDescriptorSetLayoutBinding{ // render pass image
+				.binding = 3,
+				.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
+				.descriptorCount = 1,
+				.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT
+			},
+			VkDescriptorSetLayoutBinding{ // render pass depth
+				.binding = 4,
+				.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
 				.descriptorCount = 1,
 				.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT
 			},

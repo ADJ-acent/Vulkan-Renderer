@@ -1,5 +1,7 @@
 #version 450
 
+#extension GL_EXT_samplerless_texture_functions : require
+
 //referenced https://github.com/YueZhang1027/CIS5650-Final-Project-Frostnova/tree/main
 
 #define WORKGROUP_SIZE 32
@@ -9,6 +11,7 @@
 #define PI 3.14159265
 #define ONE_OVER_FOURPI 0.07957747154594767
 #define DENSITY_SCALE 0.01
+#define INFINITY 1.0 / 0.0
 
 #define transmittance_limit 0.01
 
@@ -21,14 +24,19 @@ layout(set = 0, binding = 0, rgba32f) uniform image2D targetImage;
 layout(set = 0, binding = 1,std140) uniform World {
     mat4 VIEW_FROM_WORLD; // view
     vec3 CAMERA_POSITION;
+    float CAMERA_NEAR;
+    float CAMERA_FAR;
     float HALF_TAN_FOV;
     float ASPECT_RATIO;
     float TIME;
     vec2 CLOUD_OFFSET;
-    int CLOUD_TYPE;
 } world_info;
 
 layout(set = 0, binding = 2) uniform sampler3D lightGrid;
+
+layout(set = 0, binding = 3) uniform texture2D renderPassImage;
+
+layout(set = 0, binding = 4) uniform texture2D renderPassDepth;
 
 layout(set = 1, binding = 0) uniform sampler3D modelingTexture;
 
@@ -77,6 +85,12 @@ struct Intersection {
     vec3 mPoint;
     float mTime;
 };
+
+float DepthToViewDistance(float depth) {
+    float z_ndc = depth * 2.0 - 1.0; // Convert [0, 1] depth to NDC [-1, 1]
+    float z_view = (2.0 * world_info.CAMERA_NEAR * world_info.CAMERA_FAR) / (world_info.CAMERA_FAR + world_info.CAMERA_NEAR - z_ndc * (world_info.CAMERA_FAR - world_info.CAMERA_NEAR));
+    return z_view;
+}
 
 
 float ValueRemap(float inValue, float inOldMin, float inOldMax, float inMin, float inMax) {
@@ -209,7 +223,7 @@ VoxelCloudModelingData GetVoxelCloudModelingData(vec3 inSamplePosition, float in
 }
 
 // determine the range of the ray march
-void SetRaymarchLimit(Ray ray, inout CloudRenderingRaymarchInfo raymarch_info) {
+void SetRaymarchLimit(Ray ray, inout CloudRenderingRaymarchInfo raymarch_info, float viewDistance) {
     float tmin = 4096.0f, tmax = -4096.0f;
 
     if (ray.mOrigin.x >= VOXEL_BOUND_MIN.x && ray.mOrigin.x <= VOXEL_BOUND_MAX.x && 
@@ -268,6 +282,8 @@ void SetRaymarchLimit(Ray ray, inout CloudRenderingRaymarchInfo raymarch_info) {
 			tmax = max(tmax, t2);
 		}
 	}
+
+    tmax = min(tmax, viewDistance);
 
     raymarch_info.mLimit = vec2(tmin, tmax);
     raymarch_info.mDistance = raymarch_info.mLimit.x;
@@ -385,12 +401,14 @@ void IntegrateLightEnergy(CloudRenderingRaymarchInfo inRaymarchInfo, VoxelCloudM
 }
 
 
-void RaymarchVoxelClouds(Ray ray, vec3 lightDir, inout CloudRenderingPixelData ioPixelData) {
+void RaymarchVoxelClouds(Ray ray, vec3 lightDir, inout CloudRenderingPixelData ioPixelData, ivec2 pixel) {
     CloudRenderingRaymarchInfo raymarch_info;
     raymarch_info.mDistance = 0.0;
 
+    float depthValue = texelFetch(renderPassDepth, pixel, 0).r;
+    float viewDistance = (depthValue == 1.0) ? INFINITY : DepthToViewDistance(depthValue);
     // Intersect with bounding box
-    SetRaymarchLimit(ray, raymarch_info);
+    SetRaymarchLimit(ray, raymarch_info, viewDistance);
 
     float cos_angle = dot(ray.mDirection, lightDir);
     while (ioPixelData.mTransmittance > transmittance_limit &&
@@ -452,9 +470,9 @@ void main()
     
 
     // Raymarch
-    RaymarchVoxelClouds(ray, sunDir, ioPixelData);  
+    RaymarchVoxelClouds(ray, sunDir, ioPixelData, pixel);  
 
-    vec3 bgColor = vec3(0.0,0.0,0.0);
+    vec3 bgColor = texelFetch(renderPassImage, pixel, 0).rgb;
     vec3 cloudColor = vec3(0.3,0.3,0.6) * vec3(max(0.0, ioPixelData.mTransmittance));
     vec4 finalColor = vec4(mix(bgColor, cloudColor, (1 - ioPixelData.mAlpha)), 1.0f);
 

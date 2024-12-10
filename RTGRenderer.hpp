@@ -228,11 +228,12 @@ struct RTGRenderer : RTG::Application {
 		struct CloudWorld {
 			glm::mat4x4 VIEW_FROM_WORLD;
 			glm::vec3 CAMERA_POSITION;
+			float CAMERA_NEAR;
+    		float CAMERA_FAR;
 			float HALF_TAN_FOV;
 			float ASPECT_RATIO;
 			float TIME;
 			glm::vec2 CLOUD_ANIMATE_OFFSET;
-			int CLOUD_TYPE;
 		};
 
 		//types for descriptors same as objects pipeline

@@ -39,6 +39,13 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_), s
 		VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT
 	);
 
+	//TODO: transition to right format (VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL) for headless
+	VkImageLayout color_final_layout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+
+	if (scene.has_cloud) {
+		color_final_layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+	}
+
 	{ //create render pass
 		std::array<VkAttachmentDescription, 2> attachments{
 			VkAttachmentDescription{//0 - color attachment:
@@ -49,13 +56,13 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_), s
 				.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
 				.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
 				.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
-				.finalLayout = rtg.configuration.headless_mode ? VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL : VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+				.finalLayout = color_final_layout, // rtg.configuration.headless_mode ? VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL : VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
 			},
 			VkAttachmentDescription{//1 - depth attachment:
 				.format = depth_format,
 				.samples = VK_SAMPLE_COUNT_1_BIT,
 				.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
-				.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
+				.storeOp = VK_ATTACHMENT_STORE_OP_STORE,
 				.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
 				.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
 				.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
@@ -1362,6 +1369,8 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_), s
 			
 			cloud_world.CAMERA_POSITION = {x, y, z};
 			cloud_world.HALF_TAN_FOV = tanf(60.0f * float(M_PI) / 360.0f);
+			cloud_world.CAMERA_FAR = 1000.0f;
+			cloud_world.CAMERA_NEAR = 0.1f;
 			cloud_world.ASPECT_RATIO = rtg.swapchain_extent.width / float(rtg.swapchain_extent.height);
 
 			view_camera = InSceneCamera::UserCamera;
@@ -1401,6 +1410,8 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_), s
 
 			CLIP_FROM_WORLD = clip_from_view[0] * view_from_world[0];
 			cloud_world.HALF_TAN_FOV = tanf(cur_camera.vfov * 0.5f);
+			cloud_world.CAMERA_FAR = cur_camera.far;
+			cloud_world.CAMERA_NEAR = cur_camera.near;
 			cloud_world.CAMERA_POSITION = eye;
 			cloud_world.ASPECT_RATIO = rtg.swapchain_extent.width / float(rtg.swapchain_extent.height);
 
@@ -1638,7 +1649,7 @@ void RTGRenderer::on_swapchain(RTG &rtg_, RTG::SwapchainEvent const &swapchain) 
 		swapchain.extent,
 		depth_format,
 		VK_IMAGE_TILING_OPTIMAL,
-		VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
+		VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
 		VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
 		Helpers::Unmapped
 	);
@@ -2386,6 +2397,14 @@ void RTGRenderer::render(RTG &rtg_, RTG::RenderParams const &render_params) {
 			.baseArrayLayer = 0,
 			.layerCount = 1,
 		};
+
+		VkImageSubresourceRange whole_image_depth{
+			.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT,
+			.baseMipLevel = 0,
+			.levelCount = 1,
+			.baseArrayLayer = 0,
+			.layerCount = 1,
+		};
 		{ // cloud light grid
 			vkCmdBindPipeline(workspace.command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, cloud_lightgrid_pipeline.handle);
 
@@ -2443,26 +2462,86 @@ void RTGRenderer::render(RTG &rtg_, RTG::RenderParams const &render_params) {
 			);
 		}
 
+		{// transfer depth image to desired format
+			std::array<VkImageMemoryBarrier, 1> barriers{
+				VkImageMemoryBarrier{
+					.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+					.srcAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+					.dstAccessMask = VK_ACCESS_SHADER_READ_BIT,
+					.oldLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+					.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+					.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+					.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+					.image = swapchain_depth_image.handle,
+					.subresourceRange = whole_image_depth,
+				},
+			};
+
+			vkCmdPipelineBarrier(
+				workspace.command_buffer, //commandBuffer
+				VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT, //srcStageMask
+				VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, //dstStageMask
+				0, //dependencyFlags
+				0, nullptr, //memory barrier count, pointer
+				0, nullptr, //buffer memory barrier count, pointer
+				uint32_t(barriers.size()), barriers.data() //image memory barrier count, pointer
+			);
+		}
+
 		VkDescriptorImageInfo Cloud_target_info{
 			.sampler = texture_sampler,
 			.imageView = workspace.Cloud_target_view,
 			.imageLayout = VK_IMAGE_LAYOUT_GENERAL,
 		};
 
-		VkWriteDescriptorSet write = VkWriteDescriptorSet{
-			.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-			.dstSet = workspace.Cloud_World_descriptors,
-			.dstBinding = 0,
-			.dstArrayElement = 0,
-			.descriptorCount = 1,
-			.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
-			.pImageInfo = &Cloud_target_info,
+		VkDescriptorImageInfo render_pass_image_info{
+			.sampler = VK_NULL_HANDLE,
+			.imageView = rtg.swapchain_image_views[render_params.image_index],
+			.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+		};
+
+		VkDescriptorImageInfo render_pass_depth_image_info{
+			.sampler = VK_NULL_HANDLE,
+			.imageView = swapchain_depth_image_view,
+			.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+		};
+
+		std::array<VkWriteDescriptorSet, 3> writes = {
+
+			VkWriteDescriptorSet{
+				.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+				.dstSet = workspace.Cloud_World_descriptors,
+				.dstBinding = 0,
+				.dstArrayElement = 0,
+				.descriptorCount = 1,
+				.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+				.pImageInfo = &Cloud_target_info,
+			},
+			VkWriteDescriptorSet{
+				.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+				.dstSet = workspace.Cloud_World_descriptors,
+				.dstBinding = 3,
+				.dstArrayElement = 0,
+				.descriptorCount = 1,
+				.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
+				.pImageInfo = &render_pass_image_info,
+			},
+			VkWriteDescriptorSet{
+				.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+				.dstSet = workspace.Cloud_World_descriptors,
+				.dstBinding = 4,
+				.dstArrayElement = 0,
+				.descriptorCount = 1,
+				.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
+				.pImageInfo = &render_pass_depth_image_info,
+			},
+
 		};
 
 		vkUpdateDescriptorSets(
 			rtg.device, //device
-			1, //descriptorWriteCount
-			&write, //pDescriptorWrites
+			uint32_t(writes.size()), //descriptorWriteCount
+			writes.data(), //pDescriptorWrites
 			0, //descriptorCopyCount
 			nullptr //pDescriptorCopies
 		);
@@ -2735,6 +2814,8 @@ void RTGRenderer::update(float dt) {
 			world.CAMERA_POSITION = eye;
 			cloud_world.CAMERA_POSITION = eye;
 			cloud_world.HALF_TAN_FOV = tanf(cur_camera.vfov * 0.5f);
+			cloud_world.CAMERA_FAR = cur_camera.far;
+			cloud_world.CAMERA_NEAR = cur_camera.near;
 			cloud_world.ASPECT_RATIO = cur_camera.aspect;
 		}
 
@@ -2756,6 +2837,8 @@ void RTGRenderer::update(float dt) {
 			last_aspect = float(rtg.swapchain_extent.width) / float(rtg.swapchain_extent.height);
 
 			cloud_world.HALF_TAN_FOV = tanf(60.0f * float(M_PI) / 360.0f);
+			cloud_world.CAMERA_FAR = 1000.0f;
+			cloud_world.CAMERA_NEAR = 0.1f;
 			cloud_world.ASPECT_RATIO = last_aspect;
 		}
 
@@ -3263,7 +3346,6 @@ void RTGRenderer::update(float dt) {
 		cloud_world.VIEW_FROM_WORLD = view_from_world[view_camera];
 		cloud_world.TIME += dt;
 		cloud_world.CLOUD_ANIMATE_OFFSET = glm::vec2(1);
-		cloud_world.CLOUD_TYPE = 1;
 	}
 
 }

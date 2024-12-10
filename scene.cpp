@@ -844,7 +844,7 @@ void Scene::load(std::string filename, std::optional<std::string> requested_came
 
     // remove later
     cloud = new Cloud;
-    cloud->cloud_type = Cloud::CloudType::PARKOUR;
+    cloud->cloud_type = Cloud::CloudType::STORMBIRD ;
     if (cloud != nullptr && cloud->cloud_type != Cloud::CloudType::NONE) {
         has_cloud = true;
     }
