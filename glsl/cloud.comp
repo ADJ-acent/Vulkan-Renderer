@@ -30,15 +30,11 @@ layout(set = 0, binding = 1,std140) uniform World {
 
 layout(set = 0, binding = 2) uniform sampler3D lightGrid;
 
-layout(set = 1, binding = 0) uniform sampler3D modelingParkourTexture;
+layout(set = 1, binding = 0) uniform sampler3D modelingTexture;
 
-layout(set = 1, binding = 1) uniform sampler3D fieldParkourTexture;
+layout(set = 1, binding = 1) uniform sampler3D fieldTexture;
 
-layout(set = 1, binding = 2) uniform sampler3D modelingStormbirdTexture;
-
-layout(set = 1, binding = 3) uniform sampler3D fieldStormbirdTexture;
-
-layout(set = 1, binding = 4) uniform sampler3D cloudNoiseTexture;
+layout(set = 1, binding = 2) uniform sampler3D cloudNoiseTexture;
 
 // structs
 struct VoxelCloudModelingData {
@@ -200,13 +196,10 @@ Ray GenerateRay(vec2 uv) {
 VoxelCloudModelingData GetVoxelCloudModelingData(vec3 inSamplePosition, float inMipLevel) {
     VoxelCloudModelingData modeling_data;
     vec4 Modeling_NVDF;
-    if (world_info.CLOUD_TYPE == 0) {
-        Modeling_NVDF.rgb = texture(modelingParkourTexture, inSamplePosition).rgb;
-        Modeling_NVDF.a = texture(fieldParkourTexture, inSamplePosition).r;
-	} else {
-		Modeling_NVDF.rgb = texture(modelingStormbirdTexture, inSamplePosition).rgb;
-        Modeling_NVDF.a = texture(fieldStormbirdTexture, inSamplePosition).r;
-    }
+
+    Modeling_NVDF.rgb = texture(modelingTexture, inSamplePosition).rgb;
+    Modeling_NVDF.a = texture(fieldTexture, inSamplePosition).r;
+	
     modeling_data.mDimensionalProfile = Modeling_NVDF.r;
     modeling_data.mDetailType = Modeling_NVDF.g;
     modeling_data.mDensityScale = Modeling_NVDF.b;

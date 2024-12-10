@@ -199,7 +199,7 @@ void Scene::load(std::string filename, std::optional<std::string> requested_came
                 cloud = new Cloud();
 
                 if (auto folder_path_res = object_i.find("folderPath"); folder_path_res != object_i.end()) {
-                    
+
                 }
                 else if (auto preset_cloud_res = object_i.find("presetCloud"); preset_cloud_res != object_i.end()) {
 
@@ -840,6 +840,13 @@ void Scene::load(std::string filename, std::optional<std::string> requested_came
     }
     if (requested_camera_index == -1) {
         requested_camera_index = 0;
+    }
+
+    // remove later
+    cloud = new Cloud;
+    cloud->cloud_type = Cloud::CloudType::PARKOUR;
+    if (cloud != nullptr && cloud->cloud_type != Cloud::CloudType::NONE) {
+        has_cloud = true;
     }
 
     debug();

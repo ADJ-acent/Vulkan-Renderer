@@ -26,25 +26,15 @@ layout (set = 0, binding = 1,std140) uniform World {
 // G: Detail Type
 // B: Density Scale
 // A: SDF
-layout(set = 1, binding = 0) uniform sampler3D modelingParkourTexture;
-
-layout(set = 1, binding = 1) uniform sampler3D fieldParkourTexture;
-
-layout(set = 1, binding = 2) uniform sampler3D modelingStormbirdTexture;
-
-layout(set = 1, binding = 3) uniform sampler3D fieldStormbirdTexture;
-
+layout(set = 1, binding = 0) uniform sampler3D modelingTexture;
 
 float GetVoxelCloudProfileDensity(vec3 coord) {
 
     vec3 inSamplePosition = vec3(coord.x/X_SIZE, coord.y/X_SIZE, coord.z/Z_SIZE);
 
     vec3 NVDF;
-    if (world_info.CLOUD_TYPE == 0) {
-        NVDF = texture(modelingParkourTexture, inSamplePosition).rgb;
-	} else {
-		NVDF = texture(modelingStormbirdTexture, inSamplePosition).rgb;
-    }
+
+    NVDF = texture(modelingTexture, inSamplePosition).rgb;
     float dimensionalProfile = NVDF.r;
     float densityScale = NVDF.b;
 

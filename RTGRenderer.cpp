@@ -250,12 +250,20 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_), s
 	cloud_pipeline.create(rtg);
 	cloud_lightgrid_pipeline.create(rtg);
 
-	{//cloud resources
+	if (scene.has_cloud) {//cloud resources
 		{// lodad cloud voxel data as 3D images
+		
 			Cloud_noise = Cloud::load_noise(rtg);
-			Clouds_NVDFs.clear();
-			Clouds_NVDFs.push_back(Cloud::load_cloud(rtg, std::string("../resource/NubisVoxelCloudsPack/NVDFs/Examples/ParkouringCloud/TGA/")));
-			Clouds_NVDFs.push_back(Cloud::load_cloud(rtg, std::string("../resource/NubisVoxelCloudsPack/NVDFs/Examples/StormbirdCloud/TGA/")));
+			if (scene.cloud->cloud_type == Scene::Cloud::CloudType::PARKOUR) {
+
+				Clouds_NVDF = Cloud::load_cloud(rtg, std::string("../resource/NubisVoxelCloudsPack/NVDFs/Examples/ParkouringCloud/TGA/"));
+			}
+			else if (scene.cloud->cloud_type == Scene::Cloud::CloudType::STORMBIRD) {
+				Clouds_NVDF = Cloud::load_cloud(rtg, std::string("../resource/NubisVoxelCloudsPack/NVDFs/Examples/StormbirdCloud/TGA/"));
+			}
+			else {
+				Clouds_NVDF = Cloud::load_cloud(rtg, scene.cloud->folder_path);
+			}
 		}
 
 		{//make image view for voxel datas
@@ -278,43 +286,42 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_), s
 
 			VK(vkCreateImageView(rtg.device, &create_info, nullptr, &Cloud_noise_view));
 
-			for (Cloud::NVDF& cloud_nvdf : Clouds_NVDFs) {
-				VkImageViewCreateInfo field_view_create_info{
-					.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
-					.flags = 0,
-					.image = cloud_nvdf.field_data.handle,
-					.viewType = VK_IMAGE_VIEW_TYPE_3D,
-					.format = cloud_nvdf.field_data.format,
-					// .components sets swizzling and is fine when zero-initialized
-					.subresourceRange{
-						.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
-						.baseMipLevel = 0,
-						.levelCount = 1,
-						.baseArrayLayer = 0,
-						.layerCount = 1,
-					},
-				};
+			VkImageViewCreateInfo field_view_create_info{
+				.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+				.flags = 0,
+				.image = Clouds_NVDF.field_data.handle,
+				.viewType = VK_IMAGE_VIEW_TYPE_3D,
+				.format = Clouds_NVDF.field_data.format,
+				// .components sets swizzling and is fine when zero-initialized
+				.subresourceRange{
+					.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+					.baseMipLevel = 0,
+					.levelCount = 1,
+					.baseArrayLayer = 0,
+					.layerCount = 1,
+				},
+			};
 
-				VK(vkCreateImageView(rtg.device, &field_view_create_info, nullptr, &cloud_nvdf.field_data_view));
+			VK(vkCreateImageView(rtg.device, &field_view_create_info, nullptr, &Clouds_NVDF.field_data_view));
 
-				VkImageViewCreateInfo model_view_create_info{
-					.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
-					.flags = 0,
-					.image = cloud_nvdf.modeling_data.handle,
-					.viewType = VK_IMAGE_VIEW_TYPE_3D,
-					.format = cloud_nvdf.modeling_data.format,
-					// .components sets swizzling and is fine when zero-initialized
-					.subresourceRange{
-						.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
-						.baseMipLevel = 0,
-						.levelCount = 1,
-						.baseArrayLayer = 0,
-						.layerCount = 1,
-					},
-				};
+			VkImageViewCreateInfo model_view_create_info{
+				.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+				.flags = 0,
+				.image = Clouds_NVDF.modeling_data.handle,
+				.viewType = VK_IMAGE_VIEW_TYPE_3D,
+				.format = Clouds_NVDF.modeling_data.format,
+				// .components sets swizzling and is fine when zero-initialized
+				.subresourceRange{
+					.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+					.baseMipLevel = 0,
+					.levelCount = 1,
+					.baseArrayLayer = 0,
+					.layerCount = 1,
+				},
+			};
 
-				VK(vkCreateImageView(rtg.device, &model_view_create_info, nullptr, &cloud_nvdf.modeling_data_view));
-			}
+			VK(vkCreateImageView(rtg.device, &model_view_create_info, nullptr, &Clouds_NVDF.modeling_data_view));
+			
 		}
 
 		{//make a sampler for clouds
@@ -591,7 +598,7 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_), s
 		VK(vkCreateDescriptorPool(rtg.device, &create_info, nullptr, &descriptor_pool));
 	}
 
-	{ //allocate descriptor sets for Cloud descriptor
+	if (scene.has_cloud) { //allocate descriptor sets for Cloud descriptor
 		VkDescriptorSetAllocateInfo alloc_info{
 			.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
 			.descriptorPool = descriptor_pool,
@@ -600,28 +607,15 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_), s
 		};
 
 		VK(vkAllocateDescriptorSets(rtg.device, &alloc_info, &Cloud_descriptors));
-		assert(Clouds_NVDFs.size() >= 2);
-		VkDescriptorImageInfo Cloud_Model_Parkour_info{
+		VkDescriptorImageInfo Cloud_Model_info{
 			.sampler = cloud_sampler,
-			.imageView = Clouds_NVDFs[0].modeling_data_view,
+			.imageView = Clouds_NVDF.modeling_data_view,
 			.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
 		};
 
-		VkDescriptorImageInfo Cloud_Field_Parkour_info{
+		VkDescriptorImageInfo Cloud_Field_info{
 			.sampler = cloud_sampler,
-			.imageView = Clouds_NVDFs[0].field_data_view,
-			.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-		};
-
-		VkDescriptorImageInfo Cloud_Model_Stormbird_info{
-			.sampler = cloud_sampler,
-			.imageView = Clouds_NVDFs[1].modeling_data_view,
-			.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-		};
-
-		VkDescriptorImageInfo Cloud_Field_Stormbird_info{
-			.sampler = cloud_sampler,
-			.imageView = Clouds_NVDFs[1].field_data_view,
+			.imageView = Clouds_NVDF.field_data_view,
 			.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
 		};
 
@@ -631,7 +625,7 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_), s
 			.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
 		};
 
-		std::array< VkWriteDescriptorSet, 5 > writes{
+		std::array< VkWriteDescriptorSet, 3 > writes{
 			VkWriteDescriptorSet{
 				.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
 				.dstSet = Cloud_descriptors,
@@ -639,7 +633,7 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_), s
 				.dstArrayElement = 0,
 				.descriptorCount = 1,
 				.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-				.pImageInfo = &Cloud_Model_Parkour_info,
+				.pImageInfo = &Cloud_Model_info,
 			},
 
 			VkWriteDescriptorSet{
@@ -649,33 +643,13 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_), s
 				.dstArrayElement = 0,
 				.descriptorCount = 1,
 				.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-				.pImageInfo = &Cloud_Field_Parkour_info,
+				.pImageInfo = &Cloud_Field_info,
 			},
 
 			VkWriteDescriptorSet{
 				.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
 				.dstSet = Cloud_descriptors,
 				.dstBinding = 2,
-				.dstArrayElement = 0,
-				.descriptorCount = 1,
-				.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-				.pImageInfo = &Cloud_Model_Stormbird_info,
-			},
-
-			VkWriteDescriptorSet{
-				.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-				.dstSet = Cloud_descriptors,
-				.dstBinding = 3,
-				.dstArrayElement = 0,
-				.descriptorCount = 1,
-				.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-				.pImageInfo = &Cloud_Field_Stormbird_info,
-			},
-
-			VkWriteDescriptorSet{
-				.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-				.dstSet = Cloud_descriptors,
-				.dstBinding = 4,
 				.dstArrayElement = 0,
 				.descriptorCount = 1,
 				.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
@@ -909,25 +883,7 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_), s
 				.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
 			};
 
-			VkDescriptorBufferInfo Cloud_World_info{
-				.buffer = workspace.Cloud_World.handle,
-				.offset = 0,
-				.range = workspace.Cloud_World.size,
-			};
-
-			VkDescriptorImageInfo Cloud_lightgrid_info{
-				.sampler = cloud_sampler,
-				.imageView = workspace.Cloud_lightgrid_view,
-				.imageLayout = VK_IMAGE_LAYOUT_GENERAL,
-			};
-
-			VkDescriptorImageInfo Cloud_lightgrid_sample_info{
-				.sampler = cloud_sampler,
-				.imageView = workspace.Cloud_lightgrid_view,
-				.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-			};
-
-			std::array< VkWriteDescriptorSet, 12 > writes{
+			std::array< VkWriteDescriptorSet, 8 > writes{
 				VkWriteDescriptorSet{
 					.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
 					.dstSet = workspace.Camera_descriptors,
@@ -1007,6 +963,37 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_), s
 					.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
 					.pImageInfo = &ShadowAtlas_info,
 				},
+			};
+
+			vkUpdateDescriptorSets(
+				rtg.device, //device
+				uint32_t(writes.size()), //descriptorWriteCount
+				writes.data(), //pDescriptorWrites
+				0, //descriptorCopyCount
+				nullptr //pDescriptorCopies
+			);
+		}
+
+		if (scene.has_cloud) {// update cloud descriptors
+			VkDescriptorBufferInfo Cloud_World_info{
+				.buffer = workspace.Cloud_World.handle,
+				.offset = 0,
+				.range = workspace.Cloud_World.size,
+			};
+
+			VkDescriptorImageInfo Cloud_lightgrid_info{
+				.sampler = cloud_sampler,
+				.imageView = workspace.Cloud_lightgrid_view,
+				.imageLayout = VK_IMAGE_LAYOUT_GENERAL,
+			};
+
+			VkDescriptorImageInfo Cloud_lightgrid_sample_info{
+				.sampler = cloud_sampler,
+				.imageView = workspace.Cloud_lightgrid_view,
+				.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+			};
+
+			std::array<VkWriteDescriptorSet, 4> writes = {
 
 				VkWriteDescriptorSet{
 					.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
@@ -1056,6 +1043,7 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_), s
 				0, //descriptorCopyCount
 				nullptr //pDescriptorCopies
 			);
+
 		}
 	
 	}
@@ -1454,20 +1442,23 @@ RTGRenderer::~RTGRenderer() {
 		rtg.helpers.destroy_image(std::move(World_environment));
 	}
 
-	for (auto& cloud_nvdf : Clouds_NVDFs) {
-		if (cloud_nvdf.field_data_view)
-			vkDestroyImageView(rtg.device, cloud_nvdf.field_data_view, nullptr);
-		if (cloud_nvdf.modeling_data_view)
-			vkDestroyImageView(rtg.device, cloud_nvdf.modeling_data_view, nullptr);
 
-		if (cloud_nvdf.field_data.handle)
-			rtg.helpers.destroy_image_3D(std::move(cloud_nvdf.field_data));
-		if (cloud_nvdf.modeling_data.handle)
-			rtg.helpers.destroy_image_3D(std::move(cloud_nvdf.modeling_data));
+	if (Clouds_NVDF.field_data_view != VK_NULL_HANDLE) {
+		vkDestroyImageView(rtg.device, Clouds_NVDF.field_data_view, nullptr);
+		Clouds_NVDF.field_data_view = VK_NULL_HANDLE;
 	}
-	Clouds_NVDFs.clear();
+	if (Clouds_NVDF.modeling_data_view != VK_NULL_HANDLE) {
+		vkDestroyImageView(rtg.device, Clouds_NVDF.modeling_data_view, nullptr);
+		Clouds_NVDF.modeling_data_view = VK_NULL_HANDLE;
+	}
 
-	if (Cloud_noise_view) {
+	if (Clouds_NVDF.field_data.handle)
+		rtg.helpers.destroy_image_3D(std::move(Clouds_NVDF.field_data));
+	if (Clouds_NVDF.modeling_data.handle)
+		rtg.helpers.destroy_image_3D(std::move(Clouds_NVDF.modeling_data));
+	
+
+	if (Cloud_noise_view != VK_NULL_HANDLE) {
 		vkDestroyImageView(rtg.device, Cloud_noise_view, nullptr);
 		Cloud_noise_view = VK_NULL_HANDLE;
 	}
@@ -1475,17 +1466,17 @@ RTGRenderer::~RTGRenderer() {
 		rtg.helpers.destroy_image_3D(std::move(Cloud_noise));
 	}
 
-	if (cloud_sampler) {
+	if (cloud_sampler != VK_NULL_HANDLE) {
 		vkDestroySampler(rtg.device, cloud_sampler, nullptr);
 		cloud_sampler = VK_NULL_HANDLE;
 	}
 
-	if (noise_3D_sampler) {
+	if (noise_3D_sampler != VK_NULL_HANDLE) {
 		vkDestroySampler(rtg.device, noise_3D_sampler, nullptr);
 		noise_3D_sampler = VK_NULL_HANDLE;
 	}
 
-	if (texture_sampler) {
+	if (texture_sampler != VK_NULL_HANDLE) {
 		vkDestroySampler(rtg.device, texture_sampler, nullptr);
 		texture_sampler = VK_NULL_HANDLE;
 	}
@@ -2387,7 +2378,7 @@ void RTGRenderer::render(RTG &rtg_, RTG::RenderParams const &render_params) {
 		vkCmdEndRenderPass(workspace.command_buffer);
 	}
 
-	{// cloud rendering
+	if (scene.has_cloud){// cloud rendering
 		VkImageSubresourceRange whole_image{
 			.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
 			.baseMipLevel = 0,
@@ -2548,36 +2539,97 @@ void RTGRenderer::render(RTG &rtg_, RTG::RenderParams const &render_params) {
 			groups_y,
 			1
 		);
-	}
-	
-	{ // transfer to swapchain
-		VkExtent3D image_extent = { workspace.Cloud_target.extent.width, workspace.Cloud_target.extent.height, 1 };
-		VkImageMemoryBarrier barriers[2] = {
-			// Barrier for compute storage image
-			{
-				.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
-				.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT, // From compute shader
-				.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT,
-				.oldLayout = VK_IMAGE_LAYOUT_GENERAL,
-				.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-				.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-				.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-				.image = workspace.Cloud_target.handle,
-				.subresourceRange = {
+
+		{ // transfer to swapchain
+			VkExtent3D image_extent = { workspace.Cloud_target.extent.width, workspace.Cloud_target.extent.height, 1 };
+			VkImageMemoryBarrier barriers[2] = {
+				// Barrier for compute storage image
+				{
+					.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+					.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT, // From compute shader
+					.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT,
+					.oldLayout = VK_IMAGE_LAYOUT_GENERAL,
+					.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+					.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+					.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+					.image = workspace.Cloud_target.handle,
+					.subresourceRange = {
+						.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+						.baseMipLevel = 0,
+						.levelCount = 1,
+						.baseArrayLayer = 0,
+						.layerCount = 1,
+					},
+				},
+				// Barrier for framebuffer image
+				{
+					.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+					.srcAccessMask = 0,
+					.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,
+					.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+					.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+					.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+					.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+					.image = rtg.swapchain_images[render_params.image_index],
+					.subresourceRange = {
+						.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+						.baseMipLevel = 0,
+						.levelCount = 1,
+						.baseArrayLayer = 0,
+						.layerCount = 1,
+					},
+				},
+			};
+
+			vkCmdPipelineBarrier(
+				workspace.command_buffer,
+				VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, // From compute shader
+				VK_PIPELINE_STAGE_TRANSFER_BIT,      // For transfer operation
+				0,
+				0, nullptr,
+				0, nullptr,
+				2, barriers
+			);
+
+
+			VkImageBlit blitRegion = {
+				.srcSubresource = {
 					.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
-					.baseMipLevel = 0,
-					.levelCount = 1,
+					.mipLevel = 0,
 					.baseArrayLayer = 0,
 					.layerCount = 1,
 				},
-			},
-			// Barrier for framebuffer image
-			{
+				.srcOffsets = {
+					{0, 0, 0}, // srcOffset[0]
+					{(int32_t)image_extent.width, (int32_t)image_extent.height, 1} // srcOffset[1]
+				},
+				.dstSubresource = {
+					.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+					.mipLevel = 0,
+					.baseArrayLayer = 0,
+					.layerCount = 1,
+				},
+				.dstOffsets = {
+					{0, 0, 0}, // dstOffset[0]
+					{(int32_t)image_extent.width, (int32_t)image_extent.height, 1} // dstOffset[1]
+				}
+			};
+
+			vkCmdBlitImage(
+				workspace.command_buffer,
+				workspace.Cloud_target.handle, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+				rtg.swapchain_images[render_params.image_index], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+				1, &blitRegion,
+				VK_FILTER_NEAREST // no filter required
+			);
+
+			// Transition framebuffer image for presentation
+			VkImageMemoryBarrier framebuffer_barrier = {
 				.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
-				.srcAccessMask = 0,
-				.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,
-				.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
-				.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+				.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,
+				.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+				.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+				.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
 				.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
 				.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
 				.image = rtg.swapchain_images[render_params.image_index],
@@ -2588,80 +2640,21 @@ void RTGRenderer::render(RTG &rtg_, RTG::RenderParams const &render_params) {
 					.baseArrayLayer = 0,
 					.layerCount = 1,
 				},
-			},
-		};
+			};
 
-		vkCmdPipelineBarrier(
-			workspace.command_buffer,
-			VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, // From compute shader
-			VK_PIPELINE_STAGE_TRANSFER_BIT,      // For transfer operation
-			0,
-			0, nullptr,
-			0, nullptr,
-			2, barriers
-		);
-
-
-		VkImageBlit blitRegion = {
-			.srcSubresource = {
-				.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
-				.mipLevel = 0,
-				.baseArrayLayer = 0,
-				.layerCount = 1,
-			},
-			.srcOffsets = {
-				{0, 0, 0}, // srcOffset[0]
-				{(int32_t)image_extent.width, (int32_t)image_extent.height, 1} // srcOffset[1]
-			},
-			.dstSubresource = {
-				.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
-				.mipLevel = 0,
-				.baseArrayLayer = 0,
-				.layerCount = 1,
-			},
-			.dstOffsets = {
-				{0, 0, 0}, // dstOffset[0]
-				{(int32_t)image_extent.width, (int32_t)image_extent.height, 1} // dstOffset[1]
-			}
-		};
-
-		vkCmdBlitImage(
-			workspace.command_buffer,
-			workspace.Cloud_target.handle, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-			rtg.swapchain_images[render_params.image_index], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-			1, &blitRegion,
-			VK_FILTER_NEAREST // no filter required
-		);
-
-		// Transition framebuffer image for presentation
-		VkImageMemoryBarrier framebuffer_barrier = {
-			.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
-			.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,
-			.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
-			.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-			.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
-			.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-			.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-			.image = rtg.swapchain_images[render_params.image_index],
-			.subresourceRange = {
-				.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
-				.baseMipLevel = 0,
-				.levelCount = 1,
-				.baseArrayLayer = 0,
-				.layerCount = 1,
-			},
-		};
-
-		vkCmdPipelineBarrier(
-			workspace.command_buffer,
-			VK_PIPELINE_STAGE_TRANSFER_BIT,
-			VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-			0,
-			0, nullptr,
-			0, nullptr,
-			1, &framebuffer_barrier
-		);
+			vkCmdPipelineBarrier(
+				workspace.command_buffer,
+				VK_PIPELINE_STAGE_TRANSFER_BIT,
+				VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+				0,
+				0, nullptr,
+				0, nullptr,
+				1, &framebuffer_barrier
+			);
+		}
 	}
+	
+	
 
 
 	//end recording:

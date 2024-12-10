@@ -43,38 +43,24 @@ void RTGRenderer::CloudLightGirdPipeline::create(RTG &rtg) {
 	}
 
 	{//the set1_Cloud layout holds all the cloud voxel data
-		std::array<VkDescriptorSetLayoutBinding, 5> bindings{
-			// ParkouringCloud Model Data
+		std::array<VkDescriptorSetLayoutBinding, 3> bindings{
+			// Cloud Model Data
 			VkDescriptorSetLayoutBinding{
 				.binding = 0,
 				.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
 				.descriptorCount = 1,
 				.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT
 			},
-			// ParkouringCloud Field Data
+			// Cloud Field Data
 			VkDescriptorSetLayoutBinding{
 				.binding = 1,
 				.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
 				.descriptorCount = 1,
 				.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT
 			},
-			// StormbirdCloud Model Data
-			VkDescriptorSetLayoutBinding{
-				.binding = 2,
-				.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-				.descriptorCount = 1,
-				.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT
-			},
-			// StormbirdCloud Field Data
-			VkDescriptorSetLayoutBinding{
-				.binding = 3,
-				.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-				.descriptorCount = 1,
-				.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT
-			},
 			// Noise
 			VkDescriptorSetLayoutBinding{
-				.binding = 4,
+				.binding = 2,
 				.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
 				.descriptorCount = 1,
 				.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT

@@ -339,10 +339,10 @@ struct RTGRenderer : RTG::Application {
 	VkFramebuffer shadow_framebuffer = VK_NULL_HANDLE;
 
 	Helpers::AllocatedImage3D Cloud_noise;
-	VkImageView Cloud_noise_view;
-	VkSampler cloud_sampler; // 3D Image Sampler
-	VkSampler noise_3D_sampler;
-	std::vector<Cloud::NVDF> Clouds_NVDFs;
+	VkImageView Cloud_noise_view = VK_NULL_HANDLE;
+	VkSampler cloud_sampler = VK_NULL_HANDLE; // 3D Image Sampler
+	VkSampler noise_3D_sampler = VK_NULL_HANDLE;
+	Cloud::NVDF Clouds_NVDF;
 
 	VkDescriptorSet Cloud_descriptors; // for static voxel data
 

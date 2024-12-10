@@ -150,6 +150,12 @@ struct Scene
         std::string name;
         std::string folder_path = "";
         std::vector<uint32_t> local_to_world; //determine the displacement of these clouds
+        enum struct CloudType : uint8_t {
+            NONE = 0,
+            PARKOUR = 1,
+            STORMBIRD = 2,
+            CUSTOM = 3,
+        } cloud_type;
     };
 
     // Node 
@@ -197,6 +203,7 @@ struct Scene
     uint32_t MatEnvMirror_count; // both environment and mirror just need normal and displacement
 
     Cloud *cloud = nullptr;
+    bool has_cloud = false;
 
     std::vector<Texture> textures;
 
