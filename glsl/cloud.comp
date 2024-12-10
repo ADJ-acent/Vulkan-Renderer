@@ -104,13 +104,11 @@ float GetFractionFromValue(float inValue, float inMin, float inMax) {
 float GetUprezzedVoxelCloudDensity(CloudRenderingRaymarchInfo inRaymarchInfo, vec3 inSamplePos, float inDimensionalProfile, float inType, float inDensityScale, float inMipLevel, bool inHFDetails)
 {
     // Step1-Apply wind offset
-    inSamplePos -= vec3(world_info.CLOUD_OFFSET.x, world_info.CLOUD_OFFSET.y, 0.0) * world_info.TIME * 0.02;
+    inSamplePos -= vec3(world_info.CLOUD_OFFSET.x, world_info.CLOUD_OFFSET.y, 0.0) * world_info.TIME * 10;
 
     // Step2-Sample noise
-    // float mipmap_level = GetVoxelCloudMipLevel(inRaymarchInfo, inMipLevel);
     // R: Low Freq "Curl-Alligator", G:High Freq "Curl-Alligator", B:Low Freq "Alligator", A: High Freq "Alligator"
-
-    vec4 noise = texture(cloudNoiseTexture, inSamplePos); // TODO: check freq
+    vec4 noise = texture(cloudNoiseTexture, inSamplePos * 0.01);
 
     // Step3-Define Detail Erosion
     // wispy
@@ -414,7 +412,7 @@ void RaymarchVoxelClouds(Ray ray, vec3 lightDir, inout CloudRenderingPixelData i
         raymarch_info.mCloudDistance = modeling_data.mSdf; // raymarch_info.mCloudDistance = GetVoxelCloudDistance(sample_position);
 
         // Max SDF and Step Size
-        raymarch_info.mStepSize = max(raymarch_info.mCloudDistance * 0.6, adaptive_step_size);
+        raymarch_info.mStepSize = max(raymarch_info.mCloudDistance * 0.5, adaptive_step_size);
         
         if (sample_coord.x >= 0.0 && sample_coord.x <= 1.0 && sample_coord.y >= 0.0 && sample_coord.y <= 1.0 && sample_coord.z >= 0.0 && sample_coord.z <= 1.0) { 
                     
@@ -445,7 +443,7 @@ void main()
     vec2 uv = vec2(pixel) / dimension;
 
     // Update Sun
-    vec3 sunPos = vec3(0,0,1);
+    vec3 sunPos = vec3(1,1,1);
     vec3 sunDir = normalize(sunPos);
 
     // Get Camera Ray
@@ -463,8 +461,8 @@ void main()
     // Raymarch
     RaymarchVoxelClouds(ray, sunDir, ioPixelData);  
 
-    vec3 bgColor = vec3(0.3,0.5,0.5);
-    vec3 cloudColor = vec3(0.5,0.5,0.8) * vec3(max(0.0, ioPixelData.mTransmittance));
+    vec3 bgColor = vec3(0.0,0.0,0.0);
+    vec3 cloudColor = vec3(0.3,0.3,0.6) * vec3(max(0.0, ioPixelData.mTransmittance));
     vec4 finalColor = vec4(mix(bgColor, cloudColor, (1 - ioPixelData.mAlpha)), 1.0f);
 
     //Highlight Sun for Debug

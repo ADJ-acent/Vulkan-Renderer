@@ -231,7 +231,7 @@ struct RTGRenderer : RTG::Application {
 			float HALF_TAN_FOV;
 			float ASPECT_RATIO;
 			float TIME;
-			glm::vec2 CLOUD_OFFSET;
+			glm::vec2 CLOUD_ANIMATE_OFFSET;
 			int CLOUD_TYPE;
 		};
 

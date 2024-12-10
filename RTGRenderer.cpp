@@ -1480,6 +1480,11 @@ RTGRenderer::~RTGRenderer() {
 		cloud_sampler = VK_NULL_HANDLE;
 	}
 
+	if (noise_3D_sampler) {
+		vkDestroySampler(rtg.device, noise_3D_sampler, nullptr);
+		noise_3D_sampler = VK_NULL_HANDLE;
+	}
+
 	if (texture_sampler) {
 		vkDestroySampler(rtg.device, texture_sampler, nullptr);
 		texture_sampler = VK_NULL_HANDLE;
@@ -3264,7 +3269,7 @@ void RTGRenderer::update(float dt) {
 	{ // cloud world information
 		cloud_world.VIEW_FROM_WORLD = view_from_world[view_camera];
 		cloud_world.TIME += dt;
-		cloud_world.CLOUD_OFFSET = glm::vec2(5);
+		cloud_world.CLOUD_ANIMATE_OFFSET = glm::vec2(1);
 		cloud_world.CLOUD_TYPE = 1;
 	}
 

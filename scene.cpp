@@ -13,6 +13,13 @@ Scene::Scene(std::string filename, std::optional<std::string> camera, uint8_t an
     load(data_path(filename), camera);
 }
 
+Scene::~Scene()
+{
+    if (cloud) {
+        delete cloud;
+    }
+}
+
 void Scene::load(std::string filename, std::optional<std::string> requested_camera)
 {
     if (filename.substr(filename.size()-4, 4) != ".s72") {
@@ -173,7 +180,39 @@ void Scene::load(std::string filename, std::optional<std::string> requested_came
                 }
 
             } else if (type.value() == "CLOUD") {
-                
+                // An addition to the s72 file format, should have at most 1 cloud node per s72 file
+                /**
+                 *{
+                 *	"type":"Cloud",
+                 *	"name":"some cloud",
+                 *	"animateSpeed": 0.1, // default is 1
+                 *  "animateDirection": [1, 1] // default is  [1, 1]
+                 *	"folderPath": "../resource/NubisVoxelCloudsPack/NVDFs/Examples/ParkouringCloud/TGA/" // file path to a tga folder with modeling and field data in the formate of field_data.001.tga or modeling_data.063.tga 
+                 *   //xor//
+                 *  "presetCloud": 0 // 0 for parkouring cloud, 1 for stormbird cloud, default is 0
+                 *},
+                 */
+
+                if (cloud != nullptr) {
+                    throw std::runtime_error("Error: more than one cloud node requested in s72 file, this is not supported.");
+                }
+                cloud = new Cloud();
+
+                if (auto folder_path_res = object_i.find("folderPath"); folder_path_res != object_i.end()) {
+                    
+                }
+                else if (auto preset_cloud_res = object_i.find("presetCloud"); preset_cloud_res != object_i.end()) {
+
+                }
+
+                if (auto animation_direction_res = object_i.find("animateDirection"); animation_direction_res != object_i.end()) {
+
+                }
+                if (auto animation_speed_res = object_i.find("animateSpeed"); animation_speed_res != object_i.end()) {
+
+                } 
+
+
             } else if (type.value() == "MESH") {
                 std::string mesh_name = object_i.find("name")->second.as_string().value();
                 int32_t cur_mesh_index;

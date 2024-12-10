@@ -149,6 +149,7 @@ struct Scene
     struct Cloud {
         std::string name;
         std::string folder_path = "";
+        std::vector<uint32_t> local_to_world; //determine the displacement of these clouds
     };
 
     // Node 
@@ -194,7 +195,8 @@ struct Scene
     uint32_t MatPBR_count;
     uint32_t MatLambertian_count;
     uint32_t MatEnvMirror_count; // both environment and mirror just need normal and displacement
-    std::vector<Cloud> clouds;
+
+    Cloud *cloud = nullptr;
 
     std::vector<Texture> textures;
 
@@ -206,6 +208,8 @@ struct Scene
     std::string scene_path;
 
     Scene(std::string filename, std::optional<std::string> camera, uint8_t animation_setting);
+
+    ~Scene();
 
     void load(std::string file_path, std::optional<std::string> requested_camera);
 

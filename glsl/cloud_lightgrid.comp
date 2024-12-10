@@ -35,30 +35,6 @@ layout(set = 1, binding = 2) uniform sampler3D modelingStormbirdTexture;
 layout(set = 1, binding = 3) uniform sampler3D fieldStormbirdTexture;
 
 
-// layout(set = 2, binding = 0) uniform TimeObject {
-//     float deltaTime;
-//     float totalTime;
-//     float sunPositionX;
-//     float sunPositionY;
-//     float sunPositionZ;
-// } time;
-
-// layout (set = 3, binding = 0) uniform UIParamOvject {
-//     float farclip;
-//     float transmittance_limit;
-
-//     int cloud_type;
-//     float tiling_freq;
-
-//     float animate_speed;
-//     // vec3 animate_offset;
-
-//     float enable_godray;
-//     float godray_exposure;
-
-//     float sky_turbidity;
-// } uiParam;
-
 float GetVoxelCloudProfileDensity(vec3 coord) {
 
     vec3 inSamplePosition = vec3(coord.x/X_SIZE, coord.y/X_SIZE, coord.z/Z_SIZE);
@@ -91,7 +67,7 @@ void main() {
     vec4 finalColor = vec4(0, 0, 0, 0);
 
     // Update Sun
-    vec3 sunPos = vec3(0,0,1);
+    vec3 sunPos = vec3(1,1,1);
     vec3 sunDir = normalize(sunPos);
 
     float density = GetVoxelCloudProfileDensity(coord);
