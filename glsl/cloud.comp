@@ -110,50 +110,52 @@ float GetFractionFromValue(float inValue, float inMin, float inMax) {
     return clamp((inValue - inMin) / (inMax - inMin), 0, 1);
 }
 
-// Detail density sample
-float GetUprezzedVoxelCloudDensity(CloudRenderingRaymarchInfo inRaymarchInfo, vec3 inSamplePos, float inDimensionalProfile, float inType, float inDensityScale, float inMipLevel, bool inHFDetails)
+// Detail density sample from sample code fragments provided in https://advances.realtimerendering.com/s2023/index.html#Nubis3
+float GetUprezzedVoxelCloudDensity(CloudRenderingRaymarchInfo inRaymarchInfo, vec3 inSamplePosition, float inDimensionalProfile, float inType, float inDensityScale, float inMipLevel, bool inHFDetails)
 {
-    // Step1-Apply wind offset
-    inSamplePos -= vec3(world_info.CLOUD_OFFSET.x, world_info.CLOUD_OFFSET.y, 0.0) * world_info.TIME * 10;
+    // Apply wind offset 
+	inSamplePosition -= vec3(world_info.CLOUD_OFFSET.x, world_info.CLOUD_OFFSET.y, 0.0) * world_info.TIME * 10;
+	
+	// Sample noise
+	vec4 noise = texture(cloudNoiseTexture, inSamplePosition * 0.01);
 
-    // Step2-Sample noise
-    // R: Low Freq "Curl-Alligator", G:High Freq "Curl-Alligator", B:Low Freq "Alligator", A: High Freq "Alligator"
-    vec4 noise = texture(cloudNoiseTexture, inSamplePos * 0.01);
+	// Define wispy noise
+	float wispy_noise = mix(noise.r, noise.g, inDimensionalProfile);
 
-    // Step3-Define Detail Erosion
-    // wispy
-    float wispy_noise = mix(noise.r, noise.g, inDimensionalProfile);
+	// Define billowy noise 
+	float billowy_type_gradient = pow(inDimensionalProfile, 0.25);
+	float billowy_noise = mix(noise.b * 0.3, noise.a * 0.3, billowy_type_gradient);
 
-    // billowy
-    float billowy_type_gradient = pow(inDimensionalProfile, 0.25);
-    float billowy_noise = mix(noise.b * 0.3, noise.a * 0.3, billowy_type_gradient);
+	// Define Noise composite - blend to wispy as the density scale decreases.
+	float noise_composite = mix(wispy_noise, billowy_noise, inType);
 
-    // High Noise composite - blend to wispy as the density scale decreases.
-    float noise_composite = mix(wispy_noise, billowy_noise, inType);
+	// Get the hf noise which is to be applied nearby - First, get the distance from the sample to camera and only do the work within a distance of 150 meters. 
+	if (inHFDetails)
+	{
+		// Get the hf noise by folding the highest frequency billowy noise. 
+		float hhf_noise = clamp(mix(1.0 - pow(abs(abs(noise.g * 2.0 - 1.0) * 2.0 - 1.0), 4.0), pow(abs(abs(noise.a * 2.0 - 1.0) * 2.0 - 1.0), 2.0), inType), 0, 1);
+	
+		// Apply the HF nosie near camera.
+		float hhf_noise_distance_range_blender = ValueRemap(inRaymarchInfo.mDistance, 50.0, 150.0, 0.9, 1.0);
+		noise_composite = mix(hhf_noise, noise_composite, hhf_noise_distance_range_blender);
+	}
 
-    // high frequency detail?
-    if (inHFDetails)
-    {
-        float hhf_wisps = 1.0 - pow(abs(abs(noise.g * 2.0 - 1.0) * 2.0 - 1.0), 4.0);
-        float hhf_billows = pow(abs(abs(noise.a * 2.0 - 1.0) * 2.0 - 1.0), 2.0);
-        float hhf_noise = clamp(mix(hhf_wisps, hhf_billows, inType), 0, 1);
-        float hhf_noise_distance_range_blender = ValueRemap(inRaymarchInfo.mDistance, 50.0, 150.0, 0.9, 1.0); // unit: meter
-        noise_composite = mix(hhf_noise, noise_composite, hhf_noise_distance_range_blender);
-    }
+	// Composote Noises and use as a Value Erosion
+	float uprezzed_density = ValueErosion(inDimensionalProfile, noise_composite);
 
-    // composite noise
-    float uprezzed_density = ValueErosion(inDimensionalProfile, noise_composite);
-    float powered_density_scale = pow(clamp(inDensityScale, 0, 1), 4.0);
-    uprezzed_density *= powered_density_scale;
+	// Modify User density scale
+	float powered_density_scale = pow(clamp(inDensityScale, 0.0, 1.0), 4.0);
 
-    // make low frequency region more sharp
-    uprezzed_density = pow(uprezzed_density, mix(0.3, 0.6, max(EPSILON, powered_density_scale)));
-
-    if (inHFDetails)
-    {
-        float distance_range_blender = GetFractionFromValue(inRaymarchInfo.mDistance, 50.0, 150.0);
-        uprezzed_density = pow(uprezzed_density, mix(0.5, 1.0, distance_range_blender)) * mix(0.666, 1.0, distance_range_blender);
-    }
+	// Apply User Density Scale Data to Result
+	uprezzed_density *= powered_density_scale; 
+		
+	// Sharpen result
+	uprezzed_density = pow(uprezzed_density, mix(0.3, 0.6, max(EPSILON, powered_density_scale)));
+	if (inHFDetails)
+	{
+		float hhf_noise_distance_range_blender = GetFractionFromValue(inRaymarchInfo.mDistance, 50.0, 150.0);
+		uprezzed_density = pow(uprezzed_density, mix(0.5, 1.0, hhf_noise_distance_range_blender)) * mix(0.666, 1.0, hhf_noise_distance_range_blender);
+	}
 
     return uprezzed_density;
 }
@@ -352,12 +354,12 @@ void IntegrateLightEnergy(CloudRenderingRaymarchInfo inRaymarchInfo, VoxelCloudM
     // Calculate Height Fraction
     float height_fraction = GetHeightFractionForPoint(samplePosition, VOXEL_BOUND_MIN.z, VOXEL_BOUND_MAX.z);
 
-    // Ambient (Nubis3 slides)
+    // Ambient
     profile *= exp(-density_to_sun * Remap(cos_angle, 0.0, 0.9, 0.25, Remap(cloud_distance, -128.0, 0.0, 0.05, 0.25)));
     float ambient_scattering = pow(1.0 - profile, 0.5) * exp(-density_to_sun);
 
     
-    // Light Energy (Nubis2 slides)
+    // Light Energy
     float silver_spread = 1.32;
     float silver_intensity = 1.27;
     float brightness = 0.5;
