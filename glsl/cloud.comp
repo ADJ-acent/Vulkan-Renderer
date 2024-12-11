@@ -28,10 +28,10 @@ layout(set = 0, binding = 1,std140) uniform World {
     float CAMERA_NEAR;
     vec3 SUN_DIRECTION;
     float CAMERA_FAR;
+    vec2 CLOUD_OFFSET;
     float HALF_TAN_FOV;
     float ASPECT_RATIO;
     float TIME;
-    vec2 CLOUD_OFFSET;
 } world_info;
 
 layout(set = 0, binding = 2) uniform sampler3D lightGrid;

@@ -10,15 +10,16 @@ layout (local_size_x = WORKGROUP_SIZE, local_size_y = WORKGROUP_SIZE, local_size
 
 layout (set = 0, binding = 0, rgba32f) uniform image3D targetImage;
 
-layout (set = 0, binding = 1,std140) uniform World {
+layout(set = 0, binding = 1,std140) uniform World {
     mat4 VIEW_FROM_WORLD; // view
     vec3 CAMERA_POSITION;
-    float HALF_TAN_FOV;
+    float CAMERA_NEAR;
     vec3 SUN_DIRECTION;
+    float CAMERA_FAR;
+    vec2 CLOUD_OFFSET;
+    float HALF_TAN_FOV;
     float ASPECT_RATIO;
     float TIME;
-    vec2 CLOUD_OFFSET;
-    int CLOUD_TYPE;
 } world_info;
 
 // Modeling NVDF's

@@ -231,10 +231,10 @@ struct RTGRenderer : RTG::Application {
 			float CAMERA_NEAR;
 			glm::vec3 SUN_DIRECTION; // only takes the first sun light, if none default is  [0,0,1]
     		float CAMERA_FAR;
+			glm::vec2 CLOUD_ANIMATE_OFFSET;
 			float HALF_TAN_FOV;
 			float ASPECT_RATIO;
 			float TIME;
-			glm::vec2 CLOUD_ANIMATE_OFFSET;
 		};
 
 		//types for descriptors same as objects pipeline
