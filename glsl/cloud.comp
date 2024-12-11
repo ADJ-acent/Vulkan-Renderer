@@ -2,7 +2,8 @@
 
 #extension GL_EXT_samplerless_texture_functions : require
 
-//referenced https://github.com/YueZhang1027/CIS5650-Final-Project-Frostnova/tree/main
+//referenced https://advances.realtimerendering.com/s2023/index.html#Nubis3 slides and provided materials
+// and https://github.com/YueZhang1027/CIS5650-Final-Project-Frostnova/tree/main
 
 #define WORKGROUP_SIZE 32
 
@@ -319,12 +320,13 @@ float GetDensityToSun(CloudRenderingRaymarchInfo inRaymarchInfo, VoxelCloudModel
     vec3 pos = samplePos;
     vec3 sampleCoord;
 
+    //step twice towards the sun
     for (int i = 0; i < 2; i++) {
         pos += lightDir * inRaymarchInfo.mStepSize;
         sampleCoord = GetSampleCoord(pos);
         totalDensity += GetVoxelCloudDensitySamples(inRaymarchInfo, modeling_data, sampleCoord, 1.0, false).mFull;
     }
-
+    // for the rest of the raymarch just replace with the light grid samples
     pos += lightDir * inRaymarchInfo.mStepSize;
     sampleCoord = GetSampleCoord(pos);   
     totalDensity += texture(lightGrid, sampleCoord).r;
@@ -466,9 +468,8 @@ void main()
     ioPixelData.mTransmittance = 1.0;
     ioPixelData.mAlpha = 1.0;
     ioPixelData.mCloudColor = vec3(0);
-    ioPixelData.mSunDisk = 0.0;
+    // should switch to environment map in the future?
     ioPixelData.mSkyColor = vec3(0.1,0.5,0.6);
-    
 
     // Raymarch
     RaymarchVoxelClouds(ray, sunDir, ioPixelData, pixel);  
