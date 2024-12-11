@@ -482,5 +482,5 @@ void main()
     vec4 finalColor = vec4(mix(bgColor, cloudColor, (1 - ioPixelData.mAlpha)), 1.0);
 
 
-    imageStore(targetImage, pixel, vec4(finalColor));
+    imageStore(targetImage, pixel, finalColor);
 }
