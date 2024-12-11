@@ -428,9 +428,6 @@ void RaymarchVoxelClouds(Ray ray, vec3 lightDir, inout CloudRenderingPixelData i
         raymarch_info.mStepSize = max(raymarch_info.mCloudDistance * 0.5, adaptive_step_size);
         
         if (sample_coord.x >= 0.0 && sample_coord.x <= 1.0 && sample_coord.y >= 0.0 && sample_coord.y <= 1.0 && sample_coord.z >= 0.0 && sample_coord.z <= 1.0) { 
-                    
-            // Jitter
-
             if (raymarch_info.mCloudDistance < 0.0) {
                 VoxelCloudDensitySamples voxel_cloud_sample_data = GetVoxelCloudDensitySamples(raymarch_info, modeling_data, sample_position, 1.0, true); // sample_position?
                 

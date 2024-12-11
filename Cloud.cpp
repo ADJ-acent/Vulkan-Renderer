@@ -54,11 +54,7 @@ namespace Cloud {
     NVDF load_cloud(RTG &rtg, std::string directory)
     // assuming 64 layers, file names is either field_data.number.tga or modeling_data.number.tga
     {
-       NVDF cloud_nvdf;
-        std::string cloud_paths[2] = {
-            directory + "field_data.",
-            directory + "modeling_data."
-        };
+        NVDF cloud_nvdf;
 
         auto load_image_stack = [&](const std::string &path_prefix, Helpers::AllocatedImage3D &image_output, VkFormat format, bool use_float) {
             uint32_t width = 0, height = 0;

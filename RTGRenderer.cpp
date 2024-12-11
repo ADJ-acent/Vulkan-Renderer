@@ -39,7 +39,6 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_), s
 		VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT
 	);
 
-	//TODO: transition to right format (VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL) for headless
 	VkImageLayout color_final_layout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
 
 	if (scene.has_cloud) {
@@ -2708,7 +2707,7 @@ void RTGRenderer::render(RTG &rtg_, RTG::RenderParams const &render_params) {
 				.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,
 				.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
 				.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-				.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+				.newLayout = rtg.configuration.headless_mode ? VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL : VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
 				.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
 				.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
 				.image = rtg.swapchain_images[render_params.image_index],
