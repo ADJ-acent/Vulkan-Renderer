@@ -189,7 +189,7 @@ void Scene::load(std::string filename, std::optional<std::string> requested_came
                  *  "animateDirection": [1, 1] // default is  [1, 1]
                  *	"folderPath": "../resource/NubisVoxelCloudsPack/NVDFs/Examples/ParkouringCloud/TGA/" // file path to a tga folder with modeling and field data in the formate of field_data.001.tga or modeling_data.063.tga 
                  *   //xor//
-                 *  "presetCloud": 0 // 0 for parkouring cloud, 1 for stormbird cloud, default is 0
+                 *  "presetCloud": 1 // 1 for parkouring cloud, 2 for stormbird cloud
                  *},
                  */
 
@@ -197,22 +197,17 @@ void Scene::load(std::string filename, std::optional<std::string> requested_came
                     throw std::runtime_error("Error: more than one cloud node requested in s72 file, this is not supported.");
                 }
                 cloud = new Cloud();
-
+                cloud->name = object_i.find("name")->second.as_string().value();
+                
+                cloud->cloud_type = Cloud::CloudType::NONE;
                 if (auto folder_path_res = object_i.find("folderPath"); folder_path_res != object_i.end()) {
-
+                    cloud->folder_path = folder_path_res->second.as_string().value();
+                    cloud->cloud_type = Cloud::CloudType::CUSTOM;
                 }
                 else if (auto preset_cloud_res = object_i.find("presetCloud"); preset_cloud_res != object_i.end()) {
-
+                    uint8_t preset_index = static_cast<uint8_t>(preset_cloud_res->second.as_number().value());
+                    cloud->cloud_type = static_cast<Cloud::CloudType>(preset_index);
                 }
-
-                if (auto animation_direction_res = object_i.find("animateDirection"); animation_direction_res != object_i.end()) {
-
-                }
-                if (auto animation_speed_res = object_i.find("animateSpeed"); animation_speed_res != object_i.end()) {
-
-                } 
-
-
             } else if (type.value() == "MESH") {
                 std::string mesh_name = object_i.find("name")->second.as_string().value();
                 int32_t cur_mesh_index;
@@ -842,9 +837,6 @@ void Scene::load(std::string filename, std::optional<std::string> requested_came
         requested_camera_index = 0;
     }
 
-    // remove later
-    cloud = new Cloud;
-    cloud->cloud_type = Cloud::CloudType::STORMBIRD ;
     if (cloud != nullptr && cloud->cloud_type != Cloud::CloudType::NONE) {
         has_cloud = true;
     }

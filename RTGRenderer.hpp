@@ -229,6 +229,7 @@ struct RTGRenderer : RTG::Application {
 			glm::mat4x4 VIEW_FROM_WORLD;
 			glm::vec3 CAMERA_POSITION;
 			float CAMERA_NEAR;
+			glm::vec3 SUN_DIRECTION; // only takes the first sun light, if none default is  [0,0,1]
     		float CAMERA_FAR;
 			float HALF_TAN_FOV;
 			float ASPECT_RATIO;

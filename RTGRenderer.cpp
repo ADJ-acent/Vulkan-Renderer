@@ -3346,6 +3346,14 @@ void RTGRenderer::update(float dt) {
 		cloud_world.VIEW_FROM_WORLD = view_from_world[view_camera];
 		cloud_world.TIME += dt;
 		cloud_world.CLOUD_ANIMATE_OFFSET = glm::vec2(1);
+		if (!sun_lights.empty()) {
+			cloud_world.SUN_DIRECTION.x = sun_lights[0].DIRECTION.x;
+			cloud_world.SUN_DIRECTION.y = sun_lights[0].DIRECTION.y;
+			cloud_world.SUN_DIRECTION.z = sun_lights[0].DIRECTION.z;
+		}
+		else {
+			cloud_world.SUN_DIRECTION = glm::vec3(0,0,1);
+		}
 	}
 
 }
@@ -3458,7 +3466,7 @@ void RTGRenderer::on_input(InputEvent const &event) {
 			upside_down = (int((abs(cam.elevation) + float(M_PI) / 2) / float(M_PI)) % 2 == 1);
 			break;
 		case InputEvent::Type::MouseWheel:
-			cam.radius = std::max(cam.radius - event.wheel.y*25.0f, 0.001f);
+			cam.radius = std::max(cam.radius - event.wheel.y*5.0f, 0.001f);
 			update_camera = true;
 			break;
 	}

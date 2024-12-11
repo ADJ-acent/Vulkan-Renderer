@@ -14,6 +14,7 @@ layout (set = 0, binding = 1,std140) uniform World {
     mat4 VIEW_FROM_WORLD; // view
     vec3 CAMERA_POSITION;
     float HALF_TAN_FOV;
+    vec3 SUN_DIRECTION;
     float ASPECT_RATIO;
     float TIME;
     vec2 CLOUD_OFFSET;
@@ -56,9 +57,7 @@ void main() {
     ivec3 coord = ivec3(gl_GlobalInvocationID.xyz);
     vec4 finalColor = vec4(0, 0, 0, 0);
 
-    // Update Sun
-    vec3 sunPos = vec3(1,1,1);
-    vec3 sunDir = normalize(sunPos);
+    vec3 sunDir = world_info.SUN_DIRECTION;
 
     float density = GetVoxelCloudProfileDensity(coord);
 

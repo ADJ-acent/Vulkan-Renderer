@@ -149,7 +149,7 @@ struct Scene
     struct Cloud {
         std::string name;
         std::string folder_path = "";
-        std::vector<uint32_t> local_to_world; //determine the displacement of these clouds
+        // std::vector<uint32_t> local_to_world; //determine the displacement of these clouds
         enum struct CloudType : uint8_t {
             NONE = 0,
             PARKOUR = 1,
