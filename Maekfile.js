@@ -46,6 +46,11 @@ const viewer_objs = [
 	maek.CPP('sejp.cpp'),
 ]
 
+const nanite_mesh_objs = [
+	maek.CPP('nanite/NaniteMeshApp.cpp'),
+	maek.CPP('nanite/nanite_mesh_main.cpp'),
+]
+
 //maek.GLSLC(...) builds a glsl source file:
 // it returns the path to the output .inl file
 
@@ -112,9 +117,10 @@ main_objs.push( maek.CPP('CloudLightGridPipeline.cpp', undefined, { depends:[...
 
 
 const main_exe = maek.LINK([...main_objs, ...viewer_objs], 'bin/viewer');
+const nanite_mesh_exe = maek.LINK([...nanite_mesh_objs], 'bin/mesh_process');
 
 //default targets:
-maek.TARGETS = [main_exe];
+maek.TARGETS = [main_exe, nanite_mesh_exe];
 
 //- - - - - - - - - - - - - - - - - - - - -
 function custom_flags_and_rules() {
@@ -127,7 +133,7 @@ function custom_flags_and_rules() {
 		const GLFW_DIR = process.env.GLFW_DIR || `../glfw-3.4/out`;
 		console.log(`Using GLFW_DIR='${GLFW_DIR}'; set GLFW_DIR environment variable to override.`);
 
-		maek.options.CPP = ['g++', '-std=c++20', '-Wall', '-Werror', '-g'];
+		maek.options.CPP = ['g++', '-std=c++20', '-Wall', '-Werror', "-Wno-deprecated", '-g'];
 		maek.options.LINK = ['g++', '-std=c++20', '-Wall', '-Werror', '-g'];
 
 		maek.options.CPPFlags = [
@@ -154,6 +160,7 @@ function custom_flags_and_rules() {
 			'/wd4100', //unused formal parameter
 			'/wd4201', //nameless struct/union
 			'/wd4146', //-1U is unsigned
+			'/wd4996', //deprecated function
 		];
 		maek.options.LINK = [
 			'link.exe', '/nologo',
