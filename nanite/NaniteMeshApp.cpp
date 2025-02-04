@@ -5,7 +5,6 @@
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 
 #include "tiny_gltf.h"
-#include <iostream>
 
 void NaniteMeshApp::Configuration::parse(int argc, char **argv) {
 	for (int argi = 1; argi < argc; ++argi) {
@@ -28,16 +27,20 @@ void NaniteMeshApp::Configuration::usage(std::function< void(const char *, const
 }
 
 NaniteMeshApp::NaniteMeshApp(Configuration & configuration_) :
-	configuration(configuration_)
-{
-	loadGLTF(configuration.glTF_path);
-	cluster(12);
-}
-
-void NaniteMeshApp::loadGLTF(std::string gltfPath)
+	configuration(configuration_), triangle_to_cluster(0)
 {
 	tinygltf::Model model;
 	tinygltf::TinyGLTF loader;
+	loadGLTF(configuration.glTF_path, model, loader);
+	copy_offset_mesh_to_model(model, model.meshes[0],glm::vec3(20));
+	save_model(model, std::string("test"));
+	std::cout<<"works?"<<std::endl;
+	// cluster(12);
+}
+
+void NaniteMeshApp::loadGLTF(std::string gltfPath, tinygltf::Model& model, tinygltf::TinyGLTF& loader)
+{
+	
 	std::string err;
 	std::string warn;
 
@@ -167,6 +170,7 @@ void NaniteMeshApp::loadGLTF(std::string gltfPath)
 			std::cout<<"done!\n";
 		}
 	}
+	
 }
 
 // step 1 of preprocessing
@@ -174,9 +178,9 @@ void NaniteMeshApp::cluster(uint32_t cluster_triangle_limit)
 {
 	// initialize clusters, one cluster per triangle
 	clusters.clear();
+	triangle_to_cluster = UnionFind(uint32_t(triangles.size()));
 	for (uint32_t i = 0; i < triangles.size(); ++i) {
 		clusters.push_back({ {i}, {} });
-		triangle_to_cluster[i] = i;
 	}
 
 	// build shared edge count
@@ -191,9 +195,8 @@ void NaniteMeshApp::cluster(uint32_t cluster_triangle_limit)
 
 			if (edge_to_triangle.find(reversed_edge) != edge_to_triangle.end()) {
 
-				uint32_t neighborIdx = edge_to_triangle[reversed_edge];
-				uint32_t neighbor_cluster = triangle_to_cluster[neighborIdx];
-				uint32_t current_cluster = triangle_to_cluster[i];
+				uint32_t neighbor_cluster = edge_to_triangle[reversed_edge];;
+				uint32_t current_cluster = i;
 
 				// Increase the shared edge count between clusters
 				clusters[current_cluster].shared_edges[neighbor_cluster]++;
@@ -205,7 +208,6 @@ void NaniteMeshApp::cluster(uint32_t cluster_triangle_limit)
 	}
 
 	uint32_t loop_count = 0;
-	try {
 
 	while (clusters.size() > 1) {
 		if (loop_count % 100 == 0) {
@@ -217,6 +219,9 @@ void NaniteMeshApp::cluster(uint32_t cluster_triangle_limit)
 		for (uint32_t i = 0; i < clusters.size(); ++i) {
 			for (const auto& [neighbor, edge_count] : clusters[i].shared_edges) {
 				assert(i != neighbor);
+				std::cout<<edge_count<<", neightbor: "<< clusters[neighbor].shared_edges[i]<<std::endl;
+				std::cout<<i<<", "<<neighbor<<std::endl;
+				assert(edge_count == clusters[neighbor].shared_edges[i]);
 				if (neighbor < i) continue;
 				if (edge_count > max_edges && clusters[i].triangles.size() + clusters[neighbor].triangles.size() <= cluster_triangle_limit) {
 					max_edges = edge_count;
@@ -225,34 +230,37 @@ void NaniteMeshApp::cluster(uint32_t cluster_triangle_limit)
 				}
 			}
 		}
-
+		std::cout<<loop_count<<", max edges:"<<max_edges<<std::endl;
 		if (max_edges == 0) {
 			break; // Stop if no valid merges
 		}
 		// Merge cluster max_b into max_a
-		for (uint32_t tri : clusters[max_b].triangles) {
-			clusters[max_a].triangles.insert(tri);
-			triangle_to_cluster[tri] = max_a;
-		}
-
+		triangle_to_cluster.unite(max_a, max_b);
 		// Update shared edges
-		for (const auto& [neighbor, edge_count] : clusters[max_b].shared_edges) {
-			if (neighbor == max_a) continue; // Skip self
 
+		for (const auto& [neighbor, edge_count] : clusters[max_b].shared_edges) {
+			
+			if (neighbor == max_a) continue; // Skip self
+			if (clusters[max_a].shared_edges[neighbor] == 0) {
+				clusters[neighbor].shared_edges.erase(max_b);
+				clusters[max_b].shared_edges.erase(neighbor);
+				continue;
+			}
+			assert(clusters.size() > max_a && clusters.size() > neighbor);
 			clusters[max_a].shared_edges[neighbor] += edge_count;
 			clusters[neighbor].shared_edges[max_a] += edge_count;
+			assert(clusters[max_a].shared_edges[neighbor] == clusters[neighbor].shared_edges[max_a]);
 			clusters[neighbor].shared_edges.erase(max_b);
+
 		}
 
-
+		if(loop_count > 5100) std::cout<<loop_count<<"\n";
 		// Swap max_b with the last cluster, update indices, and pop the last element
 		if (max_b != uint32_t(clusters.size() - 1)) {
 			std::swap(clusters[max_b], clusters.back());
 
 			// Update triangle_to_cluster for swapped cluster
-			for (uint32_t tri : clusters[max_b].triangles) {
-				triangle_to_cluster[tri] = max_b;
-			}
+			triangle_to_cluster.swap(max_b, uint32_t(clusters.size()-1));
 
 			// Update shared_edges references to swapped index
 			for (auto& [neighbor, edges] : clusters[max_b].shared_edges) {
@@ -262,13 +270,71 @@ void NaniteMeshApp::cluster(uint32_t cluster_triangle_limit)
 		}
 
 		clusters.pop_back();
+
+		if(loop_count == 5118 || loop_count == 15870 || loop_count == 5909|| loop_count == 5953) std::cout<<"here13\n";
 	}
-	}
-	catch (std::exception &e) {
-		std::cerr << "Exception: " << e.what() << std::endl;
-		return;
-	}
+
 	std::cout<<"loop:"<< loop_count<<" , cluster count: "<< clusters.size()<<std::endl;
-	std::cout<<"end";
+	std::cout<<"end\n";
+}
+
+// Function to deep copy a buffer and apply an offset to the vertex positions
+void NaniteMeshApp::copy_offset_mesh_to_model(tinygltf::Model& model, tinygltf::Mesh& mesh, const glm::vec3& offset) {
+    for (auto& primitive : mesh.primitives) {
+        auto it = primitive.attributes.find("POSITION");
+        if (it != primitive.attributes.end()) {
+            int accessorIndex = it->second;
+            tinygltf::Accessor& accessor = model.accessors[accessorIndex];
+            tinygltf::BufferView& bufferView = model.bufferViews[accessor.bufferView];
+            tinygltf::Buffer& buffer = model.buffers[bufferView.buffer];
+
+            // Create a new buffer for the copied data
+            tinygltf::Buffer newBuffer;
+            newBuffer.data = buffer.data; // Copy the original buffer data
+
+            // Create a new buffer view
+            tinygltf::BufferView newBufferView = bufferView;
+            newBufferView.buffer = int(model.buffers.size()); // Point to the new buffer
+
+            // Create a new accessor
+            tinygltf::Accessor newAccessor = accessor;
+            newAccessor.bufferView = int(model.bufferViews.size()); // Point to the new buffer view
+
+            // Apply the offset to the new buffer's vertex positions
+            float* positions = reinterpret_cast<float*>(&newBuffer.data[bufferView.byteOffset + accessor.byteOffset]);
+            for (size_t i = 0; i < accessor.count; ++i) {
+                positions[i * 3 + 0] += offset.x; // X
+                positions[i * 3 + 1] += offset.y; // Y
+                positions[i * 3 + 2] += offset.z; // Z
+            }
+            // Add the new buffer, buffer view, and accessor to the model
+            model.buffers.push_back(newBuffer);
+            model.bufferViews.push_back(newBufferView);
+            model.accessors.push_back(newAccessor);
+
+        }
+    }
+	tinygltf::Mesh new_mesh = mesh;
+	new_mesh.name += "_new";
+	new_mesh.primitives[0].attributes["POSITION"] = int(model.accessors.size()) - 1;
+	model.meshes.emplace_back(new_mesh);
+	model.nodes.emplace_back(model.nodes[0]);
+	model.nodes[1].mesh = int(model.meshes.size())-1;
+}
+
+
+bool NaniteMeshApp::save_model(const tinygltf::Model& model, std::string filename) {
+    tinygltf::TinyGLTF loader;
+	assert(filename != "");
+	if (filename.size() < 5 || filename.substr(filename.size()-5,5) != ".gltf") {
+		filename = filename + ".gltf";
+	}
+
+    bool ret = loader.WriteGltfSceneToFile(&model, filename);
+
+    if (!ret) {
+        std::cout << "Failed to save glTF: " << filename << std::endl;
+    }
+    return ret;
 }
 

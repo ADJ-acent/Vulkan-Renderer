@@ -4,29 +4,43 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <algorithm>
+#include <iostream>
+
+namespace tinygltf {
+    struct Mesh;
+    class Model;
+    class TinyGLTF;
+}
+
 struct UnionFind {// modified from https://www.geeksforgeeks.org/introduction-to-disjoint-set-data-structure-or-union-find-algorithm/
-    std::vector<int> parent;
-    UnionFind(int size) {
+    std::vector<uint32_t> parent;
+    UnionFind(uint32_t size) {
         parent.resize(size);
-        for (int i = 0; i < size; i++) {
+        for (uint32_t i = 0; i < uint32_t(size); i++) {
             parent[i] = i;
         }
     }
 
-    int find(int i) {
+    uint32_t find(uint32_t i) {
         if (parent[i] == i) {
             return i;
         }
-      
         parent[i] = find(parent[i]);
         return parent[i];
     }
 
-    void unite(int i, int j) {
+    void unite(uint32_t i, uint32_t j) {
+        uint32_t irep = find(i);
+        uint32_t jrep = find(j);
+        parent[jrep] = irep;
+    }
 
-        int irep = find(i);
-        int jrep = find(j);
-        parent[irep] = jrep;
+    void swap(uint32_t i, uint32_t j) {
+
+        for (uint32_t& p : parent) {
+            if (p == i) p = j;
+            else if (p == j) p = i;
+        }
     }
 };
 
@@ -49,9 +63,14 @@ struct NaniteMeshApp {
         std::unordered_map<uint32_t, uint32_t> shared_edges; // Neighboring clusters and shared edge count
     };
     std::vector<Cluster> clusters;
-    std::unordered_map<uint32_t, uint32_t> triangle_to_cluster;
+    UnionFind triangle_to_cluster;
+    
+    // std::unordered_map<uint32_t, uint32_t> triangle_to_cluster;
 
     NaniteMeshApp(Configuration &);
-    void loadGLTF(std::string gltfPath);
+    void loadGLTF(std::string gltfPath, tinygltf::Model& model, tinygltf::TinyGLTF& loader);
     void cluster(uint32_t cluster_triangle_limit);
+    void copy_offset_mesh_to_model(tinygltf::Model& model, tinygltf::Mesh& mesh, const glm::vec3& offset);
+    void write_mesh_to_model(tinygltf::Model& model, std::vector<int> indices); 
+    bool save_model(const tinygltf::Model& model, std::string filename);
 };
