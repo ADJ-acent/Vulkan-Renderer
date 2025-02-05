@@ -35,12 +35,8 @@ struct UnionFind {// modified from https://www.geeksforgeeks.org/introduction-to
         parent[jrep] = irep;
     }
 
-    void swap(uint32_t i, uint32_t j) {
-
-        for (uint32_t& p : parent) {
-            if (p == i) p = j;
-            else if (p == j) p = i;
-        }
+    bool is_original(uint32_t i) {
+        return (parent[i] == i);
     }
 };
 
@@ -51,17 +47,25 @@ struct NaniteMeshApp {
         static void usage(std::function< void(const char *, const char *) > const &callback);
     } configuration;
 
+    struct Cluster {
+        std::vector<uint32_t> triangles;  // Indices of triangles in this cluster
+        std::unordered_map<uint32_t, uint32_t> shared_edges; // Neighboring clusters and shared edge count
+    };
 
+    struct MergeCandidate {
+        uint32_t cluster_a;
+        uint32_t cluster_b;
+        uint32_t shared_edge_count;
+        // Custom comparator for max heap:
+        bool operator<(const MergeCandidate &other) const {
+            return shared_edge_count < other.shared_edge_count;
+        }
+    };
 
     std::unordered_map<glm::uvec2, uint32_t> next_vertex;
     std::vector<glm::uvec3> triangles;
     std::vector<glm::vec3> vertices; // position of vertices
 
-
-    struct Cluster {
-        std::unordered_set<uint32_t> triangles;  // Indices of triangles in this cluster
-        std::unordered_map<uint32_t, uint32_t> shared_edges; // Neighboring clusters and shared edge count
-    };
     std::vector<Cluster> clusters;
     UnionFind triangle_to_cluster;
     
@@ -70,6 +74,9 @@ struct NaniteMeshApp {
     NaniteMeshApp(Configuration &);
     void loadGLTF(std::string gltfPath, tinygltf::Model& model, tinygltf::TinyGLTF& loader);
     void cluster(uint32_t cluster_triangle_limit);
+    bool is_valid_candidate(const MergeCandidate &);
+    void merge_clusters(uint32_t a, uint32_t b);
+    void write_clusters_to_model(tinygltf::Model& model);
     void copy_offset_mesh_to_model(tinygltf::Model& model, tinygltf::Mesh& mesh, const glm::vec3& offset);
     void write_mesh_to_model(tinygltf::Model& model, std::vector<int> indices); 
     bool save_model(const tinygltf::Model& model, std::string filename);

@@ -5,6 +5,7 @@
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 
 #include "tiny_gltf.h"
+#include <queue>
 
 void NaniteMeshApp::Configuration::parse(int argc, char **argv) {
 	for (int argi = 1; argi < argc; ++argi) {
@@ -32,10 +33,10 @@ NaniteMeshApp::NaniteMeshApp(Configuration & configuration_) :
 	tinygltf::Model model;
 	tinygltf::TinyGLTF loader;
 	loadGLTF(configuration.glTF_path, model, loader);
-	copy_offset_mesh_to_model(model, model.meshes[0],glm::vec3(20));
-	save_model(model, std::string("test"));
-	std::cout<<"works?"<<std::endl;
-	// cluster(12);
+	// copy_offset_mesh_to_model(model, model.meshes[0],glm::vec3(20));
+	cluster(12);
+	write_clusters_to_model(model);
+	save_model(model, std::string("../gltf/test"));
 }
 
 void NaniteMeshApp::loadGLTF(std::string gltfPath, tinygltf::Model& model, tinygltf::TinyGLTF& loader)
@@ -176,106 +177,208 @@ void NaniteMeshApp::loadGLTF(std::string gltfPath, tinygltf::Model& model, tinyg
 // step 1 of preprocessing
 void NaniteMeshApp::cluster(uint32_t cluster_triangle_limit)
 {
-	// initialize clusters, one cluster per triangle
 	clusters.clear();
-	triangle_to_cluster = UnionFind(uint32_t(triangles.size()));
-	for (uint32_t i = 0; i < triangles.size(); ++i) {
-		clusters.push_back({ {i}, {} });
-	}
+    triangle_to_cluster = UnionFind(static_cast<uint32_t>(triangles.size()));
 
-	// build shared edge count
+    // Initialize each triangle as its own cluster
+    for (uint32_t i = 0; i < triangles.size(); ++i) {
+        clusters.push_back({ { i }, {} });
+		clusters[i].shared_edges.clear();
+    }
 
-	std::unordered_map<glm::uvec2, uint32_t> edge_to_triangle;
-	edge_to_triangle.clear();
-	for (uint32_t i = 0; i < triangles.size(); ++i) {
-		const glm::uvec3& triangle = triangles[i];
-		for (int j = 0; j < 3; ++j) {
-			glm::uvec2 edge = { triangle[j], triangle[(j + 1) % 3] };
-			glm::uvec2 reversed_edge = { triangle[(j + 1) % 3], triangle[j] };
+    // Build shared edge counts
+    std::unordered_map<glm::uvec2, uint32_t> edge_to_triangle;
+    for (uint32_t i = 0; i < triangles.size(); ++i) {
+        const glm::uvec3& triangle = triangles[i];
+        for (int j = 0; j < 3; ++j) {
+            glm::uvec2 edge = { triangle[j], triangle[(j + 1) % 3] };
+            glm::uvec2 reversed_edge = { triangle[(j + 1) % 3], triangle[j] };
 
-			if (edge_to_triangle.find(reversed_edge) != edge_to_triangle.end()) {
+            if (edge_to_triangle.find(reversed_edge) != edge_to_triangle.end()) {
+                uint32_t neighbor_cluster = edge_to_triangle[reversed_edge];
+                clusters[i].shared_edges[neighbor_cluster]++;
+                clusters[neighbor_cluster].shared_edges[i]++;
+            } else {
+                edge_to_triangle[edge] = i;
+            }
+        }
+    }
 
-				uint32_t neighbor_cluster = edge_to_triangle[reversed_edge];;
-				uint32_t current_cluster = i;
+    // Build priority queue of merge candidates
+    std::priority_queue<MergeCandidate> merge_heap;
+    for (uint32_t i = 0; i < clusters.size(); ++i) {
+        for (const auto& [neighbor, edge_count] : clusters[i].shared_edges) {
+            if (neighbor > i) {
+                merge_heap.push({ i, neighbor, edge_count });
+            }
+        }
+    }
 
-				// Increase the shared edge count between clusters
-				clusters[current_cluster].shared_edges[neighbor_cluster]++;
-				clusters[neighbor_cluster].shared_edges[current_cluster]++;
-			} else {
-				edge_to_triangle[edge] = i; // Store triangle index
-			}
+    uint32_t loop_count = 0;
+
+    while (!merge_heap.empty() && clusters.size() > 1) {
+        // if (loop_count % 100 == 0) {
+            std::cout << "loop: " << loop_count << " , cluster count: " << clusters.size() << std::endl;
+        // }
+        loop_count++;
+
+        // Get best merge candidate
+        MergeCandidate candidate = merge_heap.top();
+        merge_heap.pop();
+
+        // Validate candidate
+        if (!is_valid_candidate(candidate)) continue;
+
+        // Ensure we don't exceed triangle limit
+        if (clusters[candidate.cluster_a].triangles.size() + clusters[candidate.cluster_b].triangles.size() > cluster_triangle_limit) {
+            continue;
+        }
+
+        // Merge clusters
+        merge_clusters(candidate.cluster_a, candidate.cluster_b);
+
+        // Update neighbors
+        for (const auto& [neighbor, edge_count] : clusters[candidate.cluster_b].shared_edges) {
+            if (neighbor == candidate.cluster_a) continue; // Skip self
+
+            clusters[candidate.cluster_a].shared_edges[neighbor] += edge_count;
+            clusters[neighbor].shared_edges[candidate.cluster_a] += edge_count;
+            merge_heap.push({ candidate.cluster_a, neighbor, clusters[candidate.cluster_a].shared_edges[neighbor] });
+        }
+    }
+	
+	for (int32_t i = int32_t(clusters.size()) - 1; i > -1; --i) {
+		if (!triangle_to_cluster.is_original(i)) {
+			clusters.erase(clusters.begin() + i);
 		}
 	}
+    std::cout << "Final loop count: " << loop_count << ", remaining clusters: " << clusters.size() << std::endl;
+}
 
-	uint32_t loop_count = 0;
+bool NaniteMeshApp::is_valid_candidate(const MergeCandidate &candidate)
+{
+    uint32_t root_a = triangle_to_cluster.find(candidate.cluster_a);
+    uint32_t root_b = triangle_to_cluster.find(candidate.cluster_b);
+    return (root_a == candidate.cluster_a && root_b == candidate.cluster_b &&
+            clusters[root_a].shared_edges[root_b] == candidate.shared_edge_count &&
+			clusters[root_b].shared_edges[root_a] == candidate.shared_edge_count);
+}
 
-	while (clusters.size() > 1) {
-		if (loop_count % 100 == 0) {
-			std::cout<<"loop:"<< loop_count<<" , cluster count: "<< clusters.size()<<std::endl;
-		}
-		loop_count++;
-		// Find the two clusters with the max shared edges
-		uint32_t max_a = 0, max_b = 0, max_edges = 0;
-		for (uint32_t i = 0; i < clusters.size(); ++i) {
-			for (const auto& [neighbor, edge_count] : clusters[i].shared_edges) {
-				assert(i != neighbor);
-				std::cout<<edge_count<<", neightbor: "<< clusters[neighbor].shared_edges[i]<<std::endl;
-				std::cout<<i<<", "<<neighbor<<std::endl;
-				assert(edge_count == clusters[neighbor].shared_edges[i]);
-				if (neighbor < i) continue;
-				if (edge_count > max_edges && clusters[i].triangles.size() + clusters[neighbor].triangles.size() <= cluster_triangle_limit) {
-					max_edges = edge_count;
-					max_a = i;
-					max_b = neighbor;
-				}
-			}
-		}
-		std::cout<<loop_count<<", max edges:"<<max_edges<<std::endl;
-		if (max_edges == 0) {
-			break; // Stop if no valid merges
-		}
-		// Merge cluster max_b into max_a
-		triangle_to_cluster.unite(max_a, max_b);
-		// Update shared edges
+void NaniteMeshApp::merge_clusters(uint32_t a, uint32_t b) {
+    triangle_to_cluster.unite(a, b);
+    // Move triangles from b to a
+    clusters[a].triangles.insert(clusters[a].triangles.end(),
+                                 clusters[b].triangles.begin(),
+                                 clusters[b].triangles.end());
 
-		for (const auto& [neighbor, edge_count] : clusters[max_b].shared_edges) {
-			
-			if (neighbor == max_a) continue; // Skip self
-			if (clusters[max_a].shared_edges[neighbor] == 0) {
-				clusters[neighbor].shared_edges.erase(max_b);
-				clusters[max_b].shared_edges.erase(neighbor);
-				continue;
-			}
-			assert(clusters.size() > max_a && clusters.size() > neighbor);
-			clusters[max_a].shared_edges[neighbor] += edge_count;
-			clusters[neighbor].shared_edges[max_a] += edge_count;
-			assert(clusters[max_a].shared_edges[neighbor] == clusters[neighbor].shared_edges[max_a]);
-			clusters[neighbor].shared_edges.erase(max_b);
+    // Remove shared_edges[b] since b no longer exists
+    clusters[a].shared_edges.erase(b);
 
-		}
+}
 
-		if(loop_count > 5100) std::cout<<loop_count<<"\n";
-		// Swap max_b with the last cluster, update indices, and pop the last element
-		if (max_b != uint32_t(clusters.size() - 1)) {
-			std::swap(clusters[max_b], clusters.back());
+void NaniteMeshApp::write_clusters_to_model(tinygltf::Model& model)
+{
+    model = tinygltf::Model(); // Reset model
 
-			// Update triangle_to_cluster for swapped cluster
-			triangle_to_cluster.swap(max_b, uint32_t(clusters.size()-1));
+    std::vector<uint8_t> index_buffer;
+    std::vector<tinygltf::Mesh> meshes;
 
-			// Update shared_edges references to swapped index
-			for (auto& [neighbor, edges] : clusters[max_b].shared_edges) {
-				clusters[neighbor].shared_edges.erase(uint32_t(clusters.size()) - 1);
-				clusters[neighbor].shared_edges[max_b] = edges;
-			}
-		}
+    size_t global_index_offset = 0;
 
-		clusters.pop_back();
+    // Convert global vertex data into a GLTF buffer
+    std::vector<uint8_t> vertex_buffer(reinterpret_cast<uint8_t*>(vertices.data()),
+                                       reinterpret_cast<uint8_t*>(vertices.data() + vertices.size()));
 
-		if(loop_count == 5118 || loop_count == 15870 || loop_count == 5909|| loop_count == 5953) std::cout<<"here13\n";
-	}
+    for (size_t cluster_id = 0; cluster_id < clusters.size(); ++cluster_id) {
+        Cluster& cluster = clusters[cluster_id];
 
-	std::cout<<"loop:"<< loop_count<<" , cluster count: "<< clusters.size()<<std::endl;
-	std::cout<<"end\n";
+        std::vector<uint32_t> cluster_indices;
+
+        // Use global vertex indices directly
+        for (uint32_t triangle_index : cluster.triangles) {
+            glm::uvec3 triangle = triangles[triangle_index];
+			assert(triangle.x < vertices.size());
+			assert(triangle.y < vertices.size());
+			assert(triangle.z < vertices.size());
+            cluster_indices.push_back(triangle.x);
+            cluster_indices.push_back(triangle.y);
+            cluster_indices.push_back(triangle.z);
+        }
+
+        if (cluster_indices.empty()) continue; // Skip empty clusters
+
+        // Convert cluster indices to raw bytes
+        size_t index_start = index_buffer.size();
+        index_buffer.insert(index_buffer.end(),
+                            reinterpret_cast<const uint8_t*>(cluster_indices.data()),
+                            reinterpret_cast<const uint8_t*>(cluster_indices.data() + cluster_indices.size()));
+
+        // Create a GLTF mesh for this cluster
+        tinygltf::Mesh mesh;
+        mesh.name = "Cluster_" + std::to_string(cluster_id);
+
+        tinygltf::Primitive primitive;
+        primitive.indices = static_cast<int>(model.accessors.size() + 1); // Index accessor
+        primitive.attributes["POSITION"] = 0; // All meshes share the same vertex buffer
+        primitive.mode = TINYGLTF_MODE_TRIANGLES;
+
+        mesh.primitives.push_back(primitive);
+        meshes.push_back(mesh);
+
+        // Create index accessor
+        tinygltf::Accessor index_accessor;
+        index_accessor.bufferView = 1;
+        index_accessor.byteOffset = static_cast<int>(index_start);
+        index_accessor.componentType = TINYGLTF_COMPONENT_TYPE_UNSIGNED_INT;
+        index_accessor.count = static_cast<int>(cluster_indices.size());
+        index_accessor.type = TINYGLTF_TYPE_SCALAR;
+
+        model.accessors.push_back(index_accessor);
+
+        // Update global index offset
+        global_index_offset += cluster_indices.size();
+    }
+
+    // Create a single buffer containing all cluster index data
+    tinygltf::Buffer shared_vertex_buffer, shared_index_buffer;
+    shared_vertex_buffer.data = vertex_buffer;
+    shared_index_buffer.data = index_buffer;
+
+    model.buffers.push_back(shared_vertex_buffer);
+    model.buffers.push_back(shared_index_buffer);
+
+    // Create buffer views for shared buffers
+    tinygltf::BufferView vertex_view, index_view;
+    vertex_view.buffer = 0;
+    vertex_view.byteOffset = 0;
+    vertex_view.byteLength = static_cast<int>(vertex_buffer.size());
+    vertex_view.target = TINYGLTF_TARGET_ARRAY_BUFFER;
+	vertex_view.name = "Vertex View";
+
+    index_view.buffer = 1;
+    index_view.byteOffset = 0;
+    index_view.byteLength = static_cast<int>(index_buffer.size());
+    index_view.target = TINYGLTF_TARGET_ELEMENT_ARRAY_BUFFER;
+	index_view.name = "Index View";
+
+    model.bufferViews.push_back(vertex_view);
+    model.bufferViews.push_back(index_view);
+
+    // Add meshes to model
+    for (auto& mesh : meshes) {
+        model.meshes.push_back(mesh);
+    }
+
+    // Assign meshes to a single scene
+    tinygltf::Scene scene;
+    for (size_t i = 0; i < model.meshes.size(); ++i) {
+        tinygltf::Node node;
+        node.mesh = static_cast<int>(i);
+        model.nodes.push_back(node);
+        scene.nodes.push_back(static_cast<int>(i));
+    }
+    model.scenes.push_back(scene);
+    model.defaultScene = 0;
 }
 
 // Function to deep copy a buffer and apply an offset to the vertex positions
@@ -307,6 +410,7 @@ void NaniteMeshApp::copy_offset_mesh_to_model(tinygltf::Model& model, tinygltf::
                 positions[i * 3 + 1] += offset.y; // Y
                 positions[i * 3 + 2] += offset.z; // Z
             }
+
             // Add the new buffer, buffer view, and accessor to the model
             model.buffers.push_back(newBuffer);
             model.bufferViews.push_back(newBufferView);
@@ -335,6 +439,9 @@ bool NaniteMeshApp::save_model(const tinygltf::Model& model, std::string filenam
     if (!ret) {
         std::cout << "Failed to save glTF: " << filename << std::endl;
     }
+	else {
+		std::cout << "Saved glTF: " << filename << std::endl;
+	}
     return ret;
 }
 
