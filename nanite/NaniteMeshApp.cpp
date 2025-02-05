@@ -34,8 +34,10 @@ NaniteMeshApp::NaniteMeshApp(Configuration & configuration_) :
 	tinygltf::TinyGLTF loader;
 	loadGLTF(configuration.glTF_path, model, loader);
 	// copy_offset_mesh_to_model(model, model.meshes[0],glm::vec3(20));
-	cluster(12);
+	cluster(128);
+    std::cout<<"clustered\n";
 	write_clusters_to_model(model);
+    std::cout<<"written\n";
 	save_model(model, std::string("../gltf/test"));
 }
 
@@ -59,7 +61,7 @@ void NaniteMeshApp::loadGLTF(std::string gltfPath, tinygltf::Model& model, tinyg
 		printf("Failed to parse glTF\n");
 	}
 
-	assert(model.meshes.size() == 1 && "Currently only support single mesh");
+	// assert(model.meshes.size() == 1 && "Currently only support single mesh");
 	for (auto mesh : model.meshes) {
 
 		for (auto primitive : mesh.primitives) {
@@ -156,13 +158,11 @@ void NaniteMeshApp::loadGLTF(std::string gltfPath, tinygltf::Model& model, tinyg
 					if (i % 10000 == 0) {
 						std::cout<<"current index: "<<i<<" / "<<indices.size()<<std::endl;
 					}
-					// if (i % 10 == 0 && i > 2990000) {
-					// 	std::cout<<glm::to_string(vertices[i0])<<std::endl;
-					// 	std::cout<<glm::to_string(positions[i0])<<std::endl;
-					// 	std::cout << "  v0: (" << positionsf[i0 * 3] << ", " << positionsf[i0 * 3 + 1] << ", " << positionsf[i0 * 3 + 2] << ")\n";
-					// 	std::cout << "  v1: (" << positionsf[i1 * 3] << ", " << positionsf[i1 * 3 + 1] << ", " << positionsf[i1 * 3 + 2] << ")\n";
-					// 	std::cout << "  v2: (" << positionsf[i2 * 3] << ", " << positionsf[i2 * 3 + 1] << ", " << positionsf[i2 * 3 + 2] << ")\n";
-					// }
+
+						// std::cout << "  v0: (" << glm::to_string(positions[i0] ) << ")\n";
+						// std::cout << "  v1: (" << glm::to_string(positions[i1] ) <<  ")\n";
+						// std::cout << "  v2: (" << glm::to_string(positions[i2] ) <<  ")\n";
+					
 
 				}
 			}
@@ -217,9 +217,9 @@ void NaniteMeshApp::cluster(uint32_t cluster_triangle_limit)
     uint32_t loop_count = 0;
 
     while (!merge_heap.empty() && clusters.size() > 1) {
-        // if (loop_count % 100 == 0) {
+        if (loop_count % 100 == 0) {
             std::cout << "loop: " << loop_count << " , cluster count: " << clusters.size() << std::endl;
-        // }
+        }
         loop_count++;
 
         // Get best merge candidate
@@ -286,9 +286,15 @@ void NaniteMeshApp::write_clusters_to_model(tinygltf::Model& model)
     size_t global_index_offset = 0;
 
     // Convert global vertex data into a GLTF buffer
-    std::vector<uint8_t> vertex_buffer(reinterpret_cast<uint8_t*>(vertices.data()),
-                                       reinterpret_cast<uint8_t*>(vertices.data() + vertices.size()));
+    std::vector<uint8_t> vertex_buffer(vertices.size() * sizeof(glm::vec3));
+    memcpy(vertex_buffer.data(), vertices.data(), vertex_buffer.size());
 
+    tinygltf::Accessor vertex_accessor;
+    vertex_accessor.bufferView = 0;
+    vertex_accessor.componentType = TINYGLTF_COMPONENT_TYPE_FLOAT;
+    vertex_accessor.type = TINYGLTF_TYPE_VEC3;
+    vertex_accessor.count = vertices.size();
+    model.accessors.push_back(vertex_accessor);
     for (size_t cluster_id = 0; cluster_id < clusters.size(); ++cluster_id) {
         Cluster& cluster = clusters[cluster_id];
 
@@ -297,9 +303,7 @@ void NaniteMeshApp::write_clusters_to_model(tinygltf::Model& model)
         // Use global vertex indices directly
         for (uint32_t triangle_index : cluster.triangles) {
             glm::uvec3 triangle = triangles[triangle_index];
-			assert(triangle.x < vertices.size());
-			assert(triangle.y < vertices.size());
-			assert(triangle.z < vertices.size());
+		
             cluster_indices.push_back(triangle.x);
             cluster_indices.push_back(triangle.y);
             cluster_indices.push_back(triangle.z);
@@ -313,12 +317,13 @@ void NaniteMeshApp::write_clusters_to_model(tinygltf::Model& model)
                             reinterpret_cast<const uint8_t*>(cluster_indices.data()),
                             reinterpret_cast<const uint8_t*>(cluster_indices.data() + cluster_indices.size()));
 
+
         // Create a GLTF mesh for this cluster
         tinygltf::Mesh mesh;
         mesh.name = "Cluster_" + std::to_string(cluster_id);
 
         tinygltf::Primitive primitive;
-        primitive.indices = static_cast<int>(model.accessors.size() + 1); // Index accessor
+        primitive.indices = static_cast<int>(model.accessors.size()); // Index accessor
         primitive.attributes["POSITION"] = 0; // All meshes share the same vertex buffer
         primitive.mode = TINYGLTF_MODE_TRIANGLES;
 
@@ -352,12 +357,15 @@ void NaniteMeshApp::write_clusters_to_model(tinygltf::Model& model)
     vertex_view.buffer = 0;
     vertex_view.byteOffset = 0;
     vertex_view.byteLength = static_cast<int>(vertex_buffer.size());
+    vertex_view.byteStride = sizeof(glm::vec3);
     vertex_view.target = TINYGLTF_TARGET_ARRAY_BUFFER;
 	vertex_view.name = "Vertex View";
 
     index_view.buffer = 1;
     index_view.byteOffset = 0;
     index_view.byteLength = static_cast<int>(index_buffer.size());
+
+    index_view.byteStride = sizeof(uint32_t);
     index_view.target = TINYGLTF_TARGET_ELEMENT_ARRAY_BUFFER;
 	index_view.name = "Index View";
 
@@ -373,6 +381,9 @@ void NaniteMeshApp::write_clusters_to_model(tinygltf::Model& model)
     tinygltf::Scene scene;
     for (size_t i = 0; i < model.meshes.size(); ++i) {
         tinygltf::Node node;
+        node.translation = {0.0, 0.0, 0.0};
+        node.rotation = {0.0, 0.0, 0.0, 1.0};
+        node.scale = {1.0, 1.0, 1.0};
         node.mesh = static_cast<int>(i);
         model.nodes.push_back(node);
         scene.nodes.push_back(static_cast<int>(i));
