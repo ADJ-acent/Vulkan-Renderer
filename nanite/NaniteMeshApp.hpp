@@ -61,8 +61,6 @@ struct NaniteMeshApp {
             return shared_edge_count < other.shared_edge_count;
         }
     };
-
-    std::unordered_map<glm::uvec2, uint32_t> next_vertex;
     std::vector<glm::uvec3> triangles;
     std::vector<glm::vec3> vertices; // position of vertices
 
@@ -77,6 +75,7 @@ struct NaniteMeshApp {
     bool is_valid_candidate(const MergeCandidate &);
     void merge_clusters(uint32_t a, uint32_t b);
     void write_clusters_to_model(tinygltf::Model& model);
+    void simplify_clusters();
     void copy_offset_mesh_to_model(tinygltf::Model& model, tinygltf::Mesh& mesh, const glm::vec3& offset);
     void write_mesh_to_model(tinygltf::Model& model, std::vector<int> indices); 
     bool save_model(const tinygltf::Model& model, std::string filename);

@@ -34,11 +34,12 @@ NaniteMeshApp::NaniteMeshApp(Configuration & configuration_) :
 	tinygltf::TinyGLTF loader;
 	loadGLTF(configuration.glTF_path, model, loader);
 	// copy_offset_mesh_to_model(model, model.meshes[0],glm::vec3(20));
-	cluster(128);
+	cluster(12);
+    simplify_clusters();
     std::cout<<"clustered\n";
 	write_clusters_to_model(model);
-    std::cout<<"written\n";
 	save_model(model, std::string("../gltf/test"));
+    std::cout<<"written\n";
 }
 
 void NaniteMeshApp::loadGLTF(std::string gltfPath, tinygltf::Model& model, tinygltf::TinyGLTF& loader)
@@ -390,6 +391,50 @@ void NaniteMeshApp::write_clusters_to_model(tinygltf::Model& model)
     }
     model.scenes.push_back(scene);
     model.defaultScene = 0;
+}
+
+void NaniteMeshApp::simplify_clusters()
+{
+    uint32_t cluster_count = 0;
+    for (Cluster& cluster : clusters) {
+        cluster_count++;
+        std::cout<<"simplifying cluster "<<cluster_count<<" / "<<clusters.size()<<std::endl;
+        std::unordered_map<glm::uvec2, uint32_t> next_vertex_in_cluster;
+        auto do_next = [&](uint32_t a, uint32_t b, uint32_t c) {
+            auto ret = next_vertex_in_cluster.insert(std::make_pair(glm::uvec2(a, b), c));
+            assert(ret.second);
+        };
+
+        std::unordered_set<uint32_t> boundary_vertices;
+        std::unordered_map<uint32_t, glm::mat4> quadrics;  // Stores error matrices for vertices
+
+        // Construct half-edge connectivity and detect boundaries
+        for (uint32_t& triangle_index : cluster.triangles) {
+            glm::uvec3 vertex_indices = triangles[triangle_index];
+            uint32_t i0 = vertex_indices[0];
+            uint32_t i1 = vertex_indices[1];
+            uint32_t i2 = vertex_indices[2];
+
+            do_next(i0, i1, i2);
+            do_next(i1, i2, i0);
+            do_next(i2, i0, i1);
+
+        }
+
+        for (uint32_t& triangle_index : cluster.triangles) {
+
+            glm::uvec3 vertex_indices = triangles[triangle_index];
+            uint32_t i0 = vertex_indices[0];
+            uint32_t i1 = vertex_indices[1];
+            uint32_t i2 = vertex_indices[2];
+
+            // Check boundary edges
+            if (next_vertex_in_cluster.find(glm::uvec2(i1, i0)) == next_vertex_in_cluster.end()) boundary_vertices.insert(i0);
+            if (next_vertex_in_cluster.find(glm::uvec2(i2, i1)) == next_vertex_in_cluster.end()) boundary_vertices.insert(i1);
+            if (next_vertex_in_cluster.find(glm::uvec2(i0, i2)) == next_vertex_in_cluster.end()) boundary_vertices.insert(i2);
+        }
+    }
+
 }
 
 // Function to deep copy a buffer and apply an offset to the vertex positions
