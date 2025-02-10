@@ -76,6 +76,10 @@ struct NaniteMeshApp {
     void merge_clusters(uint32_t a, uint32_t b);
     void write_clusters_to_model(tinygltf::Model& model);
     void simplify_clusters();
+    inline glm::vec3 compute_normal(const glm::vec3& v0, const glm::vec3& v1, const glm::vec3& v2) {
+        return glm::normalize(glm::cross(v1 - v0, v2 - v0));
+    }
+    glm::vec3 get_best_vertex_after_collapse(const glm::mat4& Qsum, glm::vec3 v1, glm::vec3 v2);
     void copy_offset_mesh_to_model(tinygltf::Model& model, tinygltf::Mesh& mesh, const glm::vec3& offset);
     void write_mesh_to_model(tinygltf::Model& model, std::vector<int> indices); 
     bool save_model(const tinygltf::Model& model, std::string filename);
