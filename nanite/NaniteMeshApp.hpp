@@ -22,6 +22,7 @@ struct UnionFind {// modified from https://www.geeksforgeeks.org/introduction-to
     }
 
     uint32_t find(uint32_t i) {
+        assert(i < parent.size());
         if (parent[i] == i) {
             return i;
         }
@@ -54,27 +55,63 @@ struct NaniteMeshApp {
         std::unordered_map<uint32_t, uint32_t> shared_edges; // Neighboring clusters and shared edge count
     };
 
+    struct ClusterGroup {
+        std::vector<uint32_t> clusters;
+        std::unordered_map<uint32_t, uint32_t> shared_edges;
+    };
+
     struct MergeCandidate {
         uint32_t cluster_a;
         uint32_t cluster_b;
         uint32_t shared_edge_count;
         // Custom comparator for max heap:
         bool operator<(const MergeCandidate &other) const {
+            // int32_t size_diff = int32_t(NaniteMeshApp::clusters[cluster_a].triangles.size() 
+            //     + NaniteMeshApp::clusters[cluster_b].triangles.size()) 
+            //     - int32_t(NaniteMeshApp::clusters[other.cluster_a].triangles.size()) -
+            //     int32_t(NaniteMeshApp::clusters[other.cluster_b].triangles.size());
+            // if (size_diff > 0) {
+            //     return true;
+            // }
+            // else if (size_diff < 0) {
+            //     return false;
+            // }
+            return shared_edge_count < other.shared_edge_count;
+        }
+    };
+    struct GroupCandidate {
+        uint32_t group_a;
+        uint32_t group_b;
+        uint32_t shared_edge_count;
+        // Custom comparator for max heap:
+        bool operator<(const GroupCandidate &other) const {
+            int32_t size_diff = int32_t(NaniteMeshApp::clusters[group_a].triangles.size() 
+                + NaniteMeshApp::clusters[group_b].triangles.size()) 
+                - int32_t(NaniteMeshApp::clusters[other.group_a].triangles.size()) -
+                int32_t(NaniteMeshApp::clusters[other.group_b].triangles.size());
+            if (size_diff > 0) {
+                return true;
+            }
+            else if (size_diff < 0) {
+                return false;
+            }
             return shared_edge_count < other.shared_edge_count;
         }
     };
     std::vector<glm::uvec3> triangles;
     std::vector<glm::vec3> vertices; // position of vertices
 
-    std::vector<Cluster> clusters;
+    static std::vector<Cluster> clusters ; // initial clusters
+    static std::vector<ClusterGroup> current_cluster_group;
     UnionFind triangle_to_cluster;
     
     // std::unordered_map<uint32_t, uint32_t> triangle_to_cluster;
 
     NaniteMeshApp(Configuration &);
     void loadGLTF(std::string gltfPath, tinygltf::Model& model, tinygltf::TinyGLTF& loader);
-    void cluster(uint32_t cluster_triangle_limit = 0);
-    bool is_valid_candidate(const MergeCandidate &);
+    void cluster_and_group(uint32_t cluster_triangle_limit = 0);
+    bool is_valid_merge_candidate(const MergeCandidate &);
+    bool is_valid_group_candidate(const GroupCandidate &, UnionFind &);
     void merge_clusters(uint32_t a, uint32_t b);
     void write_clusters_to_model(tinygltf::Model& model);
     void simplify_clusters();

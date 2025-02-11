@@ -7,6 +7,9 @@
 #include "tiny_gltf.h"
 #include <queue>
 
+std::vector<NaniteMeshApp::Cluster> NaniteMeshApp::clusters = std::vector<Cluster>();
+std::vector<NaniteMeshApp::ClusterGroup> NaniteMeshApp::current_cluster_group = std::vector<ClusterGroup>();
+
 void NaniteMeshApp::Configuration::parse(int argc, char **argv) {
     
 	for (int argi = 1; argi < argc; ++argi) {
@@ -57,12 +60,15 @@ NaniteMeshApp::NaniteMeshApp(Configuration & configuration_) :
 	tinygltf::TinyGLTF loader;
 	loadGLTF(configuration.glTF_path, model, loader);
 	// copy_offset_mesh_to_model(model, model.meshes[0],glm::vec3(20));
-	cluster();
+	cluster_and_group();
     simplify_clusters();
-    std::cout<<"clustered\n";
+    cluster_and_group();
+    simplify_clusters();
+    cluster_and_group();
+    simplify_clusters();
+    cluster_and_group();
 	write_clusters_to_model(model);
 	save_model(model, std::string("../gltf/test"));
-    std::cout<<"written\n";
 }
 
 void NaniteMeshApp::loadGLTF(std::string gltfPath, tinygltf::Model& model, tinygltf::TinyGLTF& loader)
@@ -180,9 +186,6 @@ void NaniteMeshApp::loadGLTF(std::string gltfPath, tinygltf::Model& model, tinyg
 					glm::vec3 v1 = positions[i1];
 					glm::vec3 v2 = positions[i2];
 					triangles.emplace_back(glm::uvec3(get_vertex_index(v0),get_vertex_index(v1),get_vertex_index(v2)));
-					if (i % 10000 == 0) {
-						std::cout<<"current index: "<<i<<" / "<<indices.size()<<std::endl;
-					}
 
 						// std::cout << "  v0: (" << glm::to_string(positions[i0] ) << ")\n";
 						// std::cout << "  v1: (" << glm::to_string(positions[i1] ) <<  ")\n";
@@ -191,16 +194,14 @@ void NaniteMeshApp::loadGLTF(std::string gltfPath, tinygltf::Model& model, tinyg
 
 				}
 			}
-			std::cout<<accessor.count<<std::endl;
-			std::cout<<vertices.size()<<std::endl;
-			std::cout<<"done!\n";
+			std::cout<<"Finished Loading gltf, total number of vertices: "<<vertices.size()<<std::endl;
 		}
 	}
 	
 }
 
 // step 1 of preprocessing
-void NaniteMeshApp::cluster(uint32_t cluster_triangle_limit)
+void NaniteMeshApp::cluster_and_group(uint32_t cluster_triangle_limit)
 {
     if (cluster_triangle_limit == 0) {
         cluster_triangle_limit = configuration.per_cluster_triangle_limit;
@@ -243,10 +244,10 @@ void NaniteMeshApp::cluster(uint32_t cluster_triangle_limit)
     }
 
     uint32_t loop_count = 0;
-
+    std::cout << "Start Clustering... "<< "Total number of clusters to start: " << clusters.size()  << std::endl;
     while (!merge_heap.empty() && clusters.size() > 1) {
-        if (loop_count % 100 == 0) {
-            std::cout << "loop: " << loop_count << " , cluster count: " << clusters.size() << std::endl;
+        if (loop_count % 10000 == 0) {
+            std::cout << "\tClustering... "<< "loop: " << loop_count  << std::endl;
         }
         loop_count++;
 
@@ -255,7 +256,7 @@ void NaniteMeshApp::cluster(uint32_t cluster_triangle_limit)
         merge_heap.pop();
 
         // Validate candidate
-        if (!is_valid_candidate(candidate)) continue;
+        if (!is_valid_merge_candidate(candidate)) continue;
 
         // Ensure we don't exceed triangle limit
         if (clusters[candidate.cluster_a].triangles.size() + clusters[candidate.cluster_b].triangles.size() > cluster_triangle_limit) {
@@ -280,16 +281,93 @@ void NaniteMeshApp::cluster(uint32_t cluster_triangle_limit)
 			clusters.erase(clusters.begin() + i);
 		}
 	}
-    std::cout << "Final loop count: " << loop_count << ", remaining clusters: " << clusters.size() << std::endl;
+    std::cout << "Merging final loop count: " << loop_count << ", remaining clusters: " << clusters.size() << std::endl;
+
+    {// group merged clusters
+        std::priority_queue<GroupCandidate> group_heap;
+        for (uint32_t i = 0; i < clusters.size(); ++i) {
+            for (const auto& [neighbor, edge_count] : clusters[i].shared_edges) {
+                if (neighbor > i && neighbor < clusters.size()) {
+                    group_heap.push({ i, neighbor, edge_count });
+                }
+            }
+        }
+
+        loop_count = 0;
+
+        current_cluster_group.clear();
+        // Initialize each cluster as its own group
+        for (uint32_t i = 0; i < clusters.size(); ++i) {
+            current_cluster_group.push_back({ { i }, clusters[i].shared_edges });
+        }
+        UnionFind cluster_to_group = UnionFind(static_cast<uint32_t>(current_cluster_group.size()));
+
+
+        while (!group_heap.empty() && current_cluster_group.size() > 1) {
+            if (loop_count % 100 == 0) {
+                std::cout << "\tGrouping clusters... "<< "loop: " << loop_count  << std::endl;
+            }
+            loop_count++;
+            // Get best merge candidate
+            GroupCandidate candidate = group_heap.top();
+            group_heap.pop();
+            // Validate candidate
+            if (!is_valid_group_candidate(candidate, cluster_to_group)) continue;
+
+            // Ensure we don't exceed group size limit
+            if (current_cluster_group[candidate.group_a].clusters.size() +
+                current_cluster_group[candidate.group_b].clusters.size() 
+                > configuration.per_merge_cluster_limit) {
+                continue;
+            }
+
+            {// Group clusters
+                cluster_to_group.unite(candidate.group_a, candidate.group_a);
+                // Move triangles from b to a
+                current_cluster_group[candidate.group_a].clusters.insert(
+                    current_cluster_group[candidate.group_a].clusters.end(),
+                    current_cluster_group[candidate.group_b].clusters.begin(),
+                    current_cluster_group[candidate.group_b].clusters.end()
+                );
+
+                // Remove shared_edges[b] since b no longer exists
+                current_cluster_group[candidate.group_a].shared_edges.erase(candidate.group_b);
+            }
+
+    
+            // Update neighbors
+            for (const auto& [neighbor, edge_count] : current_cluster_group[candidate.group_b].shared_edges) {
+                if (neighbor == candidate.group_a) continue; // Skip self
+                if (neighbor > current_cluster_group.size()) continue;
+                current_cluster_group[candidate.group_a].shared_edges[neighbor] += edge_count;
+                current_cluster_group[neighbor].shared_edges[candidate.group_a] += edge_count;
+
+                group_heap.push({ candidate.group_a, neighbor, current_cluster_group[candidate.group_a].shared_edges[neighbor] });
+            }
+        }
+
+        std::cout << "Grouping final loop count: " << loop_count << ", total grouped clusters: " << current_cluster_group.size() << std::endl;
+    
+    }
+    
 }
 
-bool NaniteMeshApp::is_valid_candidate(const MergeCandidate &candidate)
+bool NaniteMeshApp::is_valid_merge_candidate(const MergeCandidate &candidate)
 {
     uint32_t root_a = triangle_to_cluster.find(candidate.cluster_a);
     uint32_t root_b = triangle_to_cluster.find(candidate.cluster_b);
     return (root_a == candidate.cluster_a && root_b == candidate.cluster_b &&
             clusters[root_a].shared_edges[root_b] == candidate.shared_edge_count &&
 			clusters[root_b].shared_edges[root_a] == candidate.shared_edge_count);
+}
+
+bool NaniteMeshApp::is_valid_group_candidate(const GroupCandidate &candidate, UnionFind &cluster_to_group)
+{
+    uint32_t root_a = cluster_to_group.find(candidate.group_a);
+    uint32_t root_b = cluster_to_group.find(candidate.group_b);
+    return (root_a == candidate.group_a && root_b == candidate.group_b &&
+            current_cluster_group[root_a].shared_edges[root_b] == candidate.shared_edge_count &&
+			current_cluster_group[root_b].shared_edges[root_a] == candidate.shared_edge_count);
 }
 
 void NaniteMeshApp::merge_clusters(uint32_t a, uint32_t b) {
@@ -423,9 +501,13 @@ void NaniteMeshApp::write_clusters_to_model(tinygltf::Model& model)
 void NaniteMeshApp::simplify_clusters()
 {
     uint32_t cluster_count = 0;
-    for (Cluster& cluster : clusters) {
+    std::vector<uint32_t> new_triangles;
+    new_triangles.reserve(triangles.size());
+    for (ClusterGroup& cluster_group : current_cluster_group) {
         cluster_count++;
-        std::cout<<"simplifying cluster "<<cluster_count<<" / "<<clusters.size()<<std::endl;
+        if (cluster_count % 100 == 0) {
+            std::cout<<"\tsimplifying cluster "<<cluster_count<<" / "<<clusters.size()<<std::endl;
+        }
         std::unordered_map<glm::uvec2, uint32_t> next_vertex_in_cluster;
         auto do_next = [&](uint32_t a, uint32_t b, uint32_t c) {
             auto ret = next_vertex_in_cluster.insert(std::make_pair(glm::uvec2(a, b), c));
@@ -434,21 +516,29 @@ void NaniteMeshApp::simplify_clusters()
 
         std::unordered_set<uint32_t> boundary_vertices;
         std::unordered_map<uint32_t, glm::mat4> quadrics;  // Stores error matrices for vertices
-
+        std::vector<uint32_t> group_triangles;
+        group_triangles.clear();
         // Construct half-edge connectivity and detect boundaries
-        for (uint32_t& triangle_index : cluster.triangles) {
-            glm::uvec3 vertex_indices = triangles[triangle_index];
-            uint32_t i0 = vertex_indices[0];
-            uint32_t i1 = vertex_indices[1];
-            uint32_t i2 = vertex_indices[2];
-
-            do_next(i0, i1, i2);
-            do_next(i1, i2, i0);
-            do_next(i2, i0, i1);
-
+        for (uint32_t cluster_index : cluster_group.clusters) {
+            Cluster& cluster = clusters[cluster_index];
+            for (uint32_t& triangle_index : cluster.triangles) {
+                glm::uvec3 vertex_indices = triangles[triangle_index];
+                uint32_t i0 = vertex_indices[0];
+                uint32_t i1 = vertex_indices[1];
+                uint32_t i2 = vertex_indices[2];
+    
+                do_next(i0, i1, i2);
+                do_next(i1, i2, i0);
+                do_next(i2, i0, i1);
+    
+            }
+            group_triangles.insert(group_triangles.end(), 
+                cluster.triangles.begin(), 
+                cluster.triangles.end()
+            );
         }
 
-        for (uint32_t& triangle_index : cluster.triangles) {
+        for (uint32_t& triangle_index : group_triangles) {
 
             glm::uvec3 vertex_indices = triangles[triangle_index];
             uint32_t i0 = vertex_indices[0];
@@ -459,28 +549,26 @@ void NaniteMeshApp::simplify_clusters()
             if (next_vertex_in_cluster.find(glm::uvec2(i1, i0)) == next_vertex_in_cluster.end()) boundary_vertices.insert(i0);
             if (next_vertex_in_cluster.find(glm::uvec2(i2, i1)) == next_vertex_in_cluster.end()) boundary_vertices.insert(i1);
             if (next_vertex_in_cluster.find(glm::uvec2(i0, i2)) == next_vertex_in_cluster.end()) boundary_vertices.insert(i2);
-        }
 
-        // Compute quadrics per vertex
-        for (uint32_t& triangle_index : cluster.triangles) {
-            glm::uvec3 vertex_indices = triangles[triangle_index];
+            {// Compute quadrics per vertex
+                glm::vec3 v0 = vertices[i0];
+                glm::vec3 v1 = vertices[i1];
+                glm::vec3 v2 = vertices[i2];
 
-            glm::vec3 v0 = vertices[vertex_indices.x];
-            glm::vec3 v1 = vertices[vertex_indices.y];
-            glm::vec3 v2 = vertices[vertex_indices.z];
+                // Compute plane equation ax + by + cz + d = 0
+                glm::vec3 normal = glm::normalize(glm::cross(v1 - v0, v2 - v0));
+                float d = -glm::dot(normal, v0);
+                glm::vec4 plane = glm::vec4(normal, d);
 
-            // Compute plane equation ax + by + cz + d = 0
-            glm::vec3 normal = glm::normalize(glm::cross(v1 - v0, v2 - v0));
-            float d = -glm::dot(normal, v0);
-            glm::vec4 plane = glm::vec4(normal, d);
+                // Compute quadric matrix Q = P * P^T
+                glm::mat4 Q = glm::outerProduct(plane, plane);
 
-            // Compute quadric matrix Q = P * P^T
-            glm::mat4 Q = glm::outerProduct(plane, plane);
-
-            // Accumulate quadric for each vertex
-            quadrics[vertex_indices.x] += Q;
-            quadrics[vertex_indices.y] += Q;
-            quadrics[vertex_indices.z] += Q;
+                // Accumulate quadric for each vertex
+                quadrics[i0] += Q;
+                quadrics[i1] += Q;
+                quadrics[i2] += Q;
+            }
+            
         }
 
         // Build priority queue of non-boundary vertex pairs
@@ -529,7 +617,7 @@ void NaniteMeshApp::simplify_clusters()
             std::vector<QEMEntry> flip_normal_entries;
             do { // Check normals of adjacent triangles
                 normal_flip_detected = false;
-                for (uint32_t tri_idx : cluster.triangles) {
+                for (uint32_t tri_idx : group_triangles) {
                     glm::uvec3& t = triangles[tri_idx];
 
                     if (t.x == v1 || t.y == v1 || t.z == v1 || t.x == v2 || t.y == v2 || t.z == v2) {
@@ -579,7 +667,7 @@ void NaniteMeshApp::simplify_clusters()
 
 
             // Update triangles: replace v2 with v1 where applicable
-            for (uint32_t& tri_idx : cluster.triangles) {
+            for (uint32_t& tri_idx : group_triangles) {
                 glm::uvec3& t = triangles[tri_idx];
                 if (t.x == v2) t.x = v1;
                 if (t.y == v2) t.y = v1;
@@ -587,15 +675,15 @@ void NaniteMeshApp::simplify_clusters()
             }
 
             // Remove degenerate triangles (where two or more vertices are the same)
-            cluster.triangles.erase(std::remove_if(cluster.triangles.begin(), cluster.triangles.end(),
+            group_triangles.erase(std::remove_if(group_triangles.begin(), group_triangles.end(),
                 [&](uint32_t tri_idx) {
                     const glm::uvec3& t = triangles[tri_idx];
                     return (t.x == t.y || t.y == t.z || t.z == t.x);
                 }),
-                cluster.triangles.end());
+                group_triangles.end());
             
             next_vertex_in_cluster.clear();
-            for (uint32_t& triangle_index : cluster.triangles) {
+            for (uint32_t& triangle_index : group_triangles) {
                 glm::uvec3 vertex_indices = triangles[triangle_index];
                 uint32_t i0 = vertex_indices[0];
                 uint32_t i1 = vertex_indices[1];
@@ -653,7 +741,15 @@ void NaniteMeshApp::simplify_clusters()
 
             }
         }
+        new_triangles.insert(new_triangles.end(), group_triangles.begin(), group_triangles.end());
     }
+    std::cout<<"Finished simplifying "<<cluster_count<<" clusters"<<std::endl;
+    std::vector<glm::uvec3> filtered_triangles(triangles.size());
+
+    std::transform(new_triangles.begin(), new_triangles.end(), filtered_triangles.begin(),
+        [&](size_t i) { return triangles[i]; });
+
+    triangles = filtered_triangles;
 }
 
 glm::vec3 NaniteMeshApp::get_best_vertex_after_collapse(const glm::mat4 &Qsum, glm::vec3 v1, glm::vec3 v2)
