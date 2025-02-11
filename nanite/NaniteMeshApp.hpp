@@ -43,6 +43,8 @@ struct UnionFind {// modified from https://www.geeksforgeeks.org/introduction-to
 struct NaniteMeshApp {
     struct Configuration {
         std::string glTF_path;
+        uint32_t per_cluster_triangle_limit = 128;
+        uint32_t per_merge_cluster_limit = 4;
         void parse(int argc, char **argv);
         static void usage(std::function< void(const char *, const char *) > const &callback);
     } configuration;
@@ -71,7 +73,7 @@ struct NaniteMeshApp {
 
     NaniteMeshApp(Configuration &);
     void loadGLTF(std::string gltfPath, tinygltf::Model& model, tinygltf::TinyGLTF& loader);
-    void cluster(uint32_t cluster_triangle_limit);
+    void cluster(uint32_t cluster_triangle_limit = 0);
     bool is_valid_candidate(const MergeCandidate &);
     void merge_clusters(uint32_t a, uint32_t b);
     void write_clusters_to_model(tinygltf::Model& model);

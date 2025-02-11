@@ -8,13 +8,34 @@
 #include <queue>
 
 void NaniteMeshApp::Configuration::parse(int argc, char **argv) {
+    
 	for (int argi = 1; argi < argc; ++argi) {
+        auto conv = [&](std::string const &what) {
+            argi += 1;
+            std::string val = argv[argi];
+            for (size_t i = 0; i < val.size(); ++i) {
+                if (val[i] < '0' || val[i] > '9') {
+                    throw std::runtime_error("--drawing-size " + what + " should match [0-9]+, got '" + val + "'.");
+                }
+            }
+            return std::stoul(val);
+        };
 		std::string arg = argv[argi];
 		if (arg == "--path") {
 			if (argi + 1 >= argc) throw std::runtime_error("--path requires a parameter (a .glTF path).\n");
 			argi += 1;
 			glTF_path = argv[argi];
 		}
+        else if (arg == "--cluster-limit") {
+            if (argi + 1 >= argc) throw std::runtime_error("--cluster-limit requires a parameter (max triangle count).\n");
+			
+			per_cluster_triangle_limit = conv("max triangle count");
+        }
+        else if (arg == "--cluster-group") {
+            if (argi + 1 >= argc) throw std::runtime_error("--cluster-group requires a parameter (max number of cluster per group).\n");
+			
+			per_merge_cluster_limit = conv("max cluster count per group");
+        }
 		
 	}
 	if (glTF_path == "") {
@@ -25,6 +46,8 @@ void NaniteMeshApp::Configuration::parse(int argc, char **argv) {
 void NaniteMeshApp::Configuration::usage(std::function< void(const char *, const char *) > const &callback) {	
 	//callback("--debug, --no-debug", "Turn on/off debug and validation layers.");
 	callback("--path <p>", "Loads the glTF file at path <p>");
+    callback("--cluster-limit <t>", "Limits the maximum number of triangles in a cluster to be <t>, default <t> = 128");
+    callback("--cluster-group <c>", "Limits the maximum number of clusters when merging and splitting to <c>, default <c> = 4");
 }
 
 NaniteMeshApp::NaniteMeshApp(Configuration & configuration_) :
@@ -34,7 +57,7 @@ NaniteMeshApp::NaniteMeshApp(Configuration & configuration_) :
 	tinygltf::TinyGLTF loader;
 	loadGLTF(configuration.glTF_path, model, loader);
 	// copy_offset_mesh_to_model(model, model.meshes[0],glm::vec3(20));
-	cluster(12);
+	cluster();
     simplify_clusters();
     std::cout<<"clustered\n";
 	write_clusters_to_model(model);
@@ -179,6 +202,9 @@ void NaniteMeshApp::loadGLTF(std::string gltfPath, tinygltf::Model& model, tinyg
 // step 1 of preprocessing
 void NaniteMeshApp::cluster(uint32_t cluster_triangle_limit)
 {
+    if (cluster_triangle_limit == 0) {
+        cluster_triangle_limit = configuration.per_cluster_triangle_limit;
+    }
 	clusters.clear();
     triangle_to_cluster = UnionFind(static_cast<uint32_t>(triangles.size()));
 
