@@ -46,6 +46,7 @@ struct NaniteMeshApp {
         std::string glTF_path;
         uint32_t per_cluster_triangle_limit = 12;
         uint32_t per_merge_cluster_limit = 8;
+        uint32_t simplify_count = 4;
         void parse(int argc, char **argv);
         static void usage(std::function< void(const char *, const char *) > const &callback);
     } configuration;

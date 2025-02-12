@@ -59,13 +59,13 @@ NaniteMeshApp::NaniteMeshApp(Configuration & configuration_) :
 	tinygltf::Model model;
 	tinygltf::TinyGLTF loader;
 	loadGLTF(configuration.glTF_path, model, loader);
-	// copy_offset_mesh_to_model(model, model.meshes[0],glm::vec3(20));
-	cluster();
-    group();
-    // simplify_cluster_groups();
-    
-	write_clusters_to_model(model);
-	save_model(model, std::string("../gltf/test"));
+    for (uint32_t i = 0; i < configuration.simplify_count; ++i) {
+        cluster();
+        group();
+        simplify_cluster_groups();
+        write_clusters_to_model(model);
+        save_model(model, std::string("../gltf/test_" + std::to_string(i)));
+    }	
 }
 
 void NaniteMeshApp::loadGLTF(std::string gltfPath, tinygltf::Model& model, tinygltf::TinyGLTF& loader)
@@ -274,6 +274,8 @@ void NaniteMeshApp::cluster(uint32_t cluster_triangle_limit)
     }
 	
 	for (int32_t i = int32_t(clusters.size()) - 1; i > -1; --i) {
+        if (i % 1000 == 0)
+        std::cout<<"\tRemoving merged clusters... "<<i<<" clusters left to check.";
 		if (!triangle_to_cluster.is_original(i)) {
 			clusters.erase(clusters.begin() + i);
 		}
@@ -285,11 +287,9 @@ void NaniteMeshApp::cluster(uint32_t cluster_triangle_limit)
 // group merged clusters
 void NaniteMeshApp::group(){
     std::priority_queue<GroupCandidate> group_heap;
-    std::cout<<"here-0\n";
     std::unordered_map<glm::uvec2, uint32_t> edge_to_cluster;
     for (uint32_t cluster_i = 0; cluster_i < clusters.size(); ++cluster_i) {
         clusters[cluster_i].shared_edges.clear();
-        std::cout<<cluster_i<<std::endl;
         for (uint32_t i : clusters[cluster_i].triangles) {
             const glm::uvec3& triangle = triangles[i];
 
@@ -309,7 +309,6 @@ void NaniteMeshApp::group(){
 
         }
     }
-    std::cout<<"here-1\n";
     for (uint32_t i = 0; i < clusters.size(); ++i) {
         for (const auto& [neighbor, edge_count] : clusters[i].shared_edges) {
             if (neighbor > i && neighbor < clusters.size()) {
@@ -329,9 +328,9 @@ void NaniteMeshApp::group(){
 
 
     while (!group_heap.empty() && current_cluster_group.size() > 1) {
-        // if (loop_count % 100 == 0) {
+        if (loop_count % 500 == 0) {
             std::cout << "\tGrouping clusters... "<< "loop: " << loop_count  << std::endl;
-        // }
+        }
         loop_count++;
         // Get best merge candidate
         GroupCandidate candidate = group_heap.top();
@@ -533,7 +532,7 @@ void NaniteMeshApp::simplify_cluster_groups()
     for (ClusterGroup& cluster_group : current_cluster_group) {
         cluster_count++;
         if (cluster_count % 100 == 0) {
-            std::cout<<"\tsimplifying cluster "<<cluster_count<<" / "<<clusters.size()<<std::endl;
+            std::cout<<"\tsimplifying cluster groups"<<cluster_count<<" / "<<current_cluster_group.size()<<std::endl;
         }
         std::unordered_map<glm::uvec2, uint32_t> next_vertex_in_cluster;
         auto do_next = [&](uint32_t a, uint32_t b, uint32_t c) {
@@ -661,7 +660,7 @@ void NaniteMeshApp::simplify_cluster_groups()
                         glm::vec3 new_normal = compute_normal(collapsed_v1_pos, collapsed_v2_pos, collapsed_v3_pos);
 
                         // If dot product is negative, normal flips
-                        if (glm::dot(original_normal, new_normal) < 0) {
+                        if (glm::dot(original_normal, new_normal) <= 0) {
                             normal_flip_detected = true;
                             flip_normal_entries.push_back(entry);
 
@@ -769,10 +768,28 @@ void NaniteMeshApp::simplify_cluster_groups()
         }
         
     }
-    std::cout<<"Finished simplifying "<<cluster_count<<" clusters"<<std::endl;
-    std::vector<glm::uvec3> filtered_triangles(triangles.size());
 
-    triangles = filtered_triangles;
+    { // clean up degenerate triangles and unused triangles from the triangle list
+        std::vector<glm::uvec3> new_triangles;
+        new_triangles.reserve(triangles.size());
+        for (uint32_t i = 0; i < clusters.size(); ++i) {
+            std::vector<uint32_t> new_cluster_triangles;
+            new_cluster_triangles.reserve(clusters[i].triangles.size());
+            for (uint32_t triangle_index : clusters[i].triangles) {
+                glm::uvec3& triangle = triangles[triangle_index];
+                glm::vec3& v0 = vertices[triangle[0]];
+                glm::vec3& v1 = vertices[triangle[1]];
+                glm::vec3& v2 = vertices[triangle[2]];
+                if (v0 == v1 || v1 == v2 || v0 == v2) continue; //skip degenerate triangles
+                new_triangles.push_back(triangle);
+                new_cluster_triangles.push_back(uint32_t(new_triangles.size()));
+            }
+            clusters[i].triangles = new_cluster_triangles;
+        }
+        triangles = new_triangles;
+    }
+
+    std::cout<<"Finished simplifying "<<cluster_count<<" clusters"<<std::endl;
 }
 
 glm::vec3 NaniteMeshApp::get_best_vertex_after_collapse(const glm::mat4 &Qsum, glm::vec3 v1, glm::vec3 v2)
