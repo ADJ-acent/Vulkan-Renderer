@@ -60,13 +60,10 @@ NaniteMeshApp::NaniteMeshApp(Configuration & configuration_) :
 	tinygltf::TinyGLTF loader;
 	loadGLTF(configuration.glTF_path, model, loader);
 	// copy_offset_mesh_to_model(model, model.meshes[0],glm::vec3(20));
-	cluster_and_group();
-    simplify_clusters();
-    cluster_and_group();
-    simplify_clusters();
-    cluster_and_group();
-    simplify_clusters();
-    cluster_and_group();
+	cluster();
+    group();
+    // simplify_cluster_groups();
+    
 	write_clusters_to_model(model);
 	save_model(model, std::string("../gltf/test"));
 }
@@ -201,7 +198,7 @@ void NaniteMeshApp::loadGLTF(std::string gltfPath, tinygltf::Model& model, tinyg
 }
 
 // step 1 of preprocessing
-void NaniteMeshApp::cluster_and_group(uint32_t cluster_triangle_limit)
+void NaniteMeshApp::cluster(uint32_t cluster_triangle_limit)
 {
     if (cluster_triangle_limit == 0) {
         cluster_triangle_limit = configuration.per_cluster_triangle_limit;
@@ -282,74 +279,104 @@ void NaniteMeshApp::cluster_and_group(uint32_t cluster_triangle_limit)
 		}
 	}
     std::cout << "Merging final loop count: " << loop_count << ", remaining clusters: " << clusters.size() << std::endl;
+    
+}
 
-    {// group merged clusters
-        std::priority_queue<GroupCandidate> group_heap;
-        for (uint32_t i = 0; i < clusters.size(); ++i) {
-            for (const auto& [neighbor, edge_count] : clusters[i].shared_edges) {
-                if (neighbor > i && neighbor < clusters.size()) {
-                    group_heap.push({ i, neighbor, edge_count });
+// group merged clusters
+void NaniteMeshApp::group(){
+    std::priority_queue<GroupCandidate> group_heap;
+    std::cout<<"here-0\n";
+    std::unordered_map<glm::uvec2, uint32_t> edge_to_cluster;
+    for (uint32_t cluster_i = 0; cluster_i < clusters.size(); ++cluster_i) {
+        clusters[cluster_i].shared_edges.clear();
+        std::cout<<cluster_i<<std::endl;
+        for (uint32_t i : clusters[cluster_i].triangles) {
+            const glm::uvec3& triangle = triangles[i];
+
+            for (int j = 0; j < 3; ++j) {
+                glm::uvec2 edge = { triangle[j], triangle[(j + 1) % 3] };
+                glm::uvec2 reversed_edge = { triangle[(j + 1) % 3], triangle[j] };
+
+                if (edge_to_cluster.find(reversed_edge) != edge_to_cluster.end()) {
+                    uint32_t neighbor_cluster = edge_to_cluster[reversed_edge];
+                    if (neighbor_cluster == cluster_i) continue;
+                    clusters[cluster_i].shared_edges[neighbor_cluster]++;
+                    clusters[neighbor_cluster].shared_edges[cluster_i]++;
+                } else {
+                    edge_to_cluster[edge] = cluster_i;
                 }
             }
+
         }
-
-        loop_count = 0;
-
-        current_cluster_group.clear();
-        // Initialize each cluster as its own group
-        for (uint32_t i = 0; i < clusters.size(); ++i) {
-            current_cluster_group.push_back({ { i }, clusters[i].shared_edges });
-        }
-        UnionFind cluster_to_group = UnionFind(static_cast<uint32_t>(current_cluster_group.size()));
-
-
-        while (!group_heap.empty() && current_cluster_group.size() > 1) {
-            if (loop_count % 100 == 0) {
-                std::cout << "\tGrouping clusters... "<< "loop: " << loop_count  << std::endl;
-            }
-            loop_count++;
-            // Get best merge candidate
-            GroupCandidate candidate = group_heap.top();
-            group_heap.pop();
-            // Validate candidate
-            if (!is_valid_group_candidate(candidate, cluster_to_group)) continue;
-
-            // Ensure we don't exceed group size limit
-            if (current_cluster_group[candidate.group_a].clusters.size() +
-                current_cluster_group[candidate.group_b].clusters.size() 
-                > configuration.per_merge_cluster_limit) {
-                continue;
-            }
-
-            {// Group clusters
-                cluster_to_group.unite(candidate.group_a, candidate.group_a);
-                // Move triangles from b to a
-                current_cluster_group[candidate.group_a].clusters.insert(
-                    current_cluster_group[candidate.group_a].clusters.end(),
-                    current_cluster_group[candidate.group_b].clusters.begin(),
-                    current_cluster_group[candidate.group_b].clusters.end()
-                );
-
-                // Remove shared_edges[b] since b no longer exists
-                current_cluster_group[candidate.group_a].shared_edges.erase(candidate.group_b);
-            }
-
-    
-            // Update neighbors
-            for (const auto& [neighbor, edge_count] : current_cluster_group[candidate.group_b].shared_edges) {
-                if (neighbor == candidate.group_a) continue; // Skip self
-                if (neighbor > current_cluster_group.size()) continue;
-                current_cluster_group[candidate.group_a].shared_edges[neighbor] += edge_count;
-                current_cluster_group[neighbor].shared_edges[candidate.group_a] += edge_count;
-
-                group_heap.push({ candidate.group_a, neighbor, current_cluster_group[candidate.group_a].shared_edges[neighbor] });
-            }
-        }
-
-        std::cout << "Grouping final loop count: " << loop_count << ", total grouped clusters: " << current_cluster_group.size() << std::endl;
-    
     }
-    
+    std::cout<<"here-1\n";
+    for (uint32_t i = 0; i < clusters.size(); ++i) {
+        for (const auto& [neighbor, edge_count] : clusters[i].shared_edges) {
+            if (neighbor > i && neighbor < clusters.size()) {
+                group_heap.push({ i, neighbor, edge_count });
+            }
+        }
+    }
+
+    uint32_t loop_count = 0;
+
+    current_cluster_group.clear();
+    // Initialize each cluster as its own group
+    for (uint32_t i = 0; i < clusters.size(); ++i) {
+        current_cluster_group.push_back({ { i }, clusters[i].shared_edges });
+    }
+    UnionFind cluster_to_group = UnionFind(static_cast<uint32_t>(current_cluster_group.size()));
+
+
+    while (!group_heap.empty() && current_cluster_group.size() > 1) {
+        // if (loop_count % 100 == 0) {
+            std::cout << "\tGrouping clusters... "<< "loop: " << loop_count  << std::endl;
+        // }
+        loop_count++;
+        // Get best merge candidate
+        GroupCandidate candidate = group_heap.top();
+        group_heap.pop();
+        // Validate candidate
+        if (!is_valid_group_candidate(candidate, cluster_to_group)) continue;
+
+        // Ensure we don't exceed group size limit
+        if (current_cluster_group[candidate.group_a].clusters.size() +
+            current_cluster_group[candidate.group_b].clusters.size() 
+            > configuration.per_merge_cluster_limit) {
+            continue;
+        }
+
+        {// Group clusters
+            cluster_to_group.unite(candidate.group_a, candidate.group_b);
+            // Move triangles from b to a
+            current_cluster_group[candidate.group_a].clusters.insert(
+                current_cluster_group[candidate.group_a].clusters.end(),
+                current_cluster_group[candidate.group_b].clusters.begin(),
+                current_cluster_group[candidate.group_b].clusters.end()
+            );
+
+            // Remove shared_edges[b] since b no longer exists
+            current_cluster_group[candidate.group_a].shared_edges.erase(candidate.group_b);
+        }
+
+
+        // Update neighbors
+        for (const auto& [neighbor, edge_count] : current_cluster_group[candidate.group_b].shared_edges) {
+            if (neighbor == candidate.group_a) continue; // Skip self
+            if (neighbor > current_cluster_group.size()) continue;
+            current_cluster_group[candidate.group_a].shared_edges[neighbor] += edge_count;
+            current_cluster_group[neighbor].shared_edges[candidate.group_a] += edge_count;
+
+            group_heap.push({ candidate.group_a, neighbor, current_cluster_group[candidate.group_a].shared_edges[neighbor] });
+        }
+    }
+    for (int32_t i = int32_t(current_cluster_group.size()) - 1; i > -1; --i) {
+		if (!cluster_to_group.is_original(i)) {
+			current_cluster_group.erase(current_cluster_group.begin() + i);
+		}
+	}
+
+    std::cout << "Grouping final loop count: " << loop_count << ", total grouped clusters: " << current_cluster_group.size() << std::endl;
 }
 
 bool NaniteMeshApp::is_valid_merge_candidate(const MergeCandidate &candidate)
@@ -498,11 +525,11 @@ void NaniteMeshApp::write_clusters_to_model(tinygltf::Model& model)
     model.defaultScene = 0;
 }
 
-void NaniteMeshApp::simplify_clusters()
+void NaniteMeshApp::simplify_cluster_groups()
 {
     uint32_t cluster_count = 0;
-    std::vector<uint32_t> new_triangles;
-    new_triangles.reserve(triangles.size());
+
+    std::vector<uint32_t> group_triangles;
     for (ClusterGroup& cluster_group : current_cluster_group) {
         cluster_count++;
         if (cluster_count % 100 == 0) {
@@ -516,7 +543,6 @@ void NaniteMeshApp::simplify_clusters()
 
         std::unordered_set<uint32_t> boundary_vertices;
         std::unordered_map<uint32_t, glm::mat4> quadrics;  // Stores error matrices for vertices
-        std::vector<uint32_t> group_triangles;
         group_triangles.clear();
         // Construct half-edge connectivity and detect boundaries
         for (uint32_t cluster_index : cluster_group.clusters) {
@@ -741,13 +767,10 @@ void NaniteMeshApp::simplify_clusters()
 
             }
         }
-        new_triangles.insert(new_triangles.end(), group_triangles.begin(), group_triangles.end());
+        
     }
     std::cout<<"Finished simplifying "<<cluster_count<<" clusters"<<std::endl;
     std::vector<glm::uvec3> filtered_triangles(triangles.size());
-
-    std::transform(new_triangles.begin(), new_triangles.end(), filtered_triangles.begin(),
-        [&](size_t i) { return triangles[i]; });
 
     triangles = filtered_triangles;
 }
