@@ -110,11 +110,14 @@ struct NaniteMeshApp {
 
     NaniteMeshApp(Configuration &);
     void loadGLTF(std::string gltfPath, tinygltf::Model& model, tinygltf::TinyGLTF& loader);
-    void cluster(uint32_t cluster_triangle_limit = 0);
+    std::vector<Cluster> cluster(std::vector<glm::uvec3> source_triangles, uint32_t cluster_triangle_limit = 0);
+    void cluster_in_groups();
     void group();
-    bool is_valid_merge_candidate(const MergeCandidate &);
+    void groups_to_clusters();
+    bool is_valid_merge_candidate(const MergeCandidate &, std::vector<Cluster>& result_clusters);
+    void check_clusters_validity();
     bool is_valid_group_candidate(const GroupCandidate &, UnionFind &);
-    void merge_clusters(uint32_t a, uint32_t b);
+    void merge_clusters(uint32_t a, uint32_t b, std::vector<Cluster>& result_clusters);
     void write_clusters_to_model(tinygltf::Model& model);
     void simplify_cluster_groups();
     inline glm::vec3 compute_normal(const glm::vec3& v0, const glm::vec3& v1, const glm::vec3& v2) {
