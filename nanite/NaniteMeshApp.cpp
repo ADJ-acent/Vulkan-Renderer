@@ -69,10 +69,10 @@ NaniteMeshApp::NaniteMeshApp(Configuration & configuration_) :
         group();
         simplify_cluster_groups();
         
-        // groups_to_clusters();
         cluster_in_groups();
         write_clusters_to_model(model);
-        save_model(model, std::string("../gltf/test_" + std::to_string(i)));
+        // save_groups_as_clusters(model, i);
+        // save_model(model, std::string("../gltf/test_" + std::to_string(i)));
     }	
 }
 
@@ -298,7 +298,11 @@ void NaniteMeshApp::cluster_in_groups()
     std::vector<Cluster> new_clusters;
     new_clusters.clear();
     new_clusters.reserve(clusters.size());
-    for (ClusterGroup& cluster_group : current_cluster_group) {
+    for (uint32_t group_i = 0; group_i < uint32_t(current_cluster_group.size()); ++group_i) {
+        ClusterGroup& cluster_group = current_cluster_group[group_i];
+        std::vector<uint32_t> new_cluster_indices_in_group;
+        new_cluster_indices_in_group.reserve(cluster_group.clusters.size());
+        uint32_t start_cluster_index_in_group = uint32_t(new_clusters.size());
         std::vector<glm::uvec3> group_triangles;
         std::vector<uint32_t> group_triangle_indices;
         group_triangles.reserve(triangles.size());
@@ -309,6 +313,8 @@ void NaniteMeshApp::cluster_in_groups()
                 group_triangles.push_back(triangles[triangle_i]);
                 group_triangle_indices.push_back(triangle_i);
             }
+            new_cluster_indices_in_group.push_back(start_cluster_index_in_group);
+            start_cluster_index_in_group += 1;
         }
         std::vector<Cluster> group_clusters = cluster(group_triangles,
             std::max(int(group_triangles.size() / cluster_group.clusters.size() * 5),128));
@@ -316,9 +322,10 @@ void NaniteMeshApp::cluster_in_groups()
             for (uint32_t& triangle_i : cluster.triangles) {
                 triangle_i = group_triangle_indices[triangle_i];
             }
+            cluster.src_cluster_group = group_i;
         }
         new_clusters.insert(new_clusters.end(),group_clusters.begin(), group_clusters.end());
-
+        cluster_group.clusters = new_cluster_indices_in_group;
     }
     clusters = new_clusters;
 }
@@ -413,11 +420,17 @@ void NaniteMeshApp::group(){
 			current_cluster_group.erase(current_cluster_group.begin() + i);
 		}
 	}
-
+    for (uint32_t i = 0; i < uint32_t(current_cluster_group.size()); ++i) {
+        // assign source cluster group for storage
+        for (uint32_t cluster_index : current_cluster_group[i].clusters) {
+            clusters[cluster_index].dst_cluster_group = i;
+        }
+    }
+    
     std::cout << "Grouping final loop count: " << loop_count << ", total grouped clusters: " << current_cluster_group.size() << std::endl;
 }
 
-void NaniteMeshApp::groups_to_clusters()
+void NaniteMeshApp::save_groups_as_clusters(const tinygltf::Model& model, uint32_t level)
 {
     std::vector<Cluster> clusters_from_groups;
     clusters_from_groups.reserve(clusters.size());
@@ -429,7 +442,10 @@ void NaniteMeshApp::groups_to_clusters()
         }
         clusters_from_groups.push_back(group_cluster);
     }
+    std::vector<Cluster> temp = clusters;
     clusters = clusters_from_groups;
+    save_model(model, std::string("../gltf/test_" + std::to_string(level)));
+    clusters = temp;
 }
 
 bool NaniteMeshApp::is_valid_merge_candidate(const MergeCandidate &candidate, std::vector<Cluster>& result_clusters)
@@ -608,7 +624,7 @@ void NaniteMeshApp::simplify_cluster_groups()
 {
     uint32_t cluster_count = 0;
 
-    for (ClusterGroup& cluster_group : current_cluster_group) {
+    for (const ClusterGroup& cluster_group : current_cluster_group) {
 
         if (cluster_count % 100 == 0) {
             std::cout<<"\tsimplifying cluster groups: "<<cluster_count<<" / "<<current_cluster_group.size()<<std::endl;

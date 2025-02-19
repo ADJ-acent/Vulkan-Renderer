@@ -1,3 +1,5 @@
+#pragma once
+
 #include "../GLM.hpp"
 #include <functional>
 #include <string>
@@ -54,6 +56,8 @@ struct NaniteMeshApp {
     struct Cluster {
         std::vector<uint32_t> triangles;  // Indices of triangles in this cluster
         std::unordered_map<uint32_t, uint32_t> shared_edges; // Neighboring clusters and shared edge count
+        int32_t src_cluster_group = -1;
+        int32_t dst_cluster_group = -1;
     };
 
     struct ClusterGroup {
@@ -106,14 +110,12 @@ struct NaniteMeshApp {
     static std::vector<ClusterGroup> current_cluster_group;
     UnionFind triangle_to_cluster;
     
-    // std::unordered_map<uint32_t, uint32_t> triangle_to_cluster;
-
     NaniteMeshApp(Configuration &);
     void loadGLTF(std::string gltfPath, tinygltf::Model& model, tinygltf::TinyGLTF& loader);
     std::vector<Cluster> cluster(std::vector<glm::uvec3> source_triangles, uint32_t cluster_triangle_limit = 0);
     void cluster_in_groups();
     void group();
-    void groups_to_clusters();
+    void save_groups_as_clusters(const tinygltf::Model& model, uint32_t level);
     bool is_valid_merge_candidate(const MergeCandidate &, std::vector<Cluster>& result_clusters);
     void check_clusters_validity();
     bool is_valid_group_candidate(const GroupCandidate &, UnionFind &);
@@ -128,3 +130,41 @@ struct NaniteMeshApp {
     void write_mesh_to_model(tinygltf::Model& model, std::vector<int> indices); 
     bool save_model(const tinygltf::Model& model, std::string filename);
 };
+
+/** Disk cluster data
+ *  One file per cluster level, each with format name-level.clsr
+ *  In the file, we have in order:
+ *      1. a 4 byte header "clsr",
+ *      2. a 4 byte group count and a 4 byte cluster count
+ *          (1 and 2 combines into the DiskClusterLevelHeader struct),
+ *      3. vector of DiskCluster containing individual cluster information
+ *          (which contains information on how to index into the child cluster 
+ *           indices and vertices information, etc, see definition below),
+ *      4. vector of children cluster indices,
+ *      5. vector of vertex positions,
+ * 
+ */
+
+
+struct DiskClusterLevelHeader {
+    const char clsr_header[4] = {'c','l','s','r'};
+    uint32_t cluster_count;
+    uint32_t group_count;
+};
+static_assert(sizeof(DiskClusterLevelHeader) == 12);
+
+struct DiskCluster {
+    uint32_t vertices_begin; // glm::vec3
+    uint32_t vertices_count;
+    uint32_t child_indices_begin; // uint32_t
+    uint32_t child_indices_count;
+    int32_t src_cluster_group; // cluster group where simplification happened to generate the current cluster, -1 if base layer
+    int32_t dst_cluster_group; // cluster group made partly from the current cluster, then simplified to generate next level, -1 if top layer
+};
+
+
+void write_clsr(std::string save_path, uint32_t lod_level, 
+    std::vector<NaniteMeshApp::Cluster>& clusters, 
+    std::vector<NaniteMeshApp::ClusterGroup>& groups,
+    std::vector<glm::uvec3>& triangles,
+    std::vector<glm::vec3>& vertices);

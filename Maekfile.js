@@ -49,6 +49,7 @@ const viewer_objs = [
 const nanite_mesh_objs = [
 	maek.CPP('nanite/NaniteMeshApp.cpp'),
 	maek.CPP('nanite/nanite_mesh_main.cpp'),
+	maek.CPP('nanite/read_write_clsr.cpp'),
 ]
 
 //maek.GLSLC(...) builds a glsl source file:
