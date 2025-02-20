@@ -46,10 +46,14 @@ const viewer_objs = [
 	maek.CPP('sejp.cpp'),
 ]
 
+const common_objs = [
+	maek.CPP('nanite/read_write_clsr.cpp'),
+]
+
 const nanite_mesh_objs = [
 	maek.CPP('nanite/NaniteMeshApp.cpp'),
 	maek.CPP('nanite/nanite_mesh_main.cpp'),
-	maek.CPP('nanite/read_write_clsr.cpp'),
+	
 ]
 
 //maek.GLSLC(...) builds a glsl source file:
@@ -117,8 +121,8 @@ const cloud_lightgrid_shaders = [
 main_objs.push( maek.CPP('CloudLightGridPipeline.cpp', undefined, { depends:[...cloud_lightgrid_shaders] } ) );
 
 
-const main_exe = maek.LINK([...main_objs, ...viewer_objs], 'bin/viewer');
-const nanite_mesh_exe = maek.LINK([...nanite_mesh_objs], 'bin/mesh_process');
+const main_exe = maek.LINK([...main_objs, ...viewer_objs, ...common_objs], 'bin/viewer');
+const nanite_mesh_exe = maek.LINK([...nanite_mesh_objs, ...common_objs], 'bin/mesh_process');
 
 //default targets:
 maek.TARGETS = [main_exe, nanite_mesh_exe];

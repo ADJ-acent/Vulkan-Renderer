@@ -44,6 +44,9 @@ void NaniteMeshApp::Configuration::parse(int argc, char **argv) {
 			
 			simplify_count = conv("number of simplification loops");
         }
+        else if (arg == "--save-folder") {
+            if (argi + 1 >= argc) throw std::runtime_error("--save-folder requires a parameter (folder name to store .clsr).\n");
+        }
 	}
 	if (glTF_path == "") {
 		throw std::runtime_error("must provide a glTF path with --path!\n");
@@ -53,6 +56,7 @@ void NaniteMeshApp::Configuration::parse(int argc, char **argv) {
 void NaniteMeshApp::Configuration::usage(std::function< void(const char *, const char *) > const &callback) {	
 	//callback("--debug, --no-debug", "Turn on/off debug and validation layers.");
 	callback("--path <p>", "Loads the glTF file at path <p>");
+    callback("--save-folder <p>", "Saves result in folder <p>");
     callback("--cluster-limit <t>", "Limits the maximum number of triangles in a cluster to be <t>, default <t> = 128");
     callback("--cluster-group <c>", "Limits the maximum number of clusters when merging and splitting to <c>, default <c> = 4");
     callback("--force-loop <l>", "Force the number of simplification loops and output meshes");
@@ -67,6 +71,8 @@ NaniteMeshApp::NaniteMeshApp(Configuration & configuration_) :
     clusters = cluster(triangles);
     for (uint32_t i = 0; i < configuration.simplify_count; ++i) {
         group();
+
+        write_clsr(configuration.save_folder, i, clusters, current_cluster_group, triangles, vertices);
         simplify_cluster_groups();
         
         cluster_in_groups();

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "read_cluster.hpp"
 #include "../GLM.hpp"
 #include <functional>
 #include <string>
@@ -46,6 +47,7 @@ struct UnionFind {// modified from https://www.geeksforgeeks.org/introduction-to
 struct NaniteMeshApp {
     struct Configuration {
         std::string glTF_path;
+        std::string save_folder = "output";
         uint32_t per_cluster_triangle_limit = 12;
         uint32_t per_merge_cluster_limit = 8;
         uint32_t simplify_count = 4;
@@ -126,41 +128,12 @@ struct NaniteMeshApp {
         return glm::normalize(glm::cross(v1 - v0, v2 - v0));
     }
     glm::vec3 get_best_vertex_after_collapse(const glm::mat4& Qsum, glm::vec3 v1, glm::vec3 v2);
+
+    // functions to export current clusters to gltf
     void copy_offset_mesh_to_model(tinygltf::Model& model, tinygltf::Mesh& mesh, const glm::vec3& offset);
-    void write_mesh_to_model(tinygltf::Model& model, std::vector<int> indices); 
     bool save_model(const tinygltf::Model& model, std::string filename);
 };
 
-/** Disk cluster data
- *  One file per cluster level, each with format name-level.clsr
- *  In the file, we have in order:
- *      1. a 4 byte header "clsr",
- *      2. a 4 byte group count and a 4 byte cluster count
- *          (1 and 2 combines into the DiskClusterLevelHeader struct),
- *      3. vector of DiskCluster containing individual cluster information
- *          (which contains information on how to index into the child cluster 
- *           indices and vertices information, etc, see definition below),
- *      4. vector of children cluster indices,
- *      5. vector of vertex positions,
- * 
- */
-
-
-struct DiskClusterLevelHeader {
-    const char clsr_header[4] = {'c','l','s','r'};
-    uint32_t cluster_count;
-    uint32_t group_count;
-};
-static_assert(sizeof(DiskClusterLevelHeader) == 12);
-
-struct DiskCluster {
-    uint32_t vertices_begin; // glm::vec3
-    uint32_t vertices_count;
-    uint32_t child_indices_begin; // uint32_t
-    uint32_t child_indices_count;
-    int32_t src_cluster_group; // cluster group where simplification happened to generate the current cluster, -1 if base layer
-    int32_t dst_cluster_group; // cluster group made partly from the current cluster, then simplified to generate next level, -1 if top layer
-};
 
 
 void write_clsr(std::string save_path, uint32_t lod_level, 

@@ -5,6 +5,9 @@
 #include <GLFW/glfw3.h>
 #include "RTGRenderer.hpp"
 
+// Nanite include
+#include "nanite/read_cluster.hpp"
+
 #include "VK.hpp"
 #include "rgbe.hpp"
 #include "data_path.hpp"
@@ -22,6 +25,11 @@
 static constexpr unsigned int WORKGROUP_SIZE = 32;
 
 RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_), shadow_atlas(ShadowAtlas(shadow_atlas_length)) {
+
+	// read cluster info
+	RuntimeDAG dag;
+	read_clsr("output", &dag);
+
 	{ //create command pool
 		VkCommandPoolCreateInfo create_info{
 			.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
@@ -1064,7 +1072,7 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_), s
 		for (uint32_t i = 0; i < uint32_t(scene.meshes.size()); ++i) {
 			Scene::Mesh& cur_mesh = scene.meshes[i];
 			mesh_vertices[i].count = cur_mesh.count;
-			mesh_vertices[i].first = new_vertices_start;
+			mesh_vertices[i].first = new_vertices_start;  
 			std::ifstream file(scene.scene_path + "/" + cur_mesh.attributes[0].source, std::ios::binary); // assuming the attribute layout holds
 			if (!file.is_open()) throw std::runtime_error("Error opening file for mesh data: " + scene.scene_path + "/" + cur_mesh.attributes[0].source);
 			if (!file.read(reinterpret_cast< char * >(&vertices[new_vertices_start]), cur_mesh.count * sizeof(PosNorTanTexVertex))) {
