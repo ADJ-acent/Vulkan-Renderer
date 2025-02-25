@@ -6,3 +6,4 @@
 #define GLM_ENABLE_EXPERIMENTAL
 #include "glm/glm/gtx/string_cast.hpp"
 #include "glm/glm/gtx/hash.hpp"
+#include "glm/glm/gtx/norm.hpp"

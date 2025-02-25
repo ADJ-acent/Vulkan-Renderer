@@ -33,6 +33,7 @@ struct DiskCluster {
     uint32_t vertices_count;
     int32_t src_cluster_group; // cluster group where simplification happened to generate the current cluster, -1 if base layer
     int32_t dst_cluster_group; // cluster group made partly from the current cluster, then simplified to generate next level, -1 if top layer
+    glm::vec4 bounding_sphere; // xyz, radius
 };
 
 
@@ -45,10 +46,11 @@ struct RuntimeDAG {
     // 0 is the base level
     std::vector<std::vector<DiskCluster>> clusters;
     std::vector<std::vector<glm::vec3>> vertices;
+    std::vector<std::vector<uint8_t>> color_index;
 };
 
 /**
  * clsr files should be saved in order, for example: result_0.clsr, result_1.clsr, etc. where 0 is LOD level 0
  * the input file path for the given example above would be "result"
  */
-void read_clsr(std::string file_path, RuntimeDAG* to);
+void read_clsr(std::string file_path, RuntimeDAG* to, bool debug = false);

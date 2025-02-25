@@ -2,6 +2,11 @@
 #include <iostream>
 #include <fstream>
 #include <filesystem>
+#include <random>
+
+std::random_device rd;
+std::mt19937 gen(rd()); 
+std::uniform_int_distribution<> distrib(1, 6);
 
 void write_clsr(std::string save_path, uint32_t lod_level, 
     std::vector<NaniteMeshApp::Cluster> &clusters, 
@@ -49,7 +54,59 @@ void write_clsr(std::string save_path, uint32_t lod_level,
     clsr_file.close();
 }
 
-void read_clsr(std::string file_path, RuntimeDAG* to) {
+glm::vec4 RitterBoundingSphere(const std::vector<glm::vec3> &vertices, size_t begin, size_t end)
+{
+    if (begin >= end) return glm::vec4(0.0f); // Empty case
+
+    // Pick an arbitrary point (first vertex in range)
+    glm::vec3 p1 = vertices[begin];
+
+    // Find farthest point from p1
+    float maxDistSq = 0.0f;
+    glm::vec3 p2 = p1;
+    for (size_t i = begin; i < end; ++i) {
+        float distSq = glm::length2(vertices[i] - p1);
+        if (distSq > maxDistSq) {
+            maxDistSq = distSq;
+            p2 = vertices[i];
+        }
+    }
+
+    // Find farthest point from p2
+    maxDistSq = 0.0f;
+    glm::vec3 p3 = p2;
+    for (size_t i = begin; i < end; ++i) {
+        float distSq = glm::length2(vertices[i] - p2);
+        if (distSq > maxDistSq) {
+            maxDistSq = distSq;
+            p3 = vertices[i];
+        }
+    }
+
+    // Compute initial bounding sphere from p2 and p3
+    glm::vec3 center = (p2 + p3) * 0.5f;
+    float radius = glm::distance(p2, p3) * 0.5f;
+    float radiusSq = radius * radius;
+
+    // Expand the sphere if necessary
+    for (size_t i = begin; i < end; ++i) {
+        glm::vec3 point = vertices[i];
+        float distSq = glm::length2(point - center);
+
+        if (distSq > radiusSq) {
+            float dist = sqrt(distSq);
+            float newRadius = (radius + dist) * 0.5f;
+            float expandFactor = (newRadius - radius) / dist;
+            center += (point - center) * expandFactor;
+            radius = newRadius;
+            radiusSq = radius * radius;
+        }
+    }
+
+    return glm::vec4(center, radius);
+}
+
+void read_clsr(std::string file_path, RuntimeDAG* to, bool debug) {
     uint32_t LOD_level = 0;
     
     while (std::filesystem::exists(file_path + "_" + std::to_string(LOD_level) + ".clsr")) {
@@ -71,6 +128,7 @@ void read_clsr(std::string file_path, RuntimeDAG* to) {
         to->clusters.push_back(std::vector<DiskCluster>(cluster_count));
         to->vertices.push_back(std::vector<glm::vec3>(vertices_count));
         to->groups.push_back(std::vector<std::pair<std::vector<uint32_t>, std::vector<uint32_t>>>(group_count));
+        to->color_index.push_back(std::vector<uint8_t>(cluster_count));
         if (!cluster_file.read(reinterpret_cast< char * >(to->clusters[LOD_level].data()), sizeof(DiskCluster) * cluster_count)) {
             throw std::runtime_error("Failed to read cluster data");
         }
@@ -84,6 +142,7 @@ void read_clsr(std::string file_path, RuntimeDAG* to) {
                 to->groups[LOD_level - 1][disk_cluster.src_cluster_group].second.push_back(i);
             }
             to->groups[LOD_level][disk_cluster.dst_cluster_group].first.push_back(i);
+            to->color_index[LOD_level][i] = uint8_t(distrib(gen));
         }
 
         LOD_level ++;

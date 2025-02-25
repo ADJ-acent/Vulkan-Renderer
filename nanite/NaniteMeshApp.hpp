@@ -60,6 +60,7 @@ struct NaniteMeshApp {
         std::unordered_map<uint32_t, uint32_t> shared_edges; // Neighboring clusters and shared edge count
         int32_t src_cluster_group = -1;
         int32_t dst_cluster_group = -1;
+        glm::vec4 bounding_sphere;
     };
 
     struct ClusterGroup {

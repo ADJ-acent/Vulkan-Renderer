@@ -48,6 +48,7 @@ const viewer_objs = [
 
 const common_objs = [
 	maek.CPP('nanite/read_write_clsr.cpp'),
+	maek.CPP('nanite/cluster_selection.cpp')
 ]
 
 const nanite_mesh_objs = [

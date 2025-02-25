@@ -76,7 +76,7 @@ NaniteMeshApp::NaniteMeshApp(Configuration & configuration_) :
         simplify_cluster_groups();
         
         cluster_in_groups();
-        write_clusters_to_model(model);
+        // write_clusters_to_model(model);
         // save_groups_as_clusters(model, i);
         // save_model(model, std::string("../gltf/test_" + std::to_string(i)));
     }	
