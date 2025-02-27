@@ -1,8 +1,10 @@
 #include "NaniteMeshApp.hpp"
+#include "miniball/Seb.h"
 #include <iostream>
 #include <fstream>
 #include <filesystem>
 #include <random>
+#include <array>
 
 std::random_device rd;
 std::mt19937 gen(rd()); 
@@ -43,6 +45,7 @@ void write_clsr(std::string save_path, uint32_t lod_level,
             .vertices_count = cluster_vertex_size,
             .src_cluster_group = cluster.src_cluster_group,
             .dst_cluster_group = cluster.dst_cluster_group,
+            .bounding_sphere = cluster.bounding_sphere,
         });
     }
 
@@ -54,56 +57,79 @@ void write_clsr(std::string save_path, uint32_t lod_level,
     clsr_file.close();
 }
 
-glm::vec4 RitterBoundingSphere(const std::vector<glm::vec3> &vertices, size_t begin, size_t end)
+glm::vec4 calculate_bounding_sphere(const std::vector<glm::vec3> &vertices, uint32_t begin, uint32_t count)
 {
-    if (begin >= end) return glm::vec4(0.0f); // Empty case
+    using namespace SEB_NAMESPACE;
 
-    // Pick an arbitrary point (first vertex in range)
-    glm::vec3 p1 = vertices[begin];
+    constexpr int dim = 3;  // We are working in 3D space
 
-    // Find farthest point from p1
-    float maxDistSq = 0.0f;
-    glm::vec3 p2 = p1;
-    for (size_t i = begin; i < end; ++i) {
-        float distSq = glm::length2(vertices[i] - p1);
-        if (distSq > maxDistSq) {
-            maxDistSq = distSq;
-            p2 = vertices[i];
-        }
+    // Convert glm::vec3 points to SEB Point format
+    std::vector<Point<double>> seb_points;
+    seb_points.reserve(count);
+    for (uint32_t i = 0; i < count; ++i) {
+        glm::vec3 p = vertices[begin + i];
+        seb_points.emplace_back(dim, std::vector<double>{p.x, p.y, p.z}.begin());
     }
 
-    // Find farthest point from p2
-    maxDistSq = 0.0f;
-    glm::vec3 p3 = p2;
-    for (size_t i = begin; i < end; ++i) {
-        float distSq = glm::length2(vertices[i] - p2);
-        if (distSq > maxDistSq) {
-            maxDistSq = distSq;
-            p3 = vertices[i];
-        }
-    }
+    // Compute the smallest enclosing ball
+    Smallest_enclosing_ball<double> miniball(dim, seb_points);
 
-    // Compute initial bounding sphere from p2 and p3
-    glm::vec3 center = (p2 + p3) * 0.5f;
-    float radius = glm::distance(p2, p3) * 0.5f;
-    float radiusSq = radius * radius;
-
-    // Expand the sphere if necessary
-    for (size_t i = begin; i < end; ++i) {
-        glm::vec3 point = vertices[i];
-        float distSq = glm::length2(point - center);
-
-        if (distSq > radiusSq) {
-            float dist = sqrt(distSq);
-            float newRadius = (radius + dist) * 0.5f;
-            float expandFactor = (newRadius - radius) / dist;
-            center += (point - center) * expandFactor;
-            radius = newRadius;
-            radiusSq = radius * radius;
-        }
-    }
-
+    auto center_it = miniball.center_begin();
+    glm::vec3 center(center_it[0], center_it[1], center_it[2]);
+    double radius = miniball.radius();
     return glm::vec4(center, radius);
+}
+
+glm::vec4 estimate_bounding_sphere_of_spheres(const std::vector<glm::vec4> &spheres)
+{
+    // this is an estimation based on https://stackoverflow.com/a/39683025 and Ritter's algorithm
+
+    // collect min/max x,y,z of each sphere, and the corners of the inscribed cubes
+    std::vector<glm::vec3> points;
+    points.reserve(spheres.size() * 14);
+    
+    const float offset = float(sqrt(3.0)/3.0);
+    const std::array<glm::vec3, 8> inscribed_cube = {
+        glm::vec3(offset, offset, offset),
+        glm::vec3(-offset, offset, offset),
+        glm::vec3(offset, -offset, offset),
+        glm::vec3(-offset, -offset, offset),
+        glm::vec3(offset, offset, -offset),
+        glm::vec3(-offset, offset, -offset),
+        glm::vec3(offset, -offset, -offset),
+        glm::vec3(-offset, -offset, -offset)
+    };
+
+    for (const glm::vec4& sphere : spheres) {
+        glm::vec3 center = glm::vec3(sphere.x,sphere.y,sphere.z);
+        float radius = sphere.w;
+        
+        points.push_back(center + glm::vec3(radius,0,0));
+        points.push_back(center + glm::vec3(-radius,0,0));
+        points.push_back(center + glm::vec3(0,radius,0));
+        points.push_back(center + glm::vec3(0,-radius,0));
+        points.push_back(center + glm::vec3(0,0,radius));
+        points.push_back(center + glm::vec3(0,0,-radius));
+
+        for (uint8_t i = 0; i < uint8_t(inscribed_cube.size()); ++i) {
+            points.push_back(offset*radius + center);
+        }
+    }
+    // use ritter's algo to update the radius
+    glm::vec4 new_bounding_sphere = calculate_bounding_sphere(points, 0, uint32_t(points.size()));
+    glm::vec3 new_center = glm::vec3(new_bounding_sphere);
+    for (const glm::vec4& sphere : spheres) {
+        glm::vec3 old_sphere_center = glm::vec3(sphere);
+        glm::vec3 furthest_point = glm::normalize(old_sphere_center - new_center) * (sphere.w + 0.001f) + old_sphere_center;
+        float distance = glm::distance(furthest_point, new_center);
+        if (distance >= new_bounding_sphere.w) {
+            new_bounding_sphere.w = distance;
+        }
+    }
+    for (const glm::vec4& sphere : spheres) {
+        assert(new_bounding_sphere.w - sphere.w > -0.001f);
+    }
+    return new_bounding_sphere;
 }
 
 void read_clsr(std::string file_path, RuntimeDAG* to, bool debug) {

@@ -118,6 +118,7 @@ struct NaniteMeshApp {
     std::vector<Cluster> cluster(std::vector<glm::uvec3> source_triangles, uint32_t cluster_triangle_limit = 0);
     void cluster_in_groups();
     void group();
+    void initialize_base_bounding_spheres();
     void save_groups_as_clusters(const tinygltf::Model& model, uint32_t level);
     bool is_valid_merge_candidate(const MergeCandidate &, std::vector<Cluster>& result_clusters);
     void check_clusters_validity();
@@ -142,3 +143,7 @@ void write_clsr(std::string save_path, uint32_t lod_level,
     std::vector<NaniteMeshApp::ClusterGroup>& groups,
     std::vector<glm::uvec3>& triangles,
     std::vector<glm::vec3>& vertices);
+
+glm::vec4 calculate_bounding_sphere(const std::vector<glm::vec3>& vertices, uint32_t begin, uint32_t count);
+
+glm::vec4 estimate_bounding_sphere_of_spheres(const std::vector<glm::vec4>& spheres);

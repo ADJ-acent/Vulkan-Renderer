@@ -67,12 +67,15 @@ NaniteMeshApp::NaniteMeshApp(Configuration & configuration_) :
 {
 	tinygltf::Model model;
 	tinygltf::TinyGLTF loader;
+    assert(configuration.simplify_count == 10);
 	loadGLTF(configuration.glTF_path, model, loader);
-    clusters = cluster(triangles);
+    clusters = cluster(triangles, configuration.per_cluster_triangle_limit);
+    initialize_base_bounding_spheres();
     for (uint32_t i = 0; i < configuration.simplify_count; ++i) {
         group();
 
         write_clsr(configuration.save_folder, i, clusters, current_cluster_group, triangles, vertices);
+
         simplify_cluster_groups();
         
         cluster_in_groups();
@@ -306,29 +309,38 @@ void NaniteMeshApp::cluster_in_groups()
     new_clusters.reserve(clusters.size());
     for (uint32_t group_i = 0; group_i < uint32_t(current_cluster_group.size()); ++group_i) {
         ClusterGroup& cluster_group = current_cluster_group[group_i];
+
         std::vector<uint32_t> new_cluster_indices_in_group;
         new_cluster_indices_in_group.reserve(cluster_group.clusters.size());
         uint32_t start_cluster_index_in_group = uint32_t(new_clusters.size());
         std::vector<glm::uvec3> group_triangles;
         std::vector<uint32_t> group_triangle_indices;
+        std::vector<glm::vec4> group_bounding_spheres;
         group_triangles.reserve(triangles.size());
         group_triangle_indices.reserve(triangles.size());
+        group_bounding_spheres.reserve(cluster_group.clusters.size());
         for (uint32_t cluster_i : cluster_group.clusters) {
             Cluster& cluster = clusters[cluster_i];
             for (uint32_t triangle_i : cluster.triangles) {
                 group_triangles.push_back(triangles[triangle_i]);
                 group_triangle_indices.push_back(triangle_i);
             }
+            group_bounding_spheres.push_back(cluster.bounding_sphere);
             new_cluster_indices_in_group.push_back(start_cluster_index_in_group);
             start_cluster_index_in_group += 1;
         }
+        glm::vec4 new_bounding_sphere = estimate_bounding_sphere_of_spheres(group_bounding_spheres);
+
         std::vector<Cluster> group_clusters = cluster(group_triangles,
             std::max(int(group_triangles.size() / cluster_group.clusters.size() * 5),128));
+
+        
         for (Cluster& cluster : group_clusters) {
             for (uint32_t& triangle_i : cluster.triangles) {
                 triangle_i = group_triangle_indices[triangle_i];
             }
             cluster.src_cluster_group = group_i;
+            cluster.bounding_sphere = new_bounding_sphere;
         }
         new_clusters.insert(new_clusters.end(),group_clusters.begin(), group_clusters.end());
         cluster_group.clusters = new_cluster_indices_in_group;
@@ -434,6 +446,28 @@ void NaniteMeshApp::group(){
     }
     
     std::cout << "Grouping final loop count: " << loop_count << ", total grouped clusters: " << current_cluster_group.size() << std::endl;
+}
+
+void NaniteMeshApp::initialize_base_bounding_spheres()
+{
+    std::cout<<"begin calculating bounding sphere for clusters...\n";
+    uint32_t loop_count = 0;
+    for (auto& cluster : clusters) {
+        if (loop_count % 1000 == 0) {
+            std::cout<<"\tcalculating for cluster "<< loop_count<< " / "<<clusters.size()<<std::endl;
+        }
+        loop_count++;
+        std::unordered_set<glm::vec3> cluster_verts;
+        cluster_verts.reserve(cluster.triangles.size() * 3);
+        for (uint32_t triangle_i : cluster.triangles) {
+            auto& triangle = triangles[triangle_i];
+            cluster_verts.insert(vertices[triangle[0]]);
+            cluster_verts.insert(vertices[triangle[1]]);
+            cluster_verts.insert(vertices[triangle[2]]);
+        }
+        std::vector<glm::vec3> vert_set(cluster_verts.begin(), cluster_verts.end());
+        cluster.bounding_sphere = calculate_bounding_sphere(vert_set, 0, uint32_t(vert_set.size()));
+    }
 }
 
 void NaniteMeshApp::save_groups_as_clusters(const tinygltf::Model& model, uint32_t level)
