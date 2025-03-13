@@ -289,16 +289,18 @@ std::vector<NaniteMeshApp::Cluster> NaniteMeshApp::cluster(std::vector<glm::uvec
             merge_heap.push({ candidate.cluster_a, neighbor, result_clusters[candidate.cluster_a].shared_edges[neighbor] });
         }
     }
-	
-	for (int32_t i = int32_t(result_clusters.size()) - 1; i > -1; --i) {
+	std::vector<Cluster> cleaned_up_clusters;
+    cleaned_up_clusters.reserve(result_clusters.size());
+    cleaned_up_clusters.clear();
+	for (uint32_t i = 0;  i < int32_t(result_clusters.size()); ++i) {
         if (i % 10000 == 0)
-        std::cout<<"\tRemoving merged clusters... "<<i<<" clusters left to check.\n";
-		if (!triangle_to_cluster.is_original(i)) {
-			result_clusters.erase(result_clusters.begin() + i);
+        std::cout<<"\tRemoving merged clusters... "<<i<<" / " << result_clusters.size()<< " clusters\n";
+		if (triangle_to_cluster.is_original(i)) {
+			cleaned_up_clusters.push_back(result_clusters[i]);
 		}
 	}
-    std::cout << "Merging final loop count: " << loop_count << ", remaining clusters: " << result_clusters.size() << std::endl;
-    return result_clusters;
+    std::cout << "Merging final loop count: " << loop_count << ", remaining clusters: " << cleaned_up_clusters.size() << std::endl;
+    return cleaned_up_clusters;
 }
 
 
