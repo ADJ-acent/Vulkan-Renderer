@@ -65,6 +65,7 @@ struct NaniteMeshApp {
 
     struct ClusterGroup {
         std::vector<uint32_t> clusters;
+        std::vector<uint32_t> triangles;
         std::unordered_map<uint32_t, uint32_t> shared_edges;
     };
 
@@ -134,6 +135,9 @@ struct NaniteMeshApp {
     // functions to export current clusters to gltf
     void copy_offset_mesh_to_model(tinygltf::Model& model, tinygltf::Mesh& mesh, const glm::vec3& offset);
     bool save_model(const tinygltf::Model& model, std::string filename);
+
+    // mesh validation
+    bool is_mesh_manifold(const std::vector<glm::uvec3>& triangles);
 };
 
 

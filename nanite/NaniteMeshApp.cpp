@@ -71,17 +71,19 @@ NaniteMeshApp::NaniteMeshApp(Configuration & configuration_) :
 	loadGLTF(configuration.glTF_path, model, loader);
     clusters = cluster(triangles, configuration.per_cluster_triangle_limit);
     initialize_base_bounding_spheres();
+    assert(is_mesh_manifold(triangles));
     for (uint32_t i = 0; i < configuration.simplify_count; ++i) {
         group();
 
         write_clsr(configuration.save_folder, i, clusters, current_cluster_group, triangles, vertices);
+        assert(is_mesh_manifold(triangles));
+        // save_groups_as_clusters(model, i);
 
+        // save_model(model, std::string("../gltf/test_" + std::to_string(i)));
         simplify_cluster_groups();
-        
+        assert(is_mesh_manifold(triangles));
         cluster_in_groups();
         // write_clusters_to_model(model);
-        // save_groups_as_clusters(model, i);
-        // save_model(model, std::string("../gltf/test_" + std::to_string(i)));
     }	
 }
 
@@ -259,10 +261,10 @@ std::vector<NaniteMeshApp::Cluster> NaniteMeshApp::cluster(std::vector<glm::uvec
     }
 
     uint32_t loop_count = 0;
-    std::cout << "Start Clustering... "<< "Total number of clusters to start: " << result_clusters.size()  << std::endl;
+    std::cout << "\tStart Clustering... "<< "Total number of clusters to start: " << result_clusters.size()  << std::endl;
     while (!merge_heap.empty() && result_clusters.size() > 1) {
         if (loop_count % 10000 == 0) {
-            std::cout << "\tClustering... "<< "loop: " << loop_count  << std::endl;
+            std::cout << "\t\tClustering... "<< "loop: " << loop_count  << std::endl;
         }
         loop_count++;
 
@@ -294,12 +296,12 @@ std::vector<NaniteMeshApp::Cluster> NaniteMeshApp::cluster(std::vector<glm::uvec
     cleaned_up_clusters.clear();
 	for (uint32_t i = 0;  i < int32_t(result_clusters.size()); ++i) {
         if (i % 10000 == 0)
-        std::cout<<"\tRemoving merged clusters... "<<i<<" / " << result_clusters.size()<< " clusters\n";
+        std::cout<<"\t\tRemoving merged clusters... "<<i<<" / " << result_clusters.size()<< " clusters\n";
 		if (triangle_to_cluster.is_original(i)) {
 			cleaned_up_clusters.push_back(result_clusters[i]);
 		}
 	}
-    std::cout << "Merging final loop count: " << loop_count << ", remaining clusters: " << cleaned_up_clusters.size() << std::endl;
+    std::cout << "\t\tMerging final loop count: " << loop_count << ", remaining clusters: " << cleaned_up_clusters.size() << std::endl;
     return cleaned_up_clusters;
 }
 
@@ -319,17 +321,16 @@ void NaniteMeshApp::cluster_in_groups()
         std::vector<uint32_t> group_triangle_indices;
         std::vector<glm::vec4> group_bounding_spheres;
         group_triangles.reserve(triangles.size());
-        group_triangle_indices.reserve(triangles.size());
+        group_triangle_indices = cluster_group.triangles;
         group_bounding_spheres.reserve(cluster_group.clusters.size());
         for (uint32_t cluster_i : cluster_group.clusters) {
             Cluster& cluster = clusters[cluster_i];
-            for (uint32_t triangle_i : cluster.triangles) {
-                group_triangles.push_back(triangles[triangle_i]);
-                group_triangle_indices.push_back(triangle_i);
-            }
             group_bounding_spheres.push_back(cluster.bounding_sphere);
             new_cluster_indices_in_group.push_back(start_cluster_index_in_group);
             start_cluster_index_in_group += 1;
+        }
+        for (uint32_t triangle_i : cluster_group.triangles) {
+            group_triangles.push_back(triangles[triangle_i]);
         }
         glm::vec4 new_bounding_sphere = estimate_bounding_sphere_of_spheres(group_bounding_spheres);
 
@@ -388,7 +389,7 @@ void NaniteMeshApp::group(){
     current_cluster_group.clear();
     // Initialize each cluster as its own group
     for (uint32_t i = 0; i < clusters.size(); ++i) {
-        current_cluster_group.push_back({ { i }, clusters[i].shared_edges });
+        current_cluster_group.push_back({ { i }, {}, clusters[i].shared_edges });
     }
     UnionFind cluster_to_group = UnionFind(static_cast<uint32_t>(current_cluster_group.size()));
 
@@ -666,7 +667,7 @@ void NaniteMeshApp::simplify_cluster_groups()
 {
     uint32_t cluster_count = 0;
 
-    for (const ClusterGroup& cluster_group : current_cluster_group) {
+    for (ClusterGroup& cluster_group : current_cluster_group) {
 
         if (cluster_count % 100 == 0) {
             std::cout<<"\tsimplifying cluster groups: "<<cluster_count<<" / "<<current_cluster_group.size()<<std::endl;
@@ -675,7 +676,11 @@ void NaniteMeshApp::simplify_cluster_groups()
         std::unordered_map<glm::uvec2, uint32_t> next_vertex_in_cluster;
         auto do_next = [&](uint32_t a, uint32_t b, uint32_t c) {
             auto ret = next_vertex_in_cluster.insert(std::make_pair(glm::uvec2(a, b), c));
-            // assert(ret.second);
+            if(!ret.second) {
+                std::cout<<"c original: "<<ret.first->second<<", c here: "<<c<<std::endl;
+                std::cout<<"duplicate edge: "<< a<< ", "<<b<< ","<<c<<std::endl;
+                //assert(false);
+            }
         };
 
         std::unordered_set<uint32_t> boundary_vertices;
@@ -785,6 +790,7 @@ void NaniteMeshApp::simplify_cluster_groups()
             uint32_t v1 = entry.v1, v2 = entry.v2;
             assert (!boundary_vertices.count(v1) || !boundary_vertices.count(v2));
 
+            if (boundary_vertices.count(v2)) std::swap(v1, v2);
             
             bool normal_flip_detected = false;
             std::vector<QEMEntry> flip_normal_entries;
@@ -832,40 +838,72 @@ void NaniteMeshApp::simplify_cluster_groups()
                 heap.push(popped_entry);
             }
 
-            v1 = entry.v1, v2 = entry.v2;
             if (boundary_vertices.count(v1) && boundary_vertices.count(v2)) continue; 
+
             // Update vertex positions
             vertices[v1] = entry.best_position;
             vertices[v2] = entry.best_position;
             
             quadrics[v1] += quadrics[v2]; // Merge quadrics
-
+          
             // Update triangles: replace v2 with v1 where applicable
             for (uint32_t& tri_idx : group_triangles) {
                 glm::uvec3& t = triangles[tri_idx];
+                // if (t.x == v2 || t.y == v2 || t.z == v2) {
+                //     std::cout<< "\tupdated: " <<glm::to_string(t)<<", v1, v2 was "<<v1 << ", "<< v2<<std::endl;
+                // }
+                // else if (t.x == v1 || t.y == v1 || t.z == v1) {
+                //     std::cout<< "\tv1's: " <<glm::to_string(t)<<", v1, v2 was "<<v1 << ", "<< v2<<std::endl;
+                // }
                 if (t.x == v2) t.x = v1;
                 if (t.y == v2) t.y = v1;
                 if (t.z == v2) t.z = v1;
             }
 
             // Remove degenerate triangles (where two or more vertices are the same)
-            group_triangles.erase(std::remove_if(group_triangles.begin(), group_triangles.end(),
-                [&](uint32_t tri_idx) {
-                    const glm::uvec3& t = triangles[tri_idx];
-                    return (t.x == t.y || t.y == t.z || t.z == t.x);
-                }),
-                group_triangles.end());
+            std::vector<uint32_t> tmp_group_triangles;
+            tmp_group_triangles.reserve(group_triangles.size());
+
+            for (uint32_t tri_index : group_triangles) {
+                const glm::uvec3& t = triangles[tri_index];
+                if (!(t.x == t.y || t.y == t.z || t.z == t.x)) {
+                    tmp_group_triangles.push_back(tri_index);
+                }
+
+            }
+            group_triangles = tmp_group_triangles;
+            // group_triangles.erase(std::remove_if(group_triangles.begin(), group_triangles.end(),
+            //     [&](uint32_t tri_idx) {
+            //         const glm::uvec3& t = triangles[tri_idx];
+            //         return (t.x == t.y || t.y == t.z || t.z == t.x);
+            //     }),
+            //     group_triangles.end());
             
             for (auto it = next_vertex_in_cluster.begin(); it != next_vertex_in_cluster.end(); ) {
                 uint32_t a = it->first.x, b = it->first.y;
                 if (a == v2) a = v1;
                 if (b == v2) b = v1;
-                
+
                 if (a != b) {  // Avoid self-loops
                     next_vertex_in_cluster[glm::uvec2(a, b)] = it->second;
                 }
                 it = next_vertex_in_cluster.erase(it);
             }
+
+            // // Remove duplicate triangles
+            // {
+            //     std::unordered_set<glm::uvec3> unique_tris;
+            //     auto it = group_triangles.begin();
+            //     while (it != group_triangles.end()) {
+            //         const glm::uvec3& t = triangles[*it];
+            //         if (unique_tris.count(t)) {
+            //             it = group_triangles.erase(it);
+            //         } else {
+            //             unique_tris.insert(t);
+            //             ++it;
+            //         }
+            //     }
+            // }
 
             // Remove elements in the heap that involve v1 or v2
 
@@ -900,8 +938,18 @@ void NaniteMeshApp::simplify_cluster_groups()
                 // Extract b as the negation of the upper-right 3x1 column
                 glm::vec3 b = -glm::vec3(Qsum[3]); 
 
+                glm::vec3 x;
                 // Solve for x: A * x = b or get the best position if A is singular
-                glm::vec3 x = get_best_vertex_after_collapse(Qsum, vertices[v3], vertices[v4]);
+                if (boundary_vertices.count(v3)) {
+                    x = vertices[v3];
+                }
+                else if (boundary_vertices.count(v4)) {
+                    x = vertices[v4];
+                }
+                else {
+                    // Solve for x: A * x = b or get the best position if A is singular
+                    x = get_best_vertex_after_collapse(Qsum, vertices[v3], vertices[v4]);
+                }
 
                 // Extract c (bottom-right scalar)
                 float c = Qsum[3][3];
@@ -912,29 +960,109 @@ void NaniteMeshApp::simplify_cluster_groups()
                 heap.push({v3, v4, x, error});
 
             }
-        }
+
+            // {
+            //     std::vector<glm::uvec3> temp_tris;
+            //     for (const auto tri_i : group_triangles) {
+            //         temp_tris.push_back(triangles[tri_i]);
+            //     }
+            //     if (!is_mesh_manifold(temp_tris)) {
+
+            //         std::cout<<"vertices: "<<v1<<", "<<v2<<std::endl;
+            //         //assert(false);
+            //     };
+            // }
+
+
+            // {
+            //     std::unordered_map<glm::uvec2, uint32_t> next_vertex_in_cluster1;
+            //     auto do_next1 = [&](uint32_t a, uint32_t b, uint32_t c) {
+                    
+            //         auto ret = next_vertex_in_cluster1.insert(std::make_pair(glm::uvec2(a, b), c));
+            //         if(!ret.second) {
+
+            //                 std::cout<<"c original: "<<ret.first->second<<", c here: "<<c<<std::endl;
+                        
+            //             std::cout<<"vertices: "<<v1<<", "<<v2<<std::endl;
+            //             std::cout<<"duplicate edge: "<< a<< ", "<<b<< ","<<c<<std::endl;
+            //             //assert(false);
+            //         }
+            //     };
         
+            //     // Construct half-edge connectivity and detect boundaries
+
+            //         for (uint32_t& triangle_index : group_triangles) {
+            //             const glm::uvec3& vertex_indices = triangles[triangle_index];
+            //             uint32_t i0 = vertex_indices[0];
+            //             uint32_t i1 = vertex_indices[1];
+            //             uint32_t i2 = vertex_indices[2];
+            //             assert(!(i0 == i1 || i0 == i2 || i1 == i2));
+            //             do_next1(i0, i1, i2);
+            //             do_next1(i1, i2, i0);
+            //             do_next1(i2, i0, i1);
+            
+            //         }
+                
+    
+            // }
+        }
+        cluster_group.triangles = group_triangles;
+        // {
+        //     std::vector<glm::uvec3> temp_tris;
+        //     for (const auto tri_i : group_triangles) {
+        //         temp_tris.push_back(triangles[tri_i]);
+        //     }
+        //     if (!is_mesh_manifold(temp_tris)) {
+        //         //assert(false);
+        //     };
+        // }
     }
 
     { // clean up degenerate triangles and unused triangles from the triangle list
         std::vector<glm::uvec3> new_triangles;
         new_triangles.reserve(triangles.size());
-        for (uint32_t i = 0; i < clusters.size(); ++i) {
-            std::vector<uint32_t> new_cluster_triangles;
-            new_cluster_triangles.reserve(clusters[i].triangles.size());
-            for (uint32_t triangle_index : clusters[i].triangles) {
+        for (ClusterGroup& cluster_group : current_cluster_group) {
+            std::vector<uint32_t> new_group_triangles;
+            new_group_triangles.reserve(cluster_group.triangles.size());
+            for (uint32_t triangle_index : cluster_group.triangles) {
                 const glm::uvec3& triangle = triangles[triangle_index];
-                const glm::vec3& v0 = vertices[triangle[0]];
-                const glm::vec3& v1 = vertices[triangle[1]];
-                const glm::vec3& v2 = vertices[triangle[2]];
-                if (v0 == v1 || v1 == v2 || v0 == v2) continue; //skip degenerate triangles
-                new_cluster_triangles.push_back(uint32_t(new_triangles.size()));
+                // const glm::vec3& v0 = vertices[triangle[0]];
+                // const glm::vec3& v1 = vertices[triangle[1]];
+                // const glm::vec3& v2 = vertices[triangle[2]];
+                assert((triangle[0] != triangle[1] && triangle[0] != triangle[2] && triangle[1] != triangle[2]));
+                new_group_triangles.push_back(uint32_t(new_triangles.size()));
                 new_triangles.push_back(triangle);
             }
-            clusters[i].triangles = new_cluster_triangles;
+            cluster_group.triangles = new_group_triangles;
         }
         triangles = new_triangles;
     }
+
+    // { // check for manifold again
+    //     for (const ClusterGroup& cluster_group : current_cluster_group) {
+    //         std::unordered_map<glm::uvec2, uint32_t> next_vertex_in_cluster;
+    //         auto do_next = [&](uint32_t a, uint32_t b, uint32_t c) {
+    //             auto ret = next_vertex_in_cluster.insert(std::make_pair(glm::uvec2(a, b), c));
+    //             if(!ret.second) {
+    //                 std::cout<<"duplicate edge: "<< a<< ", "<<b<< ", "<<c<<std::endl;
+    //                 ////assert(false);
+    //             }
+    //         };
+    //         for (uint32_t triangle_index : cluster_group.triangles) {
+
+    //                 const glm::uvec3& vertex_indices = triangles[triangle_index];
+    //                 uint32_t i0 = vertex_indices[0];
+    //                 uint32_t i1 = vertex_indices[1];
+    //                 uint32_t i2 = vertex_indices[2];
+        
+    //                 do_next(i0, i1, i2);
+    //                 do_next(i1, i2, i0);
+    //                 do_next(i2, i0, i1);
+        
+                
+    //         }
+    //     }
+    // }
 
     std::cout<<"Finished simplifying "<<cluster_count<<" clusters"<<std::endl;
 }
@@ -1030,3 +1158,75 @@ bool NaniteMeshApp::save_model(const tinygltf::Model& model, std::string filenam
     return ret;
 }
 
+bool NaniteMeshApp::is_mesh_manifold(const std::vector<glm::uvec3> &input_triangles) {
+    using Edge = glm::uvec2; // Directed edge representation
+    // Step 1: Count edge occurrences
+    std::unordered_map<Edge, int> edgeCounts;
+
+    for (const auto& tri : triangles) {
+        // Process all three edges of the triangle
+        uint32_t v[3] = {tri.x, tri.y, tri.z};
+        
+        for (int i = 0; i < 3; i++) {
+            uint32_t a = v[i];
+            uint32_t b = v[(i+1)%3];
+            // Store edge with sorted vertices
+            if (a > b) std::swap(a, b);
+            edgeCounts[{a, b}]++;
+        }
+    }
+
+    // Step 2: Collect boundary edges (edges with count == 1)
+    std::unordered_map<uint32_t, std::vector<uint32_t>> adjacency;
+    
+    for (const auto& [edge, count] : edgeCounts) {
+        if (count == 1) {
+            auto a = edge.x;
+            auto b = edge.y;
+            adjacency[a].push_back(b);
+            adjacency[b].push_back(a);
+        }
+    }
+
+    // If no boundaries, it's valid (closed mesh)
+    if (adjacency.empty()) return true;
+
+    // Step 3: Check vertex degrees (must be exactly 2 for boundary vertices)
+    for (const auto& [v, neighbors] : adjacency) {
+        if (neighbors.size() != 2) {
+            std::cout<<"Error: Non-Manifold, Dangling edge "<<v<<", only has "<<neighbors.size()<<" neighbor\n";
+            if (neighbors.size() == 1) std::cout<< "\tneighor is "<<neighbors[0]<<"\n";
+            return false; // Dangling edge or non-manifold boundary
+        }
+    }
+
+    // Step 4: Count boundary loops using DFS
+    std::unordered_map<uint32_t, bool> visited;
+    int boundaryLoops = 0;
+
+    for (const auto& [start, _] : adjacency) {
+        if (!visited[start]) {
+            boundaryLoops++;
+            uint32_t current = start;
+            uint32_t prev = adjacency[current][0]; // Arbitrary starting direction
+            
+            do {
+                visited[current] = true;
+                // Find next vertex (avoid going back to prev)
+                uint32_t next = (adjacency[current][0] == prev) 
+                            ? adjacency[current][1] 
+                            : adjacency[current][0];
+                prev = current;
+                current = next;
+            } while (current != start && !visited[current]);
+            
+            if (current != start) { 
+                std::cout<<"Error: Non-Manifold, Found open loop!\n";
+                return false; // Found open loop
+            }
+        }
+    }
+ 
+    return boundaryLoops <= 1;
+
+}
