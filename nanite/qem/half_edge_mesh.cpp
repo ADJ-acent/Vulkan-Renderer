@@ -138,23 +138,23 @@ glm::vec3 AverageVertexNormals(const gfx::Vertex& v0) {
 namespace gfx {
 
 HalfEdgeMesh::HalfEdgeMesh(const Mesh& mesh)
-    : vertices_{mesh.vertices()  //
-                | std::views::transform([id = 0u](const auto& mesh_vertex) mutable {
-                    auto vertex = std::make_shared<Vertex>(id, mesh_vertex.position);
-                    return std::pair{id++, std::move(vertex)};
-                  })
-                | std::ranges::to<std::unordered_map>()},
-      faces_{mesh.indices()          //
-             | std::views::chunk(3)  //
-             | std::views::transform([this](const auto& index_group) {
-                 const auto& v0 = Get(index_group[0], vertices_);
-                 const auto& v1 = Get(index_group[1], vertices_);
-                 const auto& v2 = Get(index_group[2], vertices_);
-                 auto face012 = CreateTriangle(v0, v1, v2, edges_);
-                 return std::pair{hash_value(*face012), std::move(face012)};
-               })
-             | std::ranges::to<std::unordered_map>()},
-      transform_{mesh.transform()} {}
+  : transform_{mesh.transform()} {
+  // Populate `vertices_`
+  const auto& mesh_vertices = mesh.vertices();
+  for (size_t id = 0; id < mesh_vertices.size(); ++id) {
+    vertices_.emplace(uint32_t(id), std::make_shared<Vertex>(uint32_t(id), mesh_vertices[id].position));
+  }
+
+  // Populate `faces_`
+  const auto& indices = mesh.indices();
+  for (size_t i = 0; i < indices.size(); i += 3) {
+    const auto& v0 = Get(indices[i], vertices_);
+    const auto& v1 = Get(indices[i + 1], vertices_);
+    const auto& v2 = Get(indices[i + 2], vertices_);
+    auto face012 = CreateTriangle(v0, v1, v2, edges_);
+    faces_.emplace(hash_value(*face012), std::move(face012));
+  }
+}
 
 void HalfEdgeMesh::Contract(const HalfEdge& edge01, const std::shared_ptr<Vertex>& v_new) {
   assert(Find(edge01, edges_) != edges_.cend());

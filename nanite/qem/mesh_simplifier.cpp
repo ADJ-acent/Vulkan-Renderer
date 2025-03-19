@@ -6,7 +6,6 @@
 #include <format>
 #include <iostream>
 #include <memory>
-#include <print>
 #include <queue>
 #include <ranges>
 #include <stdexcept>
@@ -204,12 +203,6 @@ Mesh mesh::Simplify(const Mesh& mesh, const float rate) {
       edgeji = edgeji->next()->flip();
     } while (edgeji != vi->edge());
   }
-
-  std::println(std::clog,
-               "Mesh simplified from {} to {} triangles in {} seconds",
-               initial_face_count,
-               half_edge_mesh.faces().size(),
-               std::chrono::duration<float>{std::chrono::high_resolution_clock::now() - start_time}.count());
 
   return half_edge_mesh.ToMesh();
 }
