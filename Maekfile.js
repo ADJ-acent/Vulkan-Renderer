@@ -54,7 +54,10 @@ const common_objs = [
 const nanite_mesh_objs = [
 	maek.CPP('nanite/NaniteMeshApp.cpp'),
 	maek.CPP('nanite/nanite_mesh_main.cpp'),
-	
+	maek.CPP('nanite/qem/face.cpp'),
+	maek.CPP('nanite/qem/half_edge_mesh.cpp'),
+	maek.CPP('nanite/qem/mesh_simplifier.cpp'),
+	maek.CPP('nanite/qem/mesh.cpp'),
 ]
 
 //maek.GLSLC(...) builds a glsl source file:

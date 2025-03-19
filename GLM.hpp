@@ -7,3 +7,5 @@
 #include "glm/glm/gtx/string_cast.hpp"
 #include "glm/glm/gtx/hash.hpp"
 #include "glm/glm/gtx/norm.hpp"
+#include "glm/glm/gtc/matrix_transform.hpp"
+#include "glm/glm/geometric.hpp"

@@ -81,7 +81,8 @@
         "unordered_set": "cpp",
         "queue": "cpp",
         "ranges": "cpp",
-        "Seb_debug.C": "cpp"
+        "Seb_debug.C": "cpp",
+        "print": "cpp"
     },
     "cmake.ignoreCMakeListsMissing": true
 }
