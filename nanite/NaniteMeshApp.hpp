@@ -126,7 +126,7 @@ struct NaniteMeshApp {
     bool is_valid_group_candidate(const GroupCandidate &, UnionFind &);
     void merge_clusters(uint32_t a, uint32_t b, std::vector<Cluster>& result_clusters);
     void write_clusters_to_model(tinygltf::Model& model);
-    void simplify_cluster_groups(float target = 0.5f);
+    void simplify_cluster_groups(float target = 0.8f);
 
     inline bool has_normal_flipped (glm::vec3& normal1, glm::vec3& normal2) {
         return glm::dot(normal1, normal2) <= 0;

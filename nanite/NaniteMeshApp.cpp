@@ -861,16 +861,19 @@ void NaniteMeshApp::simplify_cluster_groups(float target)
             {// We should go ahead with the collapse
 
                 bool invalid = false;
-                auto triangles_copy = triangles;
-                auto next_vertex_in_cluster_copy = next_vertex_in_cluster;
+                std::unordered_map<uint32_t, glm::vec3> changed_triangles;
+                std::unordered_map<glm::uvec2, uint32_t> removed_half_edges;
+                std::unordered_set<glm::uvec2> added_half_edges;
 
                 auto do_next_inside = [&](uint32_t a, uint32_t b, uint32_t c) {
                     auto ret = next_vertex_in_cluster.insert(std::make_pair(glm::uvec2(a, b), c));
                     if(!ret.second) {
-                        std::cout<<"c original: "<<ret.first->second<<", c here: "<<c<<std::endl;
-                        std::cout<<"duplicate edge: "<< a<< ", "<<b<< ","<<c<<std::endl;
+                        // std::cout<<"c original: "<<ret.first->second<<", c here: "<<c<<std::endl;
+                        // std::cout<<"duplicate edge: "<< a<< ", "<<b<< ","<<c<<std::endl;
                         invalid = true;
-                        
+                    }
+                    else {
+                        added_half_edges.insert(glm::uvec2(a, b));
                     }
                 };
                 std::vector<glm::uvec3> to_be_added_triangles;
@@ -880,27 +883,28 @@ void NaniteMeshApp::simplify_cluster_groups(float target)
                     const uint32_t i0 = vertex_indices[0];
                     const uint32_t i1 = vertex_indices[1];
                     const uint32_t i2 = vertex_indices[2];
-
-                    // auto t = vertex_indices;
-                    // if (t.x == v2 || t.y == v2 || t.z == v2) {
-                    //     std::cout<< "\tupdated: " <<glm::to_string(t)<<", v1, v2 was "<<v1 << ", "<< v2<<std::endl;
-                    // }
-                    // else if (t.x == v1 || t.y == v1 || t.z == v1) {
-                    //     std::cout<< "\tv1's: " <<glm::to_string(t)<<", v1, v2 was "<<v1 << ", "<< v2<<std::endl;
-                    // }
                     if (i0 == v2) vertex_indices[0] = v1;
                     if (i1 == v2) vertex_indices[1] = v1;
                     if (i2 == v2) vertex_indices[2] = v1;
-                    // if the new triangle isn't degenerate, add it to the half edge map
+
+                    // we replaced a vertex in this triangle
                     if (i0 == v2 || i1 == v2 || i2 == v2) {
+                        // remove the old halfedges
                         next_vertex_in_cluster.erase({i0,i1});
                         next_vertex_in_cluster.erase({i1,i2});
                         next_vertex_in_cluster.erase({i2,i0});
+                        
+                        removed_half_edges.insert(std::make_pair(glm::uvec2(i0, i1), i2));
+                        removed_half_edges.insert(std::make_pair(glm::uvec2(i1, i2), i0));
+                        removed_half_edges.insert(std::make_pair(glm::uvec2(i2, i0), i1));
+                        // if the new triangle isn't degenerate, add it to the half edge map later
                         if (vertex_indices[0] != vertex_indices[1] && 
                             vertex_indices[1] != vertex_indices[2] && 
                             vertex_indices[2] != vertex_indices[0]) {
                             to_be_added_triangles.push_back(vertex_indices);
                         }
+                        // in case the resulting mesh is invalid
+                        changed_triangles.emplace(triangle_index,glm::uvec3(i0,i1,i2));
                     }
                 }
 
@@ -910,8 +914,18 @@ void NaniteMeshApp::simplify_cluster_groups(float target)
                     do_next_inside(vertex_indices[2], vertex_indices[0], vertex_indices[1]);
                 }
                 if (invalid) {
-                    triangles = triangles_copy;
-                    next_vertex_in_cluster = next_vertex_in_cluster_copy;
+                    for (auto t : changed_triangles) {
+                        triangles[t.first] = t.second;
+                    }
+
+                    for (auto p : added_half_edges) {
+                        next_vertex_in_cluster.erase(p);
+                    }
+                    for (auto p : removed_half_edges) {
+                        auto res = next_vertex_in_cluster.insert(p);
+                        assert(res.second);
+                    }
+
                     continue;
                 }
 
