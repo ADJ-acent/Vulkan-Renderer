@@ -120,13 +120,17 @@ struct NaniteMeshApp {
     void cluster_in_groups();
     void group();
     void initialize_base_bounding_spheres();
-    void save_groups_as_clusters(const tinygltf::Model& model, uint32_t level);
+    void save_groups_as_clusters(tinygltf::Model& model, uint32_t level);
     bool is_valid_merge_candidate(const MergeCandidate &, std::vector<Cluster>& result_clusters);
     void check_clusters_validity();
     bool is_valid_group_candidate(const GroupCandidate &, UnionFind &);
     void merge_clusters(uint32_t a, uint32_t b, std::vector<Cluster>& result_clusters);
     void write_clusters_to_model(tinygltf::Model& model);
-    void simplify_cluster_groups();
+    void simplify_cluster_groups(float target = 0.5f);
+
+    inline bool has_normal_flipped (glm::vec3& normal1, glm::vec3& normal2) {
+        return glm::dot(normal1, normal2) <= 0;
+    }
     inline glm::vec3 compute_normal(const glm::vec3& v0, const glm::vec3& v1, const glm::vec3& v2) {
         return glm::normalize(glm::cross(v1 - v0, v2 - v0));
     }

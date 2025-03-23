@@ -67,7 +67,6 @@ NaniteMeshApp::NaniteMeshApp(Configuration & configuration_) :
 {
 	tinygltf::Model model;
 	tinygltf::TinyGLTF loader;
-    assert(configuration.simplify_count == 10);
 	loadGLTF(configuration.glTF_path, model, loader);
     clusters = cluster(triangles, configuration.per_cluster_triangle_limit);
     initialize_base_bounding_spheres();
@@ -77,13 +76,13 @@ NaniteMeshApp::NaniteMeshApp(Configuration & configuration_) :
 
         write_clsr(configuration.save_folder, i, clusters, current_cluster_group, triangles, vertices);
         assert(is_mesh_manifold(triangles));
-        // save_groups_as_clusters(model, i);
-
+        
         // save_model(model, std::string("../gltf/test_" + std::to_string(i)));
+        save_groups_as_clusters(model, i);
         simplify_cluster_groups();
+        // write_clusters_to_model(model);
         assert(is_mesh_manifold(triangles));
         cluster_in_groups();
-        // write_clusters_to_model(model);
     }	
 }
 
@@ -473,7 +472,7 @@ void NaniteMeshApp::initialize_base_bounding_spheres()
     }
 }
 
-void NaniteMeshApp::save_groups_as_clusters(const tinygltf::Model& model, uint32_t level)
+void NaniteMeshApp::save_groups_as_clusters(tinygltf::Model& model, uint32_t level)
 {
     std::vector<Cluster> clusters_from_groups;
     clusters_from_groups.reserve(clusters.size());
@@ -487,6 +486,7 @@ void NaniteMeshApp::save_groups_as_clusters(const tinygltf::Model& model, uint32
     }
     std::vector<Cluster> temp = clusters;
     clusters = clusters_from_groups;
+    write_clusters_to_model(model);
     save_model(model, std::string("../gltf/test_" + std::to_string(level)));
     clusters = temp;
 }
@@ -663,15 +663,15 @@ void NaniteMeshApp::write_clusters_to_model(tinygltf::Model& model)
     model.defaultScene = 0;
 }
 
-void NaniteMeshApp::simplify_cluster_groups()
+void NaniteMeshApp::simplify_cluster_groups(float target)
 {
     uint32_t cluster_count = 0;
 
     for (ClusterGroup& cluster_group : current_cluster_group) {
 
-        if (cluster_count % 100 == 0) {
+        // if (cluster_count % 100 == 0) {
             std::cout<<"\tsimplifying cluster groups: "<<cluster_count<<" / "<<current_cluster_group.size()<<std::endl;
-        }
+        // }
         cluster_count++;
         std::unordered_map<glm::uvec2, uint32_t> next_vertex_in_cluster;
         auto do_next = [&](uint32_t a, uint32_t b, uint32_t c) {
@@ -679,7 +679,7 @@ void NaniteMeshApp::simplify_cluster_groups()
             if(!ret.second) {
                 std::cout<<"c original: "<<ret.first->second<<", c here: "<<c<<std::endl;
                 std::cout<<"duplicate edge: "<< a<< ", "<<b<< ","<<c<<std::endl;
-                //assert(false);
+                // assert(false);
             }
         };
 
@@ -714,10 +714,19 @@ void NaniteMeshApp::simplify_cluster_groups()
             uint32_t i1 = vertex_indices[1];
             uint32_t i2 = vertex_indices[2];
 
-            // Check boundary edges
-            if (next_vertex_in_cluster.find(glm::uvec2(i1, i0)) == next_vertex_in_cluster.end()) boundary_vertices.insert(i0);
-            if (next_vertex_in_cluster.find(glm::uvec2(i2, i1)) == next_vertex_in_cluster.end()) boundary_vertices.insert(i1);
-            if (next_vertex_in_cluster.find(glm::uvec2(i0, i2)) == next_vertex_in_cluster.end()) boundary_vertices.insert(i2);
+            // insert boundary edges
+            if (next_vertex_in_cluster.find(glm::uvec2(i1, i0)) == next_vertex_in_cluster.end()) {
+                boundary_vertices.insert(i0);
+                boundary_vertices.insert(i1);
+            }
+            if (next_vertex_in_cluster.find(glm::uvec2(i2, i1)) == next_vertex_in_cluster.end()) {
+                boundary_vertices.insert(i2);
+                boundary_vertices.insert(i1);
+            }
+            if (next_vertex_in_cluster.find(glm::uvec2(i0, i2)) == next_vertex_in_cluster.end()) {
+                boundary_vertices.insert(i0);
+                boundary_vertices.insert(i2);
+            }
 
             {// Compute quadrics per vertex
                 glm::vec3 v0 = vertices[i0];
@@ -759,7 +768,7 @@ void NaniteMeshApp::simplify_cluster_groups()
             glm::mat3 A = glm::mat3(Qsum);
 
             // Extract b as the negation of the upper-right 3x1 column
-            glm::vec3 b = -glm::vec3(Qsum[3]); 
+            glm::vec3 b = -glm::vec3(Qsum[0][3], Qsum[1][3], Qsum[2][3]);
 
             glm::vec3 x;
             if (boundary_vertices.count(v1)) {
@@ -782,240 +791,196 @@ void NaniteMeshApp::simplify_cluster_groups()
             heap.push({v1, v2, x, error});
         }
 
-        // Edge collapse
-        while (!heap.empty()) {
-            QEMEntry entry = heap.top();
+        uint32_t collapse_target = uint32_t(float(heap.size()) * target);
+        uint32_t collapse_count = 0;
+
+        while (collapse_count < collapse_target && !heap.empty()) {
+            QEMEntry target_edge = heap.top();
             heap.pop();
 
-            uint32_t v1 = entry.v1, v2 = entry.v2;
-            assert (!boundary_vertices.count(v1) || !boundary_vertices.count(v2));
+            uint32_t v1 = target_edge.v1;
+            uint32_t v2 = target_edge.v2;
+            const glm::vec3& target_position = target_edge.best_position;
 
-            if (boundary_vertices.count(v2)) std::swap(v1, v2);
-            
-            bool normal_flip_detected = false;
-            std::vector<QEMEntry> flip_normal_entries;
-            do { // Check normals of adjacent triangles
-                normal_flip_detected = false;
-                for (uint32_t tri_idx : group_triangles) {
-                    const glm::uvec3& t = triangles[tri_idx];
+            assert(!(boundary_vertices.count(v1) && boundary_vertices.count(v2))); // at most 1 of the pair can be a boundary vert
 
-                    if (t.x == v1 || t.y == v1 || t.z == v1 || t.x == v2 || t.y == v2 || t.z == v2) {
-                        glm::vec3 v0 = vertices[t.x];
-                        glm::vec3 v1_pos = vertices[t.y];
-                        glm::vec3 v2_pos = vertices[t.z];
+            if (boundary_vertices.count(v2)) { // we replace v2 with v1 below, so doing this makes sure boundary verts are never deleted
+                std::swap(v1,v2);
+            }
 
-                        glm::vec3 original_normal = compute_normal(v0, v1_pos, v2_pos);
 
-                        // Temporarily replace v2 with best_position to simulate the collapse
-                        glm::vec3 collapsed_v1_pos = (t.x == v2) ? entry.best_position : vertices[t.x];
-                        glm::vec3 collapsed_v2_pos = (t.y == v2) ? entry.best_position : vertices[t.y];
-                        glm::vec3 collapsed_v3_pos = (t.z == v2) ? entry.best_position : vertices[t.z];
+            {// check for each edge containing these two vertices, if we were to collapse the edges, will some of the triangles flip their normals
+                
+                bool flipped_normal = false;
+                for (uint32_t triangle_index : group_triangles) {
+                    glm::uvec3& vertex_indices = triangles[triangle_index];
+                    const uint32_t i0 = vertex_indices[0];
+                    const uint32_t i1 = vertex_indices[1];
+                    const uint32_t i2 = vertex_indices[2];
+                    if (i0 != v1 && i1 != v1 && i2 != v1 && i0 != v2 && i1 != v2 && i2 != v2) continue; // only check the neighborhood of v1 v2
+                    glm::vec3 p0 = vertices[i0];
+                    glm::vec3 p1 = vertices[i1];
+                    glm::vec3 p2 = vertices[i2];
 
-                        glm::vec3 new_normal = compute_normal(collapsed_v1_pos, collapsed_v2_pos, collapsed_v3_pos);
+                    glm::vec3 normal_before = compute_normal(p0,p1,p2);
 
-                        // If dot product is negative, normal flips
-                        if (glm::dot(original_normal, new_normal) <= 0) {
-                            normal_flip_detected = true;
-                            flip_normal_entries.push_back(entry);
+                    assert (!glm::any(glm::isnan(normal_before)));
 
-                            break;
+                    uint8_t replaced_vert_count = 0;
+                    if (i0 == v1 || i0 == v2) {
+                        replaced_vert_count++;
+                        p0 = target_position;
+                    }
+                    if (i1 == v1 || i1 == v2) {
+                        replaced_vert_count++;
+                        p1 = target_position;
+                    }
+                    if (i2 == v1 || i2 == v2) {
+                        replaced_vert_count++;
+                        p2 = target_position;
+                    }
+                    
+                    if (replaced_vert_count > 1) continue; //triangle invalid after collapse anyways
+
+                    glm::vec3 normal_after = compute_normal(p0,p1,p2);
+                    
+                    if (glm::any(glm::isnan(normal_after))) {
+                        flipped_normal = true;
+                        break;
+                    }
+
+                    if (has_normal_flipped(normal_before, normal_after)) {
+                        flipped_normal = true;
+                        break;
+                    }
+                }
+
+                if (flipped_normal) continue;
+            }
+
+            {// We should go ahead with the collapse
+
+                bool invalid = false;
+                auto triangles_copy = triangles;
+                auto next_vertex_in_cluster_copy = next_vertex_in_cluster;
+
+                auto do_next_inside = [&](uint32_t a, uint32_t b, uint32_t c) {
+                    auto ret = next_vertex_in_cluster.insert(std::make_pair(glm::uvec2(a, b), c));
+                    if(!ret.second) {
+                        std::cout<<"c original: "<<ret.first->second<<", c here: "<<c<<std::endl;
+                        std::cout<<"duplicate edge: "<< a<< ", "<<b<< ","<<c<<std::endl;
+                        invalid = true;
+                        
+                    }
+                };
+                std::vector<glm::uvec3> to_be_added_triangles;
+                // replace all instances of v2 in group triangles to v1
+                for (uint32_t triangle_index : group_triangles) {
+                    glm::uvec3& vertex_indices = triangles[triangle_index];
+                    const uint32_t i0 = vertex_indices[0];
+                    const uint32_t i1 = vertex_indices[1];
+                    const uint32_t i2 = vertex_indices[2];
+
+                    // auto t = vertex_indices;
+                    // if (t.x == v2 || t.y == v2 || t.z == v2) {
+                    //     std::cout<< "\tupdated: " <<glm::to_string(t)<<", v1, v2 was "<<v1 << ", "<< v2<<std::endl;
+                    // }
+                    // else if (t.x == v1 || t.y == v1 || t.z == v1) {
+                    //     std::cout<< "\tv1's: " <<glm::to_string(t)<<", v1, v2 was "<<v1 << ", "<< v2<<std::endl;
+                    // }
+                    if (i0 == v2) vertex_indices[0] = v1;
+                    if (i1 == v2) vertex_indices[1] = v1;
+                    if (i2 == v2) vertex_indices[2] = v1;
+                    // if the new triangle isn't degenerate, add it to the half edge map
+                    if (i0 == v2 || i1 == v2 || i2 == v2) {
+                        next_vertex_in_cluster.erase({i0,i1});
+                        next_vertex_in_cluster.erase({i1,i2});
+                        next_vertex_in_cluster.erase({i2,i0});
+                        if (vertex_indices[0] != vertex_indices[1] && 
+                            vertex_indices[1] != vertex_indices[2] && 
+                            vertex_indices[2] != vertex_indices[0]) {
+                            to_be_added_triangles.push_back(vertex_indices);
                         }
                     }
                 }
-                if (normal_flip_detected) {
 
-                    entry = heap.top();
-                    heap.pop();
+                for (auto vertex_indices : to_be_added_triangles) {
+                    do_next_inside(vertex_indices[0], vertex_indices[1], vertex_indices[2]);
+                    do_next_inside(vertex_indices[1], vertex_indices[2], vertex_indices[0]);
+                    do_next_inside(vertex_indices[2], vertex_indices[0], vertex_indices[1]);
                 }
-            } while (normal_flip_detected && !heap.empty());
-            if (normal_flip_detected && heap.empty()) {
-                // we ran out of edges to collapse without flipping normals
-                break;
-            }
-
-            // push back all the entries
-            for (QEMEntry const popped_entry : flip_normal_entries) {
-                heap.push(popped_entry);
-            }
-
-            if (boundary_vertices.count(v1) && boundary_vertices.count(v2)) continue; 
-
-            // Update vertex positions
-            vertices[v1] = entry.best_position;
-            vertices[v2] = entry.best_position;
-            
-            quadrics[v1] += quadrics[v2]; // Merge quadrics
-          
-            // Update triangles: replace v2 with v1 where applicable
-            for (uint32_t& tri_idx : group_triangles) {
-                glm::uvec3& t = triangles[tri_idx];
-                // if (t.x == v2 || t.y == v2 || t.z == v2) {
-                //     std::cout<< "\tupdated: " <<glm::to_string(t)<<", v1, v2 was "<<v1 << ", "<< v2<<std::endl;
-                // }
-                // else if (t.x == v1 || t.y == v1 || t.z == v1) {
-                //     std::cout<< "\tv1's: " <<glm::to_string(t)<<", v1, v2 was "<<v1 << ", "<< v2<<std::endl;
-                // }
-                if (t.x == v2) t.x = v1;
-                if (t.y == v2) t.y = v1;
-                if (t.z == v2) t.z = v1;
-            }
-
-            // Remove degenerate triangles (where two or more vertices are the same)
-            std::vector<uint32_t> tmp_group_triangles;
-            tmp_group_triangles.reserve(group_triangles.size());
-
-            for (uint32_t tri_index : group_triangles) {
-                const glm::uvec3& t = triangles[tri_index];
-                if (!(t.x == t.y || t.y == t.z || t.z == t.x)) {
-                    tmp_group_triangles.push_back(tri_index);
-                }
-
-            }
-            group_triangles = tmp_group_triangles;
-            // group_triangles.erase(std::remove_if(group_triangles.begin(), group_triangles.end(),
-            //     [&](uint32_t tri_idx) {
-            //         const glm::uvec3& t = triangles[tri_idx];
-            //         return (t.x == t.y || t.y == t.z || t.z == t.x);
-            //     }),
-            //     group_triangles.end());
-            
-            for (auto it = next_vertex_in_cluster.begin(); it != next_vertex_in_cluster.end(); ) {
-                uint32_t a = it->first.x, b = it->first.y;
-                if (a == v2) a = v1;
-                if (b == v2) b = v1;
-
-                if (a != b) {  // Avoid self-loops
-                    next_vertex_in_cluster[glm::uvec2(a, b)] = it->second;
-                }
-                it = next_vertex_in_cluster.erase(it);
-            }
-
-            // // Remove duplicate triangles
-            // {
-            //     std::unordered_set<glm::uvec3> unique_tris;
-            //     auto it = group_triangles.begin();
-            //     while (it != group_triangles.end()) {
-            //         const glm::uvec3& t = triangles[*it];
-            //         if (unique_tris.count(t)) {
-            //             it = group_triangles.erase(it);
-            //         } else {
-            //             unique_tris.insert(t);
-            //             ++it;
-            //         }
-            //     }
-            // }
-
-            // Remove elements in the heap that involve v1 or v2
-
-            std::priority_queue<QEMEntry> new_heap;
-            while (!heap.empty()) {
-                QEMEntry edge = heap.top();
-                heap.pop();
-                
-                // If edge involves v1 or v2, skip it
-                if (edge.v1 == v1 || edge.v2 == v1 || edge.v1 == v2 || edge.v2 == v2) {
+                if (invalid) {
+                    triangles = triangles_copy;
+                    next_vertex_in_cluster = next_vertex_in_cluster_copy;
                     continue;
                 }
-                
-                // Otherwise, keep it
-                new_heap.push(edge);
-            }
 
-            // Replace old heap with filtered heap
-            heap = std::move(new_heap);
+                // set both vertice's positions to best position
+                vertices[v1] = target_position;
+                vertices[v2] = target_position;
 
-            // Rebuild heap with updated quadrics
-            for (const auto& edge : next_vertex_in_cluster) {
-                uint32_t v3 = edge.first.x, v4 = edge.first.y;
-                if (v3 != v1 && v4 != v1) continue; // Only update edges involving v1
+                // accumulate quadrics
+                quadrics[v1] += quadrics[v2];
 
-                if (boundary_vertices.count(v3) || boundary_vertices.count(v4)) continue; // Ignore boundary
-
-                glm::mat4 Qsum = quadrics[v3] + quadrics[v4];
-                // Extract the upper-left 3x3 block for A
-                glm::mat3 A = glm::mat3(Qsum);
-
-                // Extract b as the negation of the upper-right 3x1 column
-                glm::vec3 b = -glm::vec3(Qsum[3]); 
-
-                glm::vec3 x;
-                // Solve for x: A * x = b or get the best position if A is singular
-                if (boundary_vertices.count(v3)) {
-                    x = vertices[v3];
+                // remove all degenerate triangles
+                std::vector<uint32_t> tmp_group_triangles;
+                tmp_group_triangles.reserve(group_triangles.size());
+                for (uint32_t triangle_index : group_triangles) {
+                    glm::uvec3& vertex_indices = triangles[triangle_index];
+                    const uint32_t i0 = vertex_indices[0];
+                    const uint32_t i1 = vertex_indices[1];
+                    const uint32_t i2 = vertex_indices[2];
+                    if (i0 != i1 && i1 != i2 && i2 != i0) {
+                        tmp_group_triangles.push_back(triangle_index);
+                    }
                 }
-                else if (boundary_vertices.count(v4)) {
-                    x = vertices[v4];
-                }
-                else {
-                    // Solve for x: A * x = b or get the best position if A is singular
-                    x = get_best_vertex_after_collapse(Qsum, vertices[v3], vertices[v4]);
-                }
+                group_triangles = tmp_group_triangles;
 
-                // Extract c (bottom-right scalar)
-                float c = Qsum[3][3];
-
-                // Compute the error: Q(v) = -b^T * A^-1 * b + c
-                float error = -glm::dot(b, x) + c;
-
-                heap.push({v3, v4, x, error});
-
-            }
-
-            // {
-            //     std::vector<glm::uvec3> temp_tris;
-            //     for (const auto tri_i : group_triangles) {
-            //         temp_tris.push_back(triangles[tri_i]);
-            //     }
-            //     if (!is_mesh_manifold(temp_tris)) {
-
-            //         std::cout<<"vertices: "<<v1<<", "<<v2<<std::endl;
-            //         //assert(false);
-            //     };
-            // }
-
-
-            // {
-            //     std::unordered_map<glm::uvec2, uint32_t> next_vertex_in_cluster1;
-            //     auto do_next1 = [&](uint32_t a, uint32_t b, uint32_t c) {
-                    
-            //         auto ret = next_vertex_in_cluster1.insert(std::make_pair(glm::uvec2(a, b), c));
-            //         if(!ret.second) {
-
-            //                 std::cout<<"c original: "<<ret.first->second<<", c here: "<<c<<std::endl;
-                        
-            //             std::cout<<"vertices: "<<v1<<", "<<v2<<std::endl;
-            //             std::cout<<"duplicate edge: "<< a<< ", "<<b<< ","<<c<<std::endl;
-            //             //assert(false);
-            //         }
-            //     };
+                // recalculate heap
+                std::priority_queue<QEMEntry> new_heap;
+                for (const auto& edge : next_vertex_in_cluster) {
+                    uint32_t v1_ = edge.first.x, v2_ = edge.first.y;
+                    if (boundary_vertices.count(v1_) && boundary_vertices.count(v2_)) continue; // Skip boundary edges
         
-            //     // Construct half-edge connectivity and detect boundaries
+                    // Compute contraction cost using quadrics
+                    glm::mat4 Qsum = quadrics[v1_] + quadrics[v2_];
+                    // Extract the upper-left 3x3 block for A
+                    glm::mat3 A = glm::mat3(Qsum);
+        
+                    // Extract b as the negation of the upper-right 3x1 column
+                    glm::vec3 b = -glm::vec3(Qsum[0][3], Qsum[1][3], Qsum[2][3]);
+        
+                    glm::vec3 x;
+                    if (boundary_vertices.count(v1_)) {
+                        x = vertices[v1_];
+                    }
+                    else if (boundary_vertices.count(v2_)) {
+                        x = vertices[v2_];
+                    }
+                    else {
+                        // Solve for x: A * x = b or get the best position if A is singular
+                        x = get_best_vertex_after_collapse(Qsum, vertices[v1_], vertices[v2_]);
+                    }
+        
+                    // Extract c (bottom-right scalar)
+                    float c = Qsum[3][3];
+        
+                    // Compute the error: Q(v) = -b^T * A^-1 * b + c
+                    float error = -glm::dot(b, x) + c;
+        
+                    new_heap.push({v1_, v2_, x, error});
+                }
+                heap = new_heap;
+            }
+            collapse_count++;
+            // std::cout<<collapse_count<<" / " << collapse_target<<std::endl;
+            // // std::cout<<"success!"<<std::endl;
 
-            //         for (uint32_t& triangle_index : group_triangles) {
-            //             const glm::uvec3& vertex_indices = triangles[triangle_index];
-            //             uint32_t i0 = vertex_indices[0];
-            //             uint32_t i1 = vertex_indices[1];
-            //             uint32_t i2 = vertex_indices[2];
-            //             assert(!(i0 == i1 || i0 == i2 || i1 == i2));
-            //             do_next1(i0, i1, i2);
-            //             do_next1(i1, i2, i0);
-            //             do_next1(i2, i0, i1);
             
-            //         }
-                
-    
-            // }
         }
+        
+
         cluster_group.triangles = group_triangles;
-        // {
-        //     std::vector<glm::uvec3> temp_tris;
-        //     for (const auto tri_i : group_triangles) {
-        //         temp_tris.push_back(triangles[tri_i]);
-        //     }
-        //     if (!is_mesh_manifold(temp_tris)) {
-        //         //assert(false);
-        //     };
-        // }
     }
 
     { // clean up degenerate triangles and unused triangles from the triangle list
