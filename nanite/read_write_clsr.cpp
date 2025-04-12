@@ -5,6 +5,7 @@
 #include <filesystem>
 #include <random>
 #include <array>
+#include "read_cluster.hpp"
 
 std::random_device rd;
 std::mt19937 gen(rd()); 
@@ -45,6 +46,7 @@ void write_clsr(std::string save_path, uint32_t lod_level,
             .vertices_count = cluster_vertex_size,
             .src_cluster_group = cluster.src_cluster_group,
             .dst_cluster_group = cluster.dst_cluster_group,
+            .error = lod_level == 0 ? -1 : cluster.error,
             .bounding_sphere = cluster.bounding_sphere,
         });
     }
@@ -175,4 +177,128 @@ void read_clsr(std::string file_path, RuntimeDAG* to, bool debug) {
     }
     std::cout<< "Done loading clusters, loaded " << LOD_level << " levels\n";
     return;
+}
+void dag_to_bvh(RuntimeDAG &dag, RuntimeBVH *to)
+{
+    uint32_t cluster_count = 0;
+    uint32_t group_count = 0;
+    std::vector<uint32_t> level_offsets;
+    assert(dag.clusters.size() == dag.groups.size());
+    // figure out the offsets for each LOD level and reserve space for new clusters
+    for (uint32_t i = 0; i < uint32_t(dag.clusters.size()); ++i) {
+        const auto& clusters = dag.clusters[i];
+        level_offsets.push_back(cluster_count);
+        cluster_count += uint32_t(clusters.size());
+        group_count += uint32_t(dag.groups[i].size()); 
+    }
+
+    to->clusters.reserve(cluster_count);
+    // insert all clusters into one buffer
+    for (const auto& clusters : dag.clusters) {
+        for (const DiskCluster& disk_cluster : clusters) {
+            to->clusters.push_back(RuntimeBVH::Node{
+                // group and node index will be populated later
+                .node_index = static_cast<uint32_t>(-1),
+                .group_index = static_cast<uint32_t>(-1),
+                .error = disk_cluster.error,
+                .bounding_sphere = disk_cluster.bounding_sphere,
+            });
+            to->vertices.push_back(RuntimeBVH::ClusterVertices{
+                .vertices_begin = disk_cluster.vertices_begin,
+                .vertices_count = disk_cluster.vertices_count,
+            });
+        }
+    }
+
+    to->groups.reserve(group_count);
+    // reorganize groups to one buffer 
+    for (uint32_t i = 0; i < uint32_t(dag.groups.size()); ++i) {
+        const auto& level_i_groups = dag.groups[i];
+        uint32_t level_i_offset = level_offsets[i];
+        uint32_t level_above_i_offset = i == dag.groups.size() - 1 ? 0 : level_offsets[i+1];
+        for (uint32_t j = 0; j < uint32_t(level_i_groups.size()); ++j) {
+
+            // for child clusters of the group, create BVH group object
+            RuntimeBVH::Group group;
+            assert(level_i_groups[j].first.size() <= 8);
+            for (uint32_t child_i = 0; child_i < 8; ++child_i) {
+                if ( level_i_groups[j].first.size() <= child_i ) {
+                    group.child_node_indices[child_i] = -1;
+                }
+                else {
+                    uint32_t cluster_index = level_i_groups[j].first[child_i] + level_i_offset;
+                    group.child_node_indices[child_i] = cluster_index;
+                    if (i == dag.groups.size() - 1) {
+                        to->root_nodes.push_back(cluster_index); // top level clusters
+                    }
+                }
+            }
+            to->groups.push_back(group);
+
+            // for parent clusters of the group, assign the cluster index within the group and the group number
+            assert(!(i == dag.groups.size() - 1 && level_i_groups[j].second.size() != 0)); // top level group shouldn't have any parents
+            for (uint32_t parent_i = 0; parent_i < uint32_t(level_i_groups[j].second.size()); ++parent_i) {
+                uint32_t cluster_index = level_i_groups[j].second[parent_i] + level_above_i_offset;
+                to->clusters[cluster_index].group_index = uint32_t(to->groups.size() - 1); // we just pushed the current group
+                to->clusters[cluster_index].node_index = parent_i; // index within the group
+            }
+        }
+    }
+
+    // check if the bvh and the dag is entirely corresponding
+    uint32_t count = 0;
+    uint32_t lod = 0;
+    uint32_t offset = 0;
+    for (auto& groups_at_level : dag.groups) {
+        
+        // ensure all the groups still have the same children
+        for (auto& group : groups_at_level) {
+            size_t rest = 0;
+            for (size_t i = 0; i < group.first.size(); ++i) {
+                if (int32_t(group.first[i] + offset) != to->groups[count].child_node_indices[i]) {
+                    std::cout<<"failed at node "<<count<<" , lod "<< lod <<" , the child at index" << i <<" is different"<<std::endl;
+                    std::cout<<group.first[i] + offset<<" , "<<to->groups[count].child_node_indices[i]<<std::endl;
+                }
+                assert(int32_t(group.first[i] + offset) == to->groups[count].child_node_indices[i]);
+                rest = i + 1;
+            }
+            for (; rest < 8; ++rest) {
+                if(to->groups[count].child_node_indices[rest] != -1) {
+                    std::cout<<to->groups[count].child_node_indices[rest]<<std::endl;
+                    assert(false);
+                }
+            }
+            
+            count += 1;
+        }
+
+        // ensure each cluster has the correct corresponding groups
+        
+
+        offset += uint32_t(dag.clusters[lod].size());
+        lod++;
+    }
+    std::unordered_set<uint32_t> seen;
+
+    count = 0;
+    for (auto& node : to->clusters) {
+        if(node.group_index == static_cast<uint32_t>(-1) && count>= level_offsets[1]){
+            std::cout<<count<<std::endl;
+            assert(false);
+        }
+        count++;
+        if (count <= level_offsets[1]) {
+            continue;
+        }
+        if (node.node_index == 0) {
+            for (uint32_t child : to->groups[node.group_index].child_node_indices) {
+                if (child == -1) break;
+                auto res = seen.insert(child);
+                if (!res.second) {
+                    std::cout<<child<<std::endl;
+                }
+                assert(res.second);
+            }
+        }
+    }
 }

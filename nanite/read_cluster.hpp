@@ -33,15 +33,16 @@ struct DiskCluster {
     uint32_t vertices_count;
     int32_t src_cluster_group; // cluster group where simplification happened to generate the current cluster, -1 if base layer
     int32_t dst_cluster_group; // cluster group made partly from the current cluster, then simplified to generate next level, -1 if top layer
+    float error = 1;
     glm::vec4 bounding_sphere; // xyz, radius
 };
 
 
 struct RuntimeDAG {
     /** Note:
-     *  Notion of parent for a given cluster are the clusters that were simplied to derive the current clusters
+     *  Notion of children for a given cluster are the clusters that were simplied to derive the current clusters, LOD0 are the leaves of the DAG
      */
-    // at each LOD we have vector of < vector of parents of the group, vector of children of the group> for every group
+    // at each LOD we have vector of < vector of children of the group, vector of parents of the group> for every group
     std::vector<std::vector<std::pair<std::vector<uint32_t>, std::vector<uint32_t>>>> groups; 
     // 0 is the base level
     std::vector<std::vector<DiskCluster>> clusters;
@@ -49,8 +50,33 @@ struct RuntimeDAG {
     std::vector<std::vector<uint8_t>> color_index;
 };
 
+struct RuntimeBVH {
+    struct Node {
+        uint32_t node_index; //index in the group, only index 0 will enqueue the next ones 
+        uint32_t group_index; 
+        float error;
+        glm::vec4 bounding_sphere; // xyz, radius
+    };
+
+    struct Group {
+        int32_t child_node_indices[8];
+    };
+
+    struct ClusterVertices {
+        uint32_t vertices_begin;
+        uint32_t vertices_count;
+    };
+
+    std::vector<Node> clusters;
+    std::vector<ClusterVertices> vertices; // corresponding vertices for the clusters
+    std::vector<Group> groups;
+    std::vector<uint32_t> root_nodes;
+};
+
 /**
  * clsr files should be saved in order, for example: result_0.clsr, result_1.clsr, etc. where 0 is LOD level 0
  * the input file path for the given example above would be "result"
  */
 void read_clsr(std::string file_path, RuntimeDAG* to, bool debug = false);
+
+void dag_to_bvh(RuntimeDAG& dag, RuntimeBVH* to);
