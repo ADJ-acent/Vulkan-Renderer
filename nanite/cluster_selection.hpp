@@ -9,11 +9,11 @@ bool cluster_renderable(const RuntimeDAG& dag, const DiskCluster &cluster, uint3
     uint32_t width, uint32_t height);
 
 // used to traverse through the BVH and returns a vector of clusters that should be rendered, the second uint32 is the LOD of the cluster
-std::vector<std::pair<uint32_t, uint32_t>> get_nodes_renderable(const RuntimeBVH& bvh, const glm::vec3 &camera_position,
+std::vector<std::pair<uint32_t, uint32_t>> get_nodes_renderable(const ClusterBVH& bvh, const glm::vec3 &camera_position,
     glm::mat4x4 &clip_from_view, glm::mat4x4 &view_from_world, uint32_t width, uint32_t height);
 
 bool cluster_within_tolerance(const DiskCluster &cluster, const glm::vec3 &camera_position, 
     glm::mat4x4& clip_from_view, glm::mat4x4&view_from_world, uint32_t width, uint32_t height);
 
-bool cluster_within_tolerance(const RuntimeBVH::Node &cluster, const glm::vec3 &camera_position, 
+bool cluster_within_tolerance(const ClusterBVH::Node &cluster, const glm::vec3 &camera_position, 
     glm::mat4x4& clip_from_view, glm::mat4x4&view_from_world, uint32_t width, uint32_t height);

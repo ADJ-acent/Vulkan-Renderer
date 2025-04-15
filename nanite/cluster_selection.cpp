@@ -20,7 +20,7 @@ bool cluster_renderable(const RuntimeDAG& dag, const DiskCluster &cluster, uint3
     return true;
 }
 
-std::vector<std::pair<uint32_t, uint32_t>> get_nodes_renderable(const RuntimeBVH &bvh, const glm::vec3 &camera_position,
+std::vector<std::pair<uint32_t, uint32_t>> get_nodes_renderable(const ClusterBVH &bvh, const glm::vec3 &camera_position,
     glm::mat4x4 &clip_from_view, glm::mat4x4 &view_from_world, uint32_t width, uint32_t height)
 {
     std::deque<std::pair<uint32_t, uint32_t>> node_queue;
@@ -35,7 +35,7 @@ std::vector<std::pair<uint32_t, uint32_t>> get_nodes_renderable(const RuntimeBVH
         node_queue.pop_front();
         // if a node is in the queue, its parent's error is too high
         // we just need to check if its own error is too high
-        const RuntimeBVH::Node& node = bvh.clusters[node_i];
+        const ClusterBVH::Node& node = bvh.clusters[node_i];
         bool within_tolerance = cluster_within_tolerance(node, camera_position, clip_from_view, view_from_world, width, height);
 
         if (within_tolerance) {
@@ -69,7 +69,7 @@ bool cluster_within_tolerance(const DiskCluster &cluster, const glm::vec3 &camer
 }
 
 
-bool cluster_within_tolerance(const RuntimeBVH::Node &cluster, const glm::vec3 &camera_position,
+bool cluster_within_tolerance(const ClusterBVH::Node &cluster, const glm::vec3 &camera_position,
     glm::mat4x4 &clip_from_view, glm::mat4x4 &view_from_world, uint32_t width, uint32_t height)
 {
 

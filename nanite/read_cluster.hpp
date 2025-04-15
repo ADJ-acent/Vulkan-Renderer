@@ -50,7 +50,7 @@ struct RuntimeDAG {
     std::vector<std::vector<uint8_t>> color_index;
 };
 
-struct RuntimeBVH {
+struct ClusterBVH {
     struct Node {
         uint32_t node_index; //index in the group, only index 0 will enqueue the next ones 
         uint32_t group_index; 
@@ -67,6 +67,7 @@ struct RuntimeBVH {
         uint32_t vertices_count;
     };
 
+    uint32_t cluster_vertex_offset;
     std::vector<Node> clusters;
     std::vector<ClusterVertices> vertices; // corresponding vertices for the clusters
     std::vector<Group> groups;
@@ -79,4 +80,4 @@ struct RuntimeBVH {
  */
 void read_clsr(std::string file_path, RuntimeDAG* to, bool debug = false);
 
-void dag_to_bvh(RuntimeDAG& dag, RuntimeBVH* to);
+void dag_to_bvh(RuntimeDAG& dag, ClusterBVH* to);

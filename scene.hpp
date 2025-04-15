@@ -1,4 +1,6 @@
 #pragma once
+
+#include "nanite/read_cluster.hpp"
 #include "VK.hpp"
 #include "GLM.hpp"
 #include <string>
@@ -166,6 +168,7 @@ struct Scene
         int32_t cameras_index = -1;
         int32_t mesh_index = -1;
         int32_t light_index = -1;
+        int32_t clustered_mesh_index = -1;
         bool environment = false;
     };
 
@@ -193,8 +196,9 @@ struct Scene
     int32_t requested_camera_index = -1;
 
     std::vector<Light> lights;
-    std::vector<LightInstance> spot_lights_sorted_indices; // sorted by the shadow size, each pait is spot_light index, light index
+    std::vector<LightInstance> spot_lights_sorted_indices; // sorted by the shadow size, each pair is spot_light index, light index
     std::vector<Mesh> meshes;
+    std::vector<ClusterBVH> clustered_meshes;
     uint32_t vertices_count = 0;
 
     std::vector<Material> materials;

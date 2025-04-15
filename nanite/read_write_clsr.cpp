@@ -178,7 +178,7 @@ void read_clsr(std::string file_path, RuntimeDAG* to, bool debug) {
     std::cout<< "Done loading clusters, loaded " << LOD_level << " levels\n";
     return;
 }
-void dag_to_bvh(RuntimeDAG &dag, RuntimeBVH *to)
+void dag_to_bvh(RuntimeDAG &dag, ClusterBVH *to)
 {
     uint32_t cluster_count = 0;
     uint32_t group_count = 0;
@@ -196,14 +196,14 @@ void dag_to_bvh(RuntimeDAG &dag, RuntimeBVH *to)
     // insert all clusters into one buffer
     for (const auto& clusters : dag.clusters) {
         for (const DiskCluster& disk_cluster : clusters) {
-            to->clusters.push_back(RuntimeBVH::Node{
+            to->clusters.push_back(ClusterBVH::Node{
                 // group and node index will be populated later
                 .node_index = static_cast<uint32_t>(-1),
                 .group_index = static_cast<uint32_t>(-1),
                 .error = disk_cluster.error,
                 .bounding_sphere = disk_cluster.bounding_sphere,
             });
-            to->vertices.push_back(RuntimeBVH::ClusterVertices{
+            to->vertices.push_back(ClusterBVH::ClusterVertices{
                 .vertices_begin = disk_cluster.vertices_begin,
                 .vertices_count = disk_cluster.vertices_count,
             });
@@ -219,7 +219,7 @@ void dag_to_bvh(RuntimeDAG &dag, RuntimeBVH *to)
         for (uint32_t j = 0; j < uint32_t(level_i_groups.size()); ++j) {
 
             // for child clusters of the group, create BVH group object
-            RuntimeBVH::Group group;
+            ClusterBVH::Group group;
             assert(level_i_groups[j].first.size() <= 8);
             for (uint32_t child_i = 0; child_i < 8; ++child_i) {
                 if ( level_i_groups[j].first.size() <= child_i ) {

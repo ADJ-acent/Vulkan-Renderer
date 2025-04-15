@@ -1,0 +1,110 @@
+#version 450
+#extension GL_EXT_shader_atomic_int64 : require
+
+layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
+
+// Constants
+#define MAX_QUEUE_SIZE 65536
+#define INVALID_INDEX 0xFFFFFFFF
+
+// RuntimeBVH node
+struct Node {
+    uint node_index;
+    uint group_index;
+    float error;
+    vec4 bounding_sphere; // xyz = center, w = radius
+};
+
+struct Group {
+    int child_node_indices[8];
+};
+
+struct ResultPair {
+    uint node_index;
+    uint lod_level;
+};
+
+// Input buffers
+layout(std430, binding = 0) readonly buffer Clusters {
+    Node clusters[];
+};
+
+layout(std430, binding = 1) readonly buffer Groups {
+    Group groups[];
+};
+
+layout(std430, binding = 2) readonly buffer RootNodes {
+    uint root_nodes[];
+};
+
+// Output buffers
+layout(std430, binding = 3) buffer ResultBuffer {
+    ResultPair results[];
+};
+
+layout(std430, binding = 4) buffer AtomicQueue {
+    uvec2 queue[MAX_QUEUE_SIZE]; // x = node_index, y = lod_level
+};
+
+layout(std430, binding = 5) buffer QueueCounters {
+    uint head;
+    uint tail;
+    uint result_count;
+};
+
+// Push constants or uniforms
+layout(push_constant) uniform Params {
+    mat4 clip_from_view;
+    mat4 view_from_world;
+    vec3 camera_position;
+    uint width;
+    uint height;
+} params;
+
+// Dummy implementation - replace with real screen-space error check
+bool cluster_within_tolerance(Node node, vec3 cam_pos) {
+    float dist = length(node.bounding_sphere.xyz - cam_pos);
+    float projected_radius = node.bounding_sphere.w / dist;
+    return projected_radius < node.error;
+}
+
+void main() {
+    uint id = gl_GlobalInvocationID.x;
+
+    // Only thread 0 enqueues root nodes
+    if (id == 0) {
+        for (uint i = 0; i < root_nodes.length(); ++i) {
+            uint index = atomicAdd(tail, 1);
+            if (index < MAX_QUEUE_SIZE)
+                queue[index] = uvec2(root_nodes[i], 0); // lod level = 0
+        }
+    }
+
+    barrier(); // ensure root enqueue is done
+
+    while (true) {
+        uint current_head = atomicAdd(head, 1);
+        if (current_head >= tail)
+            break;
+
+        uvec2 item = queue[current_head];
+        uint node_i = item.x;
+        uint lod_level = item.y;
+        Node node = clusters[node_i];
+
+        if (cluster_within_tolerance(node, params.camera_position)) {
+            uint res_index = atomicAdd(result_count, 1);
+            results[res_index] = ResultPair(node_i, lod_level);
+        } else if (node.node_index == 0) {
+            Group group = groups[node.group_index];
+            for (int i = 0; i < 8; ++i) {
+                int child = group.child_node_indices[i];
+                if (child == -1) break;
+
+                uint insert_idx = atomicAdd(tail, 1);
+                if (insert_idx < MAX_QUEUE_SIZE)
+                    queue[insert_idx] = uvec2(child, lod_level + 1);
+            }
+        }
+    }
+}
