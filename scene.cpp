@@ -35,6 +35,7 @@ void Scene::load(std::string filename, std::optional<std::string> requested_came
         }
         std::unordered_map<std::string, uint32_t> nodes_map;
         std::unordered_map<std::string, uint32_t> meshes_map;
+        std::unordered_map<std::string, uint32_t> clustered_mesh_map;
         std::unordered_map<std::string, uint32_t> materials_map;
         std::unordered_map<std::string, uint32_t> textures_map;
         std::unordered_map<std::string, uint32_t> cameras_map;
@@ -150,6 +151,20 @@ void Scene::load(std::string filename, std::optional<std::string> requested_came
                     }
                 }
 
+                // set clustered_mesh
+                if (auto res = object_i.find("nanitemesh"); res != object_i.end()) {
+                    std::string clustered_mesh_name = res->second.as_string().value();
+                    if (auto mesh_found = clustered_mesh_map.find(clustered_mesh_name); mesh_found != clustered_mesh_map.end()) {
+                        nodes[cur_node_index].clustered_mesh_index = mesh_found->second;
+                    } else {
+                        ClusterBVH new_mesh = {};
+                        int32_t index = int32_t(meshes.size());
+                        clustered_meshes.push_back(new_mesh);
+                        meshes_map.insert({clustered_mesh_name, index});
+                        nodes[cur_node_index].clustered_mesh_index = index;
+                    }
+                }
+
                 // set camera
                 if (auto res = object_i.find("camera"); res != object_i.end()) {
                     std::string camera_name = res->second.as_string().value();
@@ -225,7 +240,7 @@ void Scene::load(std::string filename, std::optional<std::string> requested_came
                 // Assuming all topology is triangle list
                 // Assuming all attributes are in the same PosNorTanTex format
 
-                // get count
+                // get vertices count
                 meshes[cur_mesh_index].count = int(object_i.find("count")->second.as_number().value());
                 vertices_count += meshes[cur_mesh_index].count;
                 
@@ -327,6 +342,47 @@ void Scene::load(std::string filename, std::optional<std::string> requested_came
                     meshes[cur_mesh_index].material_index = 0;
                 }
 
+            } else if (type.value() == "NANITEMESH") {
+                /**
+                 * Added type to support virtual geometry
+                 * must have src field that contains the name of the .clsr files,
+                 * given src: "output", assumed to be in the format of "output_1.clsr", ..., "output_n.clsr"
+                 */
+                std::string mesh_name = object_i.find("name")->second.as_string().value();
+                int32_t cur_mesh_index;
+                // look at the map and see if the node has been made already
+                if (auto mesh_found = clustered_mesh_map.find(mesh_name); mesh_found != clustered_mesh_map.end()) {
+                    cur_mesh_index = mesh_found->second;
+                }
+                else {
+                    ClusterBVH new_mesh = {};
+                    cur_mesh_index = int32_t(clustered_meshes.size());
+                    clustered_meshes.push_back(new_mesh);
+                    clustered_mesh_map.insert({mesh_name, cur_mesh_index});
+                }
+
+                // load and convert DAG to BVH, really should move this to the offline step but I am too lazy
+                std::string source = object_i.find("src")->second.as_string().value();
+                RuntimeDAG dag;
+                read_clsr(source, &dag);
+                dag_to_bvh(dag, &clustered_meshes[cur_mesh_index]);
+
+                // get material
+                if (auto res = object_i.find("material"); res != object_i.end()) {
+                    std::string material_name = res->second.as_string().value();
+                    if (auto material_found = materials_map.find(material_name); material_found != materials_map.end()) {
+                        clustered_meshes[cur_mesh_index].material_index = material_found->second;
+                    } else {
+                        Material new_material = {.name = material_name};
+                        int32_t index = int32_t(materials.size());
+                        materials.push_back(new_material);
+                        materials_map.insert({material_name, index});
+                        clustered_meshes[cur_mesh_index].material_index = index;
+                    }
+                }
+                else {
+                    clustered_meshes[cur_mesh_index].material_index = 0;
+                }
             } else if (type.value() == "CAMERA") {
                 std::string camera_name = object_i.find("name")->second.as_string().value();
                 int32_t cur_camera_index;

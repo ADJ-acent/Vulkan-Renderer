@@ -309,6 +309,8 @@ struct RTGRenderer : RTG::Application {
 		Helpers::AllocatedBuffer Cloud_World; //device-local
 		VkDescriptorSet Cloud_World_descriptors; //references the target image for the compute shader
 		VkDescriptorSet Cloud_LightGrid_World_descriptors; // used as world descriptor in light grid compute
+
+		// location 
 	};
 	std::vector< Workspace > workspaces;
 
@@ -321,6 +323,7 @@ struct RTGRenderer : RTG::Application {
 		uint32_t count = 0;
 	};
 	std::vector<ObjectVertices> mesh_vertices; // indexed the same as scene.meshes
+	std::vector<uint32_t> cluster_mesh_vertices; // indexed the same as scene.cluster_meshes, stores offset of cluster mesh vertices
 	std::vector<AABB> mesh_AABBs; // also indexed the same as scene.meshes
 
 	Helpers::AllocatedImage World_environment;
@@ -394,6 +397,14 @@ struct RTGRenderer : RTG::Application {
 		uint32_t material_index;
 	};
 	std::vector< ObjectInstance > lambertian_instances, environment_instances, mirror_instances, pbr_instances;
+
+	struct ClusterObjectInstance {
+		uint32_t index; // index of the cluster
+		uint32_t offset; // offset of the entire clustered mesh
+		Transform transform;
+		uint32_t material_index;
+	};
+	std::vector< ClusterObjectInstance > clusters_instances;
 
 	std::array<std::vector<uint32_t>, 4> in_view_instances; // order of array is lambertian, environment, mirror, pbr
 

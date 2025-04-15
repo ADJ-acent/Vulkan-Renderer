@@ -194,7 +194,9 @@ void dag_to_bvh(RuntimeDAG &dag, ClusterBVH *to)
 
     to->clusters.reserve(cluster_count);
     // insert all clusters into one buffer
-    for (const auto& clusters : dag.clusters) {
+    uint32_t lod_level_vertices_offset = 0;
+    for (uint32_t i = 0; i < uint32_t(dag.clusters.size()); ++i) {
+        auto& clusters = dag.clusters[i];
         for (const DiskCluster& disk_cluster : clusters) {
             to->clusters.push_back(ClusterBVH::Node{
                 // group and node index will be populated later
@@ -204,15 +206,20 @@ void dag_to_bvh(RuntimeDAG &dag, ClusterBVH *to)
                 .bounding_sphere = disk_cluster.bounding_sphere,
             });
             to->vertices.push_back(ClusterBVH::ClusterVertices{
-                .vertices_begin = disk_cluster.vertices_begin,
+                .vertices_begin = disk_cluster.vertices_begin + lod_level_vertices_offset,
                 .vertices_count = disk_cluster.vertices_count,
             });
         }
+        lod_level_vertices_offset += uint32_t(dag.vertices[i].size());
     }
 
     to->groups.reserve(group_count);
     // reorganize groups to one buffer 
     for (uint32_t i = 0; i < uint32_t(dag.groups.size()); ++i) {
+        {// move vertices to the bvh
+            to->source_vertices.insert(to->source_vertices.end(), dag.vertices[i].begin(), dag.vertices[i].end());
+        }
+
         const auto& level_i_groups = dag.groups[i];
         uint32_t level_i_offset = level_offsets[i];
         uint32_t level_above_i_offset = i == dag.groups.size() - 1 ? 0 : level_offsets[i+1];

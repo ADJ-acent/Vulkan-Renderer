@@ -68,10 +68,12 @@ struct ClusterBVH {
     };
 
     uint32_t cluster_vertex_offset;
+    uint32_t material_index;
     std::vector<Node> clusters;
     std::vector<ClusterVertices> vertices; // corresponding vertices for the clusters
     std::vector<Group> groups;
     std::vector<uint32_t> root_nodes;
+    std::vector<glm::vec3> source_vertices;
 };
 
 /**
