@@ -398,13 +398,21 @@ struct RTGRenderer : RTG::Application {
 	};
 	std::vector< ObjectInstance > lambertian_instances, environment_instances, mirror_instances, pbr_instances;
 
+	// instance of an entire mesh
 	struct ClusterObjectInstance {
 		uint32_t index; // index of the cluster
-		uint32_t offset; // offset of the entire clustered mesh
+		uint32_t offset; // vertex offset of the entire clustered mesh
 		Transform transform;
 		uint32_t material_index;
 	};
-	std::vector< ClusterObjectInstance > clusters_instances;
+	std::vector< ClusterObjectInstance > clustered_mesh_instances;
+
+	// instance of a cluster of a clustered mesh, after cluster culling
+	struct ClusterInstance {
+		ObjectVertices vertices;
+		uint32_t cluster_object_index;
+	};
+	std::array<std::vector< ClusterInstance >, 4> cluster_instances; // order of array is lambertian, environment, mirror, pbr
 
 	std::array<std::vector<uint32_t>, 4> in_view_instances; // order of array is lambertian, environment, mirror, pbr
 

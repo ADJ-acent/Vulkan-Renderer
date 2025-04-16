@@ -1793,8 +1793,8 @@ void RTGRenderer::render(RTG &rtg_, RTG::RenderParams const &render_params) {
 	}
 
 	//copy transforms, needed for both shadow atlas pass and render pass
-	if (!lambertian_instances.empty() || !environment_instances.empty() || !mirror_instances.empty() || !pbr_instances.empty()) { //upload object transforms:
-		size_t needed_bytes = (lambertian_instances.size() + environment_instances.size() + mirror_instances.size() + pbr_instances.size()) * sizeof(Transform);
+	if (!lambertian_instances.empty() || !environment_instances.empty() || !mirror_instances.empty() || !pbr_instances.empty() || !clustered_mesh_instances.empty()) { //upload object transforms:
+		size_t needed_bytes = (lambertian_instances.size() + environment_instances.size() + mirror_instances.size() + pbr_instances.size() + clustered_mesh_instances.size()) * sizeof(Transform);
 		if (workspace.Transforms_src.handle == VK_NULL_HANDLE || workspace.Transforms_src.size < needed_bytes) {
 			//round to next multiple of 4k to avoid re-allocating continuously if vertex count grows slowly:
 			size_t new_bytes = ((needed_bytes + 4096) / 4096) * 4096;
@@ -1867,6 +1867,10 @@ void RTGRenderer::render(RTG &rtg_, RTG::RenderParams const &render_params) {
 				*out = inst.transform;
 				++out;
 			}
+			for (ClusterObjectInstance const &inst : clustered_mesh_instances) {
+				*out = inst.transform;
+				++out;
+			};
 		}
 
 		//device-side copy from Transforms_src -> Transforms:
@@ -2270,7 +2274,7 @@ void RTGRenderer::render(RTG &rtg_, RTG::RenderParams const &render_params) {
 			vkCmdDraw(workspace.command_buffer, uint32_t(lines_vertices.size()), 1, 0, 0);
 		}
 
-		if (!lambertian_instances.empty() || !environment_instances.empty() || !mirror_instances.empty() || !pbr_instances.empty()) {
+		if (!lambertian_instances.empty() || !environment_instances.empty() || !mirror_instances.empty() || !pbr_instances.empty() || !clustered_mesh_instances.empty()) {
 			//bind World and Transforms descriptor set:
 			std::array< VkDescriptorSet, 2 > descriptor_sets{
 				workspace.World_descriptors, //0: World
@@ -2285,8 +2289,8 @@ void RTGRenderer::render(RTG &rtg_, RTG::RenderParams const &render_params) {
 				0, nullptr //dynamic offsets count, ptr
 			);
 		}
-
-		if (!lambertian_instances.empty()){//draw with the objects pipeline:
+		uint32_t clusters_index_offset = uint32_t(lambertian_instances.size() + environment_instances.size() + mirror_instances.size() + pbr_instances.size());
+		if (!lambertian_instances.empty() || !cluster_instances[static_cast<uint32_t>(Scene::Material::Lambertian)].empty()){//draw with the objects pipeline:
 			vkCmdBindPipeline(workspace.command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, lambertian_pipeline.handle);
 
 			{//use object_vertices (offset 0) as vertex buffer binding 0:
@@ -2314,6 +2318,23 @@ void RTGRenderer::render(RTG &rtg_, RTG::RenderParams const &render_params) {
 				vkCmdDraw(workspace.command_buffer, inst.vertices.count, 1, inst.vertices.first, index);
 			}
 
+			// draw all cluster instances
+			for (ClusterInstance const &inst : cluster_instances[static_cast<uint32_t>(Scene::Material::Lambertian)]) {
+				uint32_t cluster_object_index = inst.cluster_object_index;
+				//bind texture descriptor set:
+				vkCmdBindDescriptorSets(
+					workspace.command_buffer, //command buffer
+					VK_PIPELINE_BIND_POINT_GRAPHICS, //pipeline bind point
+					lambertian_pipeline.layout, //pipeline layout
+					2, //second set
+					1, &material_descriptors[clustered_mesh_instances[cluster_object_index].material_index], //descriptor sets count, ptr
+					0, nullptr //dynamic offsets count, ptr
+				);
+
+				vkCmdDraw(workspace.command_buffer, inst.vertices.count, 1, inst.vertices.first, clusters_index_offset + cluster_object_index);
+				
+			}
+
 
 			// for (uint32_t lod_level = 0; lod_level < uint32_t(dag.clusters.size()); ++ lod_level) {
 			// 	for (uint32_t cluster_i = 0; cluster_i < uint32_t(dag.clusters[lod_level].size()); ++ cluster_i) {
@@ -2338,7 +2359,7 @@ void RTGRenderer::render(RTG &rtg_, RTG::RenderParams const &render_params) {
 
 			// glm::mat4x4& frustum_view_from_world = culling_camera == SceneCamera ? view_from_world[0] : view_from_world[1];
 			// glm::mat4x4& frustum_clip_from_view = culling_camera == SceneCamera ? clip_from_view[0] : clip_from_view[1];
-			// std::vector<std::pair<uint32_t, uint32_t>> renderable_clusters = get_nodes_renderable(scene.clustered_meshes[0], clusters_instances[0].transform.WORLD_FROM_LOCAL,user_camera.eye,
+			// std::vector<std::pair<uint32_t, uint32_t>> renderable_clusters = get_nodes_renderable(scene.clustered_meshes[0], clustered_mesh_instances[0].transform.WORLD_FROM_LOCAL,user_camera.eye,
 			// 	frustum_clip_from_view, frustum_view_from_world, rtg.swapchain_extent.width,  rtg.swapchain_extent.height);
 			// for (auto& renderable_cluster : renderable_clusters) {
 
@@ -2351,7 +2372,7 @@ void RTGRenderer::render(RTG &rtg_, RTG::RenderParams const &render_params) {
 			// 		1, &material_descriptors[renderable_cluster.second % 5 + 1], //descriptor sets count, ptr //dag.color_index[lod_level][cluster_i]
 			// 		0, nullptr //dynamic offsets count, ptr
 			// 	);
-			// 	vkCmdDraw(workspace.command_buffer, scene.clustered_meshes[0].vertices[renderable_cluster.first].vertices_count, 1, scene.clustered_meshes[0].vertices[renderable_cluster.first].vertices_begin + clusters_instances[0].offset, 0);
+			// 	vkCmdDraw(workspace.command_buffer, scene.clustered_meshes[0].vertices[renderable_cluster.first].vertices_count, 1, scene.clustered_meshes[0].vertices[renderable_cluster.first].vertices_begin + clustered_mesh_instances[0].offset, 0);
 					
 				
 			// }
@@ -3100,6 +3121,7 @@ void RTGRenderer::update(float dt) {
 	{ //fill object instances with scene hiearchy, optionally draw debug lines when on debug camera, fill light information
 		for (uint32_t i = 0; i < in_view_instances.size(); ++i) {
 			in_view_instances[i].clear();
+			cluster_instances[i].clear(); // both array contain items per material type, ok to clear together
 		}
 		in_spot_light_instances.resize(scene.spot_lights_sorted_indices.size());
 		for (uint32_t i = 0; i < in_spot_light_instances.size(); ++i) {
@@ -3111,7 +3133,8 @@ void RTGRenderer::update(float dt) {
 		environment_instances.clear();
 		mirror_instances.clear();
 		pbr_instances.clear();
-		clusters_instances.clear();
+		clustered_mesh_instances.clear();
+		
 		//clear lights
 		sun_lights.clear();
 		sphere_lights.clear();
@@ -3388,7 +3411,7 @@ void RTGRenderer::update(float dt) {
 				glm::mat4x4 WORLD_FROM_LOCAL_NORMAL = glm::mat4x4(glm::inverse(glm::transpose(glm::mat3(WORLD_FROM_LOCAL))));
 
 				if (uint32_t cur_material_index = scene.clustered_meshes[cur_clustered_index].material_index; cur_material_index != -1) { // has some material
-					clusters_instances.emplace_back(ClusterObjectInstance{
+					clustered_mesh_instances.emplace_back(ClusterObjectInstance{
 						.index = uint32_t(cur_clustered_index),
 						.offset = cluster_mesh_vertices[cur_clustered_index],
 						.transform{
@@ -3402,7 +3425,7 @@ void RTGRenderer::update(float dt) {
 				}
 				else {
 					// use lambertian pipeline to render the default albedo, displacement and normal maps
-					clusters_instances.emplace_back(ClusterObjectInstance{
+					clustered_mesh_instances.emplace_back(ClusterObjectInstance{
 						.index = uint32_t(cur_clustered_index),
 						.offset = cluster_mesh_vertices[cur_clustered_index],
 						.transform{
@@ -3457,8 +3480,8 @@ void RTGRenderer::update(float dt) {
 
 		glm::mat4x4& frustum_view_from_world = culling_camera == SceneCamera ? view_from_world[0] : view_from_world[1];
 		glm::mat4x4& frustum_clip_from_view = culling_camera == SceneCamera ? clip_from_view[0] : clip_from_view[1];
-		for (auto& cluster_instance : clusters_instances) {
-
+		for (size_t i = 0; i< clustered_mesh_instances.size(); ++i) {
+			ClusterObjectInstance& cluster_instance = clustered_mesh_instances[i];
 			Scene::Material& cur_material = scene.materials[cluster_instance.material_index];
 			uint32_t offset = cluster_instance.offset;
 			ClusterBVH& cluster_bvh = scene.clustered_meshes[cluster_instance.index];
@@ -3470,53 +3493,15 @@ void RTGRenderer::update(float dt) {
 			// add to the appropriate instances depending on material
 			for (std::pair<uint32_t, uint32_t> renderable_cluster : renderable_clusters) {
 				uint32_t node_index = renderable_cluster.first;
-				uint32_t instance_index = 0;
-				if (cur_material.material_type == Scene::Material::MaterialType::Lambertian) {
-					instance_index = uint32_t(lambertian_instances.size());
-					lambertian_instances.emplace_back(ObjectInstance{
+				cluster_instances[static_cast<uint32_t>(cur_material.material_type)].emplace_back(
+					ClusterInstance {
 						.vertices = ObjectVertices{
 							.first = offset + cluster_bvh.vertices[node_index].vertices_begin, 
 							.count = cluster_bvh.vertices[node_index].vertices_count
 						},
-						.transform = transform,
-						.material_index = (cluster_instance.material_index+renderable_cluster.second) % 5 + 1,
-					});
-				}
-				else if (cur_material.material_type == Scene::Material::MaterialType::Environment) {
-					instance_index = uint32_t(environment_instances.size());
-					environment_instances.emplace_back(ObjectInstance{
-						.vertices = ObjectVertices{
-							.first = offset + cluster_bvh.vertices[node_index].vertices_begin, 
-							.count = cluster_bvh.vertices[node_index].vertices_count
-						},
-						.transform = transform,
-						.material_index = cluster_instance.material_index,
-					});
-				}
-				else if (cur_material.material_type == Scene::Material::MaterialType::Mirror) {
-					instance_index = uint32_t(mirror_instances.size());
-					mirror_instances.emplace_back(ObjectInstance{
-						.vertices = ObjectVertices{
-							.first = offset + cluster_bvh.vertices[node_index].vertices_begin, 
-							.count = cluster_bvh.vertices[node_index].vertices_count
-						},
-						.transform = transform,
-						.material_index = cluster_instance.material_index,
-					});
-				}
-				else if (cur_material.material_type == Scene::Material::MaterialType::PBR) {
-					instance_index = uint32_t(pbr_instances.size());
-					pbr_instances.emplace_back(ObjectInstance{
-						.vertices = ObjectVertices{
-							.first = offset + cluster_bvh.vertices[node_index].vertices_begin, 
-							.count = cluster_bvh.vertices[node_index].vertices_count
-						},
-						.transform = transform,
-						.material_index = cluster_instance.material_index,
-					});
-				}
-				// we conducted frustum culling in the gpu culling phase
-				in_view_instances[static_cast<uint32_t>(cur_material.material_type)].push_back(instance_index);
+						.cluster_object_index = uint32_t(i),
+					}
+				);
 			}
 		}
 	}
