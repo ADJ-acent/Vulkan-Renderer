@@ -37,6 +37,14 @@ struct DiskCluster {
     glm::vec4 bounding_sphere; // xyz, radius
 };
 
+namespace CLSR { // has to declare again here for loading and storing purposes
+    struct Vertex {
+        glm::vec3 position;
+        glm::vec3 normal;
+        glm::vec4 tangent;
+        glm::vec2 tex_coords;
+    };
+}
 
 struct RuntimeDAG {
     /** Note:
@@ -46,7 +54,7 @@ struct RuntimeDAG {
     std::vector<std::vector<std::pair<std::vector<uint32_t>, std::vector<uint32_t>>>> groups; 
     // 0 is the base level
     std::vector<std::vector<DiskCluster>> clusters;
-    std::vector<std::vector<glm::vec3>> vertices;
+    std::vector<std::vector<CLSR::Vertex>> vertices;
     std::vector<std::vector<uint8_t>> color_index;
 };
 
@@ -73,7 +81,7 @@ struct ClusterBVH {
     std::vector<ClusterVertices> vertices; // corresponding vertices for the clusters
     std::vector<Group> groups;
     std::vector<uint32_t> root_nodes;
-    std::vector<glm::vec3> source_vertices;
+    std::vector<CLSR::Vertex> source_vertices;
 };
 
 /**

@@ -110,14 +110,7 @@ struct NaniteMeshApp {
     };
     std::vector<glm::uvec3> triangles;
 
-    struct Vertex {
-        glm::vec3 position;
-        glm::vec3 normal;
-        glm::vec4 tangent;
-        glm::vec2 tex_coords;
-    };
-
-    std::vector<glm::vec3> vertices; // position of vertices
+    std::vector<CLSR::Vertex> vertices; // position of vertices
 
     static std::vector<Cluster> clusters ; // initial clusters
     static std::vector<ClusterGroup> current_cluster_group;
@@ -159,7 +152,7 @@ void write_clsr(std::string save_path, uint32_t lod_level,
     std::vector<NaniteMeshApp::Cluster>& clusters, 
     std::vector<NaniteMeshApp::ClusterGroup>& groups,
     std::vector<glm::uvec3>& triangles,
-    std::vector<glm::vec3>& vertices);
+    std::vector<CLSR::Vertex>& vertices);
 
 glm::vec4 calculate_bounding_sphere(const std::vector<glm::vec3>& vertices, uint32_t begin, uint32_t count);
 

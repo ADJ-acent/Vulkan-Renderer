@@ -1089,12 +1089,12 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_), s
 			ClusterBVH& cur_mesh = scene.clustered_meshes[i];
 			cluster_mesh_vertices[i] = new_vertices_start;
 			for (uint32_t j = 0; j < uint32_t(cur_mesh.source_vertices.size()); ++ j) {
-				const glm::vec3& vertex = cur_mesh.source_vertices[j];
+				const CLSR::Vertex& vertex = cur_mesh.source_vertices[j];
 				PosNorTanTexVertex formated_vertex = {
-					.Position = {.x = vertex.x, .y = vertex.y, .z = vertex.z},
-					.Normal = {.x = 0, .y = 0, .z = 1},
-					.Tangent = {.x = 1, .y = 0, .z = 0, .w = 1},
-					.TexCoord = {.s = 0, .t = 0},
+					.Position = {.x = vertex.position.x, .y = vertex.position.y, .z = vertex.position.z},
+					.Normal = {.x = vertex.normal.x, .y = vertex.normal.y, .z = vertex.normal.z},
+					.Tangent = {.x = vertex.tangent.x, .y = vertex.tangent.y, .z = vertex.tangent.z, .w = vertex.tangent.w},
+					.TexCoord = {.s = vertex.tex_coords.x, .t = vertex.tex_coords.y},
 				};
 				vertices.push_back(formated_vertex);
 			}
@@ -2379,7 +2379,7 @@ void RTGRenderer::render(RTG &rtg_, RTG::RenderParams const &render_params) {
 
 		}
 	
-		if (!environment_instances.empty()) {//draw with the objects pipeline:
+		if (!environment_instances.empty() || !cluster_instances[static_cast<uint32_t>(Scene::Material::Environment)].empty()) {//draw with the objects pipeline:
 			vkCmdBindPipeline(workspace.command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, environment_pipeline.handle);
 
 			{//use object_vertices as vertex buffer binding 0:
@@ -2408,9 +2408,26 @@ void RTGRenderer::render(RTG &rtg_, RTG::RenderParams const &render_params) {
 				vkCmdDraw(workspace.command_buffer, inst.vertices.count, 1, inst.vertices.first, index);
 			}
 
+			// draw all cluster instances
+			for (ClusterInstance const &inst : cluster_instances[static_cast<uint32_t>(Scene::Material::Environment)]) {
+				uint32_t cluster_object_index = inst.cluster_object_index;
+				//bind texture descriptor set:
+				vkCmdBindDescriptorSets(
+					workspace.command_buffer, //command buffer
+					VK_PIPELINE_BIND_POINT_GRAPHICS, //pipeline bind point
+					environment_pipeline.layout, //pipeline layout
+					2, //second set
+					1, &material_descriptors[clustered_mesh_instances[cluster_object_index].material_index], //descriptor sets count, ptr
+					0, nullptr //dynamic offsets count, ptr
+				);
+
+				vkCmdDraw(workspace.command_buffer, inst.vertices.count, 1, inst.vertices.first, clusters_index_offset + cluster_object_index);
+				
+			}
+
 		}
 
-		if (!mirror_instances.empty()) {//draw with the objects pipeline:
+		if (!mirror_instances.empty() || !cluster_instances[static_cast<uint32_t>(Scene::Material::Mirror)].empty()) {//draw with the objects pipeline:
 			vkCmdBindPipeline(workspace.command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, mirror_pipeline.handle);
 
 			{//use object_vertices as vertex buffer binding 0:
@@ -2436,10 +2453,29 @@ void RTGRenderer::render(RTG &rtg_, RTG::RenderParams const &render_params) {
 					0, nullptr //dynamic offsets count, ptr
 				);
 				vkCmdDraw(workspace.command_buffer, inst.vertices.count, 1, inst.vertices.first, index);
+
 			}
 
+			// draw all cluster instances
+			for (ClusterInstance const &inst : cluster_instances[static_cast<uint32_t>(Scene::Material::Mirror)]) {
+				uint32_t cluster_object_index = inst.cluster_object_index;
+				//bind texture descriptor set:
+				vkCmdBindDescriptorSets(
+					workspace.command_buffer, //command buffer
+					VK_PIPELINE_BIND_POINT_GRAPHICS, //pipeline bind point
+					mirror_pipeline.layout, //pipeline layout
+					2, //second set
+					1, &material_descriptors[clustered_mesh_instances[cluster_object_index].material_index], //descriptor sets count, ptr
+					0, nullptr //dynamic offsets count, ptr
+				);
+
+				vkCmdDraw(workspace.command_buffer, inst.vertices.count, 1, inst.vertices.first, clusters_index_offset + cluster_object_index);
+				
+			}
+				
+
 		}
-		if (!pbr_instances.empty()) {//draw with the objects pipeline:
+		if (!pbr_instances.empty() || !cluster_instances[static_cast<uint32_t>(Scene::Material::PBR)].empty()) {//draw with the objects pipeline:
 			vkCmdBindPipeline(workspace.command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pbr_pipeline.handle);
 
 			{//use object_vertices as vertex buffer binding 0:
@@ -2465,6 +2501,23 @@ void RTGRenderer::render(RTG &rtg_, RTG::RenderParams const &render_params) {
 					0, nullptr //dynamic offsets count, ptr
 				);
 				vkCmdDraw(workspace.command_buffer, inst.vertices.count, 1, inst.vertices.first, index);
+			}
+
+			// draw all cluster instances
+			for (ClusterInstance const &inst : cluster_instances[static_cast<uint32_t>(Scene::Material::PBR)]) {
+				uint32_t cluster_object_index = inst.cluster_object_index;
+				//bind texture descriptor set:
+				vkCmdBindDescriptorSets(
+					workspace.command_buffer, //command buffer
+					VK_PIPELINE_BIND_POINT_GRAPHICS, //pipeline bind point
+					pbr_pipeline.layout, //pipeline layout
+					2, //second set
+					1, &material_descriptors[clustered_mesh_instances[cluster_object_index].material_index], //descriptor sets count, ptr
+					0, nullptr //dynamic offsets count, ptr
+				);
+
+				vkCmdDraw(workspace.command_buffer, inst.vertices.count, 1, inst.vertices.first, clusters_index_offset + cluster_object_index);
+				
 			}
 
 		}

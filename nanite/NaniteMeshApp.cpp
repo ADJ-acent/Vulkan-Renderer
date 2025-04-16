@@ -106,113 +106,114 @@ void NaniteMeshApp::loadGLTF(std::string gltfPath, tinygltf::Model& model, tinyg
 		printf("Failed to parse glTF\n");
 	}
 
-	// assert(model.meshes.size() == 1 && "Currently only support single mesh");
-	for (auto mesh : model.meshes) {
-
-		for (auto primitive : mesh.primitives) {
-			
-			// referenced https://github.com/syoyo/tinygltf/wiki/Accessing-vertex-data
-			const tinygltf::Accessor& accessor = model.accessors[primitive.attributes["POSITION"]];
-			const tinygltf::BufferView& bufferView = model.bufferViews[accessor.bufferView];
-			const tinygltf::Buffer& buffer = model.buffers[bufferView.buffer];
-			// bufferView byteoffset + accessor byteoffset tells you where the actual position data is within the buffer. From there
-			// you should already know how the data needs to be interpreted.
-			// const float* positionsf = reinterpret_cast<const float*>(&buffer.data[bufferView.byteOffset + accessor.byteOffset]);
-			const glm::vec3* positions = reinterpret_cast<const glm::vec3*>(&buffer.data[bufferView.byteOffset + accessor.byteOffset]);
+	for (auto& mesh : model.meshes) {
+		for (auto& primitive : mesh.primitives) {
 			vertices.clear();
-			// From here, you choose what you wish to do with this position data. In this case, we  will display it out.
-			// for (size_t i = 0; i < accessor.count; ++i) {
-			// 	// Positions are Vec3 components, so for each vec3 stride, offset for x, y, and z.
-			// 	std::cout << "(" << positions[i * 3 + 0] << ", "// x
-			// 					<< positions[i * 3 + 1] << ", " // y
-            //                 << positions[i * 3 + 2] << ")" // z
-            //                 << "\n";
-			// }
-			if (primitive.indices >= 0) { 
-				const tinygltf::Accessor& indexAccessor = model.accessors[primitive.indices];
-				const tinygltf::BufferView& indexBufferView = model.bufferViews[indexAccessor.bufferView];
-				const tinygltf::Buffer& indexBuffer = model.buffers[indexBufferView.buffer];
 
-				// Pointer to index buffer
+			// Load attributes
+			const glm::vec3* positions = nullptr;
+			if (primitive.attributes.count("POSITION")) {
+				const auto& accessor = model.accessors[primitive.attributes["POSITION"]];
+				const auto& bufferView = model.bufferViews[accessor.bufferView];
+				const auto& buffer = model.buffers[bufferView.buffer];
+				positions = reinterpret_cast<const glm::vec3*>(&buffer.data[bufferView.byteOffset + accessor.byteOffset]);
+			}
+
+			const glm::vec3* normals = nullptr;
+			if (primitive.attributes.count("NORMAL")) {
+				const auto& accessor = model.accessors[primitive.attributes["NORMAL"]];
+				const auto& bufferView = model.bufferViews[accessor.bufferView];
+				const auto& buffer = model.buffers[bufferView.buffer];
+				normals = reinterpret_cast<const glm::vec3*>(&buffer.data[bufferView.byteOffset + accessor.byteOffset]);
+			}
+
+			const glm::vec4* tangents = nullptr;
+			if (primitive.attributes.count("TANGENT")) {
+				const auto& accessor = model.accessors[primitive.attributes["TANGENT"]];
+				const auto& bufferView = model.bufferViews[accessor.bufferView];
+				const auto& buffer = model.buffers[bufferView.buffer];
+				tangents = reinterpret_cast<const glm::vec4*>(&buffer.data[bufferView.byteOffset + accessor.byteOffset]);
+			}
+
+			const glm::vec2* texcoords = nullptr;
+			if (primitive.attributes.count("TEXCOORD_0")) {
+				const auto& accessor = model.accessors[primitive.attributes["TEXCOORD_0"]];
+				const auto& bufferView = model.bufferViews[accessor.bufferView];
+				const auto& buffer = model.buffers[bufferView.buffer];
+				texcoords = reinterpret_cast<const glm::vec2*>(&buffer.data[bufferView.byteOffset + accessor.byteOffset]);
+			}
+
+			if (primitive.indices >= 0) {
+				const auto& indexAccessor = model.accessors[primitive.indices];
+				const auto& indexBufferView = model.bufferViews[indexAccessor.bufferView];
+				const auto& indexBuffer = model.buffers[indexBufferView.buffer];
 				const void* indexData = &indexBuffer.data[indexBufferView.byteOffset + indexAccessor.byteOffset];
-				
-				// Read indices correctly based on componentType
+
 				std::vector<uint32_t> indices;
 				if (indexAccessor.componentType == TINYGLTF_COMPONENT_TYPE_UNSIGNED_BYTE) {
 					const uint8_t* indices8 = static_cast<const uint8_t*>(indexData);
 					indices.assign(indices8, indices8 + indexAccessor.count);
-				} 
+				}
 				else if (indexAccessor.componentType == TINYGLTF_COMPONENT_TYPE_UNSIGNED_SHORT) {
 					const uint16_t* indices16 = static_cast<const uint16_t*>(indexData);
 					indices.assign(indices16, indices16 + indexAccessor.count);
-				} 
+				}
 				else if (indexAccessor.componentType == TINYGLTF_COMPONENT_TYPE_UNSIGNED_INT) {
 					const uint32_t* indices32 = static_cast<const uint32_t*>(indexData);
 					indices.assign(indices32, indices32 + indexAccessor.count);
-				} 
+				}
 				else {
 					std::cerr << "Unsupported index type" << std::endl;
 					continue;
 				}
-				
-				//referenced https://github.com/15-466/15-466-f24-base5/blob/main/WalkMesh.cpp
-				
-				// Iterate over triangles
+
 				assert(indices.size() % 3 == 0);
 				std::unordered_map<glm::vec3, uint32_t> seen;
-                std::unordered_map<glm::uvec2, uint32_t> next_vertex;
+				std::unordered_map<glm::uvec2, uint32_t> next_vertex;
+
+				auto do_next = [&](uint32_t a, uint32_t b, uint32_t c) {
+					auto ret = next_vertex.insert(std::make_pair(glm::uvec2(a, b), c));
+					assert(ret.second);
+				};
+
+				auto get_vertex_index = [&](uint32_t i) {
+					CLSR::Vertex vert;
+					vert.position = positions ? positions[i] : glm::vec3(0.0f);
+					vert.normal = normals ? normals[i] : glm::vec3(0.0f, 1.0f, 0.0f);
+					vert.tangent = tangents ? tangents[i] : glm::vec4(1.0f, 0.0f, 0.0f, 1.0f);
+					vert.tex_coords = texcoords ? glm::vec2(texcoords[i].x, 1.0f - texcoords[i].y) : glm::vec2(0.0f);;
+
+					auto it = seen.find(vert.position); // deduplicate only by position
+					if (it != seen.end()) {
+						return it->second;
+					}
+					else {
+						vertices.push_back(vert);
+						uint32_t index = uint32_t(vertices.size() - 1);
+						seen.emplace(vert.position, index);
+						return index;
+					}
+				};
+
 				for (size_t i = 0; i < indices.size(); i += 3) {
 					uint32_t i0 = indices[i];
 					uint32_t i1 = indices[i + 1];
 					uint32_t i2 = indices[i + 2];
-					auto do_next = [&](uint32_t a, uint32_t b, uint32_t c) {
-						auto ret = next_vertex.insert(std::make_pair(glm::uvec2(a,b), c));
-						assert(ret.second);
-						// if (!ret.second) {
-						// 	count ++;
-						// 	std::cout<<"error on "<<i <<std::endl;
-						// }
-					};
-					do_next(i0,i1,i2);
-					do_next(i1,i2,i0);
-					do_next(i2,i0,i1);
-					auto get_vertex_index = [&](glm::vec3& v0) {
-						// auto it = std::find_if(vertices.begin(), vertices.end(), [&](const glm::vec3& v) {
-						// 	return glm::distance(v0,v) <= 0.0001f;
-						// });
-						
-						// if (it != vertices.end()) return uint32_t(it - vertices.begin());
-						// else {
-						// 	vertices.emplace_back(v0);
-						// 	return uint32_t(vertices.size() - 1);
-						// }
-						auto it = seen.find(v0);
-						if (it != seen.end()) {
-							return it->second;
-						}
-						else {
-							vertices.emplace_back(v0);
-							uint32_t index = uint32_t(vertices.size()-1);
-							seen.emplace(v0,index);
-							return index;
-						}
-					};
-					glm::vec3 v0 = positions[i0];
-					glm::vec3 v1 = positions[i1];
-					glm::vec3 v2 = positions[i2];
-					triangles.emplace_back(glm::uvec3(get_vertex_index(v0),get_vertex_index(v1),get_vertex_index(v2)));
 
-						// std::cout << "  v0: (" << glm::to_string(positions[i0] ) << ")\n";
-						// std::cout << "  v1: (" << glm::to_string(positions[i1] ) <<  ")\n";
-						// std::cout << "  v2: (" << glm::to_string(positions[i2] ) <<  ")\n";
-					
+					do_next(i0, i1, i2);
+					do_next(i1, i2, i0);
+					do_next(i2, i0, i1);
 
+					triangles.emplace_back(glm::uvec3(
+						get_vertex_index(i0),
+						get_vertex_index(i1),
+						get_vertex_index(i2)
+					));
 				}
 			}
-			std::cout<<"Finished Loading gltf, total number of vertices: "<<vertices.size()<<std::endl;
+			std::cout << "Finished Loading glTF, total number of vertices: " << vertices.size() << std::endl;
 		}
 	}
-	
 }
 
 // step 1 of preprocessing
@@ -463,9 +464,9 @@ void NaniteMeshApp::initialize_base_bounding_spheres()
         cluster_verts.reserve(cluster.triangles.size() * 3);
         for (uint32_t triangle_i : cluster.triangles) {
             auto& triangle = triangles[triangle_i];
-            cluster_verts.insert(vertices[triangle[0]]);
-            cluster_verts.insert(vertices[triangle[1]]);
-            cluster_verts.insert(vertices[triangle[2]]);
+            cluster_verts.insert(vertices[triangle[0]].position);
+            cluster_verts.insert(vertices[triangle[1]].position);
+            cluster_verts.insert(vertices[triangle[2]].position);
         }
         std::vector<glm::vec3> vert_set(cluster_verts.begin(), cluster_verts.end());
         cluster.bounding_sphere = calculate_bounding_sphere(vert_set, 0, uint32_t(vert_set.size()));
@@ -729,9 +730,9 @@ void NaniteMeshApp::simplify_cluster_groups(float target)
             }
 
             {// Compute quadrics per vertex
-                glm::vec3 v0 = vertices[i0];
-                glm::vec3 v1 = vertices[i1];
-                glm::vec3 v2 = vertices[i2];
+                glm::vec3 v0 = vertices[i0].position;
+                glm::vec3 v1 = vertices[i1].position;
+                glm::vec3 v2 = vertices[i2].position;
 
                 // Compute plane equation ax + by + cz + d = 0
                 glm::vec3 normal = glm::normalize(glm::cross(v1 - v0, v2 - v0));
@@ -772,14 +773,14 @@ void NaniteMeshApp::simplify_cluster_groups(float target)
 
             glm::vec3 x;
             if (boundary_vertices.count(v1)) {
-                x = vertices[v1];
+                x = vertices[v1].position;
             }
             else if (boundary_vertices.count(v2)) {
-                x = vertices[v2];
+                x = vertices[v2].position;
             }
             else {
                 // Solve for x: A * x = b or get the best position if A is singular
-                x = get_best_vertex_after_collapse(Qsum, vertices[v1], vertices[v2]);
+                x = get_best_vertex_after_collapse(Qsum, vertices[v1].position, vertices[v2].position);
             }
 
             // Extract c (bottom-right scalar)
@@ -818,9 +819,9 @@ void NaniteMeshApp::simplify_cluster_groups(float target)
                     const uint32_t i1 = vertex_indices[1];
                     const uint32_t i2 = vertex_indices[2];
                     if (i0 != v1 && i1 != v1 && i2 != v1 && i0 != v2 && i1 != v2 && i2 != v2) continue; // only check the neighborhood of v1 v2
-                    glm::vec3 p0 = vertices[i0];
-                    glm::vec3 p1 = vertices[i1];
-                    glm::vec3 p2 = vertices[i2];
+                    glm::vec3 p0 = vertices[i0].position;
+                    glm::vec3 p1 = vertices[i1].position;
+                    glm::vec3 p2 = vertices[i2].position;
 
                     glm::vec3 normal_before = compute_normal(p0,p1,p2);
 
@@ -930,8 +931,8 @@ void NaniteMeshApp::simplify_cluster_groups(float target)
                 }
 
                 // set both vertice's positions to best position
-                vertices[v1] = target_position;
-                vertices[v2] = target_position;
+                vertices[v1].position = target_position;
+                vertices[v2].position = target_position;
 
                 // accumulate quadrics
                 quadrics[v1] += quadrics[v2];
@@ -966,14 +967,14 @@ void NaniteMeshApp::simplify_cluster_groups(float target)
         
                     glm::vec3 x;
                     if (boundary_vertices.count(v1_)) {
-                        x = vertices[v1_];
+                        x = vertices[v1_].position;
                     }
                     else if (boundary_vertices.count(v2_)) {
-                        x = vertices[v2_];
+                        x = vertices[v2_].position;
                     }
                     else {
                         // Solve for x: A * x = b or get the best position if A is singular
-                        x = get_best_vertex_after_collapse(Qsum, vertices[v1_], vertices[v2_]);
+                        x = get_best_vertex_after_collapse(Qsum, vertices[v1_].position, vertices[v2_].position);
                     }
         
                     // Extract c (bottom-right scalar)
