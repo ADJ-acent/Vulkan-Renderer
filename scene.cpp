@@ -836,6 +836,24 @@ void Scene::load(std::string filename, std::optional<std::string> requested_came
         throw e;
     }
 
+    {// add nanite debug materials
+        // create some textures for nanite debug mode
+		nanite_debug_material_count = 6;
+		glm::vec3 colors[6] = {{1,0,0}, {0,1,0}, {0,0,1}, {1,1,0}, {1,0,1}, {0,1,1}};
+		nanite_debug_material_offset = uint32_t(materials.size());
+		for (uint8_t i = 0; i < 6; ++i) {
+            Material new_material = {.name = "nanite_debug" + std::to_string(i)};
+            int32_t cur_material_index = int32_t(materials.size());
+            materials.push_back(new_material);
+            MatLambertian_count++;
+            materials[cur_material_index].material_type = Material::Lambertian;
+            Texture new_texture = Texture(colors[i]);
+            uint32_t index = uint32_t(textures.size());
+            textures.push_back(new_texture);
+            materials[cur_material_index].material_textures = Material::MatLambertian(index);
+		}
+    }
+
     std::cout<< "----Finished loading " + filename +"----"<<std::endl;
 
     { //build the camera and light local to world transform vectors

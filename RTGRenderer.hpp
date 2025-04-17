@@ -411,6 +411,9 @@ struct RTGRenderer : RTG::Application {
 	struct ClusterInstance {
 		ObjectVertices vertices;
 		uint32_t cluster_object_index;
+		// for debug purposes
+		uint32_t index = 0; // index in the instance
+		uint32_t lod = 0;
 	};
 	std::array<std::vector< ClusterInstance >, 4> cluster_instances; // order of array is lambertian, environment, mirror, pbr
 
@@ -473,6 +476,12 @@ struct RTGRenderer : RTG::Application {
 	float previous_mouse_x = -1.0f, previous_mouse_y = -1.0f;
 	bool shift_down = false;
 	bool upside_down = false;
+
+	enum struct NaniteDebugState {
+		Off = 0,
+		Cluster = 1,
+		LOD = 2,
+	} nanite_debug_state = NaniteDebugState::Cluster;
 
 	// perspective and view matrices for scene, user, and debug cameras
 	std::array<glm::mat4x4, 3> clip_from_view;

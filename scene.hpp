@@ -218,6 +218,10 @@ struct Scene
     std::vector<uint32_t> root_nodes;
     std::string scene_path;
 
+    // nanite material info
+	uint32_t nanite_debug_material_offset;
+	uint32_t nanite_debug_material_count;
+
     Scene(std::string filename, std::optional<std::string> camera, uint8_t animation_setting);
 
     ~Scene();

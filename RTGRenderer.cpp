@@ -2319,20 +2319,56 @@ void RTGRenderer::render(RTG &rtg_, RTG::RenderParams const &render_params) {
 			}
 
 			// draw all cluster instances
-			for (ClusterInstance const &inst : cluster_instances[static_cast<uint32_t>(Scene::Material::Lambertian)]) {
-				uint32_t cluster_object_index = inst.cluster_object_index;
-				//bind texture descriptor set:
-				vkCmdBindDescriptorSets(
-					workspace.command_buffer, //command buffer
-					VK_PIPELINE_BIND_POINT_GRAPHICS, //pipeline bind point
-					lambertian_pipeline.layout, //pipeline layout
-					2, //second set
-					1, &material_descriptors[clustered_mesh_instances[cluster_object_index].material_index], //descriptor sets count, ptr
-					0, nullptr //dynamic offsets count, ptr
-				);
-
-				vkCmdDraw(workspace.command_buffer, inst.vertices.count, 1, inst.vertices.first, clusters_index_offset + cluster_object_index);
-				
+			if (nanite_debug_state == NaniteDebugState::Off) {
+				for (ClusterInstance const &inst : cluster_instances[static_cast<uint32_t>(Scene::Material::Lambertian)]) {
+					uint32_t cluster_object_index = inst.cluster_object_index;
+					//bind texture descriptor set:
+					vkCmdBindDescriptorSets(
+						workspace.command_buffer, //command buffer
+						VK_PIPELINE_BIND_POINT_GRAPHICS, //pipeline bind point
+						lambertian_pipeline.layout, //pipeline layout
+						2, //second set
+						1, &material_descriptors[clustered_mesh_instances[cluster_object_index].material_index], //descriptor sets count, ptr
+						0, nullptr //dynamic offsets count, ptr
+					);
+	
+					vkCmdDraw(workspace.command_buffer, inst.vertices.count, 1, inst.vertices.first, clusters_index_offset + cluster_object_index);
+					
+				}
+			}
+			else if (nanite_debug_state == NaniteDebugState::Cluster) {
+				for (ClusterInstance const &inst : cluster_instances[static_cast<uint32_t>(Scene::Material::Lambertian)]) {
+					uint32_t cluster_object_index = inst.cluster_object_index;
+					//bind texture descriptor set:
+					vkCmdBindDescriptorSets(
+						workspace.command_buffer, //command buffer
+						VK_PIPELINE_BIND_POINT_GRAPHICS, //pipeline bind point
+						lambertian_pipeline.layout, //pipeline layout
+						2, //second set
+						1, &material_descriptors[inst.index % scene.nanite_debug_material_count + scene.nanite_debug_material_offset], //descriptor sets count, ptr
+						0, nullptr //dynamic offsets count, ptr
+					);
+	
+					vkCmdDraw(workspace.command_buffer, inst.vertices.count, 1, inst.vertices.first, clusters_index_offset + cluster_object_index);
+					
+				}
+			}
+			else {
+				for (ClusterInstance const &inst : cluster_instances[static_cast<uint32_t>(Scene::Material::Lambertian)]) {
+					uint32_t cluster_object_index = inst.cluster_object_index;
+					//bind texture descriptor set:
+					vkCmdBindDescriptorSets(
+						workspace.command_buffer, //command buffer
+						VK_PIPELINE_BIND_POINT_GRAPHICS, //pipeline bind point
+						lambertian_pipeline.layout, //pipeline layout
+						2, //second set
+						1, &material_descriptors[inst.lod % scene.nanite_debug_material_count + scene.nanite_debug_material_offset], //descriptor sets count, ptr
+						0, nullptr //dynamic offsets count, ptr
+					);
+	
+					vkCmdDraw(workspace.command_buffer, inst.vertices.count, 1, inst.vertices.first, clusters_index_offset + cluster_object_index);
+					
+				}
 			}
 
 
@@ -3544,17 +3580,36 @@ void RTGRenderer::update(float dt) {
 				frustum_clip_from_view, frustum_view_from_world, rtg.swapchain_extent.width,  rtg.swapchain_extent.height);
 
 			// add to the appropriate instances depending on material
-			for (std::pair<uint32_t, uint32_t> renderable_cluster : renderable_clusters) {
-				uint32_t node_index = renderable_cluster.first;
-				cluster_instances[static_cast<uint32_t>(cur_material.material_type)].emplace_back(
-					ClusterInstance {
-						.vertices = ObjectVertices{
-							.first = offset + cluster_bvh.vertices[node_index].vertices_begin, 
-							.count = cluster_bvh.vertices[node_index].vertices_count
-						},
-						.cluster_object_index = uint32_t(i),
-					}
-				);
+			if (nanite_debug_state == NaniteDebugState::Off) {
+				for (std::pair<uint32_t, uint32_t> renderable_cluster : renderable_clusters) {
+					uint32_t node_index = renderable_cluster.first;
+					cluster_instances[static_cast<uint32_t>(cur_material.material_type)].emplace_back(
+						ClusterInstance {
+							.vertices = ObjectVertices{
+								.first = offset + cluster_bvh.vertices[node_index].vertices_begin, 
+								.count = cluster_bvh.vertices[node_index].vertices_count
+							},
+							.cluster_object_index = uint32_t(i),
+						}
+					);
+				}
+
+			}
+			else {
+				for (std::pair<uint32_t, uint32_t> renderable_cluster : renderable_clusters) {
+					uint32_t node_index = renderable_cluster.first;
+					cluster_instances[static_cast<uint32_t>(Scene::Material::Lambertian)].emplace_back(
+						ClusterInstance {
+							.vertices = ObjectVertices{
+								.first = offset + cluster_bvh.vertices[node_index].vertices_begin, 
+								.count = cluster_bvh.vertices[node_index].vertices_count
+							},
+							.cluster_object_index = uint32_t(i),
+							.index = node_index,
+							.lod = renderable_cluster.second,
+						}
+					);
+				}
 			}
 		}
 	}
@@ -3587,6 +3642,19 @@ void RTGRenderer::on_input(InputEvent const &event) {
 			view_camera = InSceneCamera::DebugCamera;
 		}
 		update_camera = true;
+	}
+
+	if (event.type == InputEvent::Type::KeyDown && (event.key.key == GLFW_KEY_8 || event.key.key == GLFW_KEY_9 || event.key.key == GLFW_KEY_0)) {
+		
+		if (event.key.key == GLFW_KEY_0) {
+			nanite_debug_state = NaniteDebugState::Off;
+		}
+		else if (event.key.key == GLFW_KEY_9) {
+			nanite_debug_state = NaniteDebugState::LOD;
+		}
+		else if (event.key.key == GLFW_KEY_8) {
+			nanite_debug_state = NaniteDebugState::Cluster;
+		}
 	}
 
 	if (view_camera == InSceneCamera::SceneCamera) {
