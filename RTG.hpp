@@ -74,6 +74,9 @@ struct RTG {
 		//headless mode (for benchmarking)
 		bool headless_mode = false;
 
+		//gpu cluster culling
+		bool gpu_cluster_culling = true;
+
 		//cube mode
 		bool cube = false;
 		//path to the input image

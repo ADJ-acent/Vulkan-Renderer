@@ -200,10 +200,10 @@ void dag_to_bvh(RuntimeDAG &dag, ClusterBVH *to)
         for (const DiskCluster& disk_cluster : clusters) {
             to->clusters.push_back(ClusterBVH::Node{
                 // group and node index will be populated later
+                .bounding_sphere = disk_cluster.bounding_sphere,
                 .node_index = static_cast<uint32_t>(-1),
                 .group_index = static_cast<uint32_t>(-1),
                 .error = disk_cluster.error,
-                .bounding_sphere = disk_cluster.bounding_sphere,
             });
             to->vertices.push_back(ClusterBVH::ClusterVertices{
                 .vertices_begin = disk_cluster.vertices_begin + lod_level_vertices_offset,

@@ -121,6 +121,12 @@ const cloud_lightgrid_shaders = [
 ]
 main_objs.push( maek.CPP('CloudLightGridPipeline.cpp', undefined, { depends:[...cloud_lightgrid_shaders] } ) );
 
+const cluster_selection_shaders = [
+	maek.GLSLC('glsl/cluster_selection.comp', 'spv/cluster_selection.comp', {GLSLCFlags: []}),
+]
+main_objs.push( maek.CPP('ClusterSelectionPipeline.cpp', undefined, { depends:[...cluster_selection_shaders] } ) );
+
+
 
 const main_exe = maek.LINK([...main_objs, ...viewer_objs, ...common_objs], 'bin/viewer');
 const nanite_mesh_exe = maek.LINK([...nanite_mesh_objs, ...common_objs], 'bin/mesh_process');

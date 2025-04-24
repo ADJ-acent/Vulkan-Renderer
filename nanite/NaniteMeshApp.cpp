@@ -46,6 +46,8 @@ void NaniteMeshApp::Configuration::parse(int argc, char **argv) {
         }
         else if (arg == "--save-folder") {
             if (argi + 1 >= argc) throw std::runtime_error("--save-folder requires a parameter (folder name to store .clsr).\n");
+            argi += 1;
+            save_folder = argv[argi];
         }
 	}
 	if (glTF_path == "") {
@@ -70,18 +72,17 @@ NaniteMeshApp::NaniteMeshApp(Configuration & configuration_) :
 	loadGLTF(configuration.glTF_path, model, loader);
     clusters = cluster(triangles, configuration.per_cluster_triangle_limit);
     initialize_base_bounding_spheres();
-    assert(is_mesh_manifold(triangles));
+
     for (uint32_t i = 0; i < configuration.simplify_count; ++i) {
         group();
 
         write_clsr(configuration.save_folder, i, clusters, current_cluster_group, triangles, vertices);
-        assert(is_mesh_manifold(triangles));
-        
+
         // save_model(model, std::string("../gltf/test_" + std::to_string(i)));
         save_groups_as_clusters(model, i);
         simplify_cluster_groups();
         // write_clusters_to_model(model);
-        assert(is_mesh_manifold(triangles));
+
         cluster_in_groups();
     }	
 }
@@ -928,6 +929,29 @@ void NaniteMeshApp::simplify_cluster_groups(float target)
                     }
 
                     continue;
+                }
+
+                {// calculate new attributes
+                    vertices[v1].normal = glm::normalize(
+                        glm::length(vertices[v1].position - target_position) * vertices[v1].normal +
+                        glm::length(vertices[v2].position - target_position) * vertices[v2].normal
+                    );
+                    glm::vec4 tangent1 = vertices[v1].tangent;
+                    glm::vec4 tangent2 = vertices[v2].tangent;
+
+                    glm::vec3 avg_tangent = glm::normalize(glm::vec3(tangent1) + glm::vec3(tangent2));
+
+                    // Keep handedness (w)
+                    float w = (tangent1.w + tangent2.w) * 0.5f;
+                    w = (w >= 0.0f) ? 1.0f : -1.0f; // make sure it's still a valid sign
+
+                    // Re-orthogonalize tangent to the new normal if needed
+                    glm::vec3 N = vertices[v1].normal;
+                    avg_tangent = glm::normalize(avg_tangent - N * glm::dot(N, avg_tangent));
+
+                    vertices[v1].tangent = glm::vec4(avg_tangent, w);
+
+                    vertices[v1].tex_coords = 0.5f * (vertices[v1].tex_coords + vertices[v2].tex_coords);
                 }
 
                 // set both vertice's positions to best position

@@ -60,10 +60,11 @@ struct RuntimeDAG {
 
 struct ClusterBVH {
     struct Node {
+        glm::vec4 bounding_sphere; // xyz, radius
         uint32_t node_index; //index in the group, only index 0 will enqueue the next ones 
         uint32_t group_index; 
         float error;
-        glm::vec4 bounding_sphere; // xyz, radius
+        uint32_t padding = 0;
     };
 
     struct Group {

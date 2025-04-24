@@ -258,6 +258,7 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_), s
 	shadow_pipeline.create(rtg, shadow_atlas_pass, 0);
 	cloud_pipeline.create(rtg);
 	cloud_lightgrid_pipeline.create(rtg);
+	cluster_selection_pipeline.create(rtg);
 
 	if (scene.has_cloud) {//cloud resources
 		{// lodad cloud voxel data as 3D images
@@ -592,7 +593,7 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_), s
 			},
 			VkDescriptorPoolSize{
 				.type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-				.descriptorCount = 4 * per_workspace, //three descriptor for set 0, one for set 1, one set per workspace
+				.descriptorCount = 11 * per_workspace, //three descriptor for set 0, one for set 1, one set per workspace
 			},
 		};
 		
@@ -673,6 +674,50 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_), s
 			0, //descriptorCopyCount
 			nullptr //pDescriptorCopies
 		);
+	}
+
+	{ // upload clustered mesh data (clusters and groups)
+		std::vector<ClusterBVH::Node> clusters;
+		std::vector<ClusterBVH::Group> groups;
+		std::vector<glm::uvec2> offsets; // <node offset, group offset> for each clustered mesh
+		for (size_t i = 0; i < scene.clustered_meshes.size(); ++i) {
+			ClusterBVH& clustered_mesh = scene.clustered_meshes[i];
+			offsets.push_back(glm::uvec2(clusters.size(), groups.size()));
+			clusters.insert(clusters.begin(), clustered_mesh.clusters.begin(), clustered_mesh.clusters.end());
+			groups.insert(groups.begin(), clustered_mesh.groups.begin(), clustered_mesh.groups.end());
+		}
+		size_t clusters_bytes = clusters.size() * sizeof(ClusterBVH::Node);
+		CS_clusters = rtg.helpers.create_buffer(
+			clusters_bytes,
+			VK_BUFFER_USAGE_STORAGE_BUFFER_BIT  | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+			Helpers::Unmapped
+		);
+
+		size_t groups_bytes = groups.size() * sizeof(ClusterBVH::Group);
+		CS_groups = rtg.helpers.create_buffer(
+			groups_bytes,
+			VK_BUFFER_USAGE_STORAGE_BUFFER_BIT  | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+			Helpers::Unmapped
+		);
+
+		size_t offset_bytes = offsets.size() * sizeof(glm::uvec2);
+		CS_object_offsets = rtg.helpers.create_buffer(
+			offset_bytes,
+			VK_BUFFER_USAGE_STORAGE_BUFFER_BIT  | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+			Helpers::Unmapped
+		);
+		//copy data to buffer:
+		rtg.helpers.transfer_to_buffer(clusters.data(), clusters_bytes, CS_clusters);
+		rtg.helpers.transfer_to_buffer(groups.data(), groups_bytes, CS_groups);
+		rtg.helpers.transfer_to_buffer(offsets.data(), offset_bytes, CS_object_offsets);
+
+		//set up CS_stack and CS_result
+		CS_stack.assign(cluster_selection_pipeline.buffer_size, ClusterSelectionPipeline::StackElement());
+		CS_result.assign(cluster_selection_pipeline.buffer_size, ClusterSelectionPipeline::ResultCluster());
+
 	}
 
 	workspaces.resize(rtg.workspaces.size());
@@ -790,7 +835,7 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_), s
 			VK(vkAllocateDescriptorSets(rtg.device, &alloc_info, &workspace.Cloud_World_descriptors));
 		}
 
-		{//allocate descriptor set for tagert image in cloud compute shader
+		{//allocate descriptor set for tagert image in cloud lightgrid compute shader
 			VkDescriptorSetAllocateInfo alloc_info{
 				.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
 				.descriptorPool = descriptor_pool,
@@ -799,6 +844,60 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_), s
 			};
 
 			VK(vkAllocateDescriptorSets(rtg.device, &alloc_info, &workspace.Cloud_LightGrid_World_descriptors));
+		}
+
+		{ //allocate descriptor set for cluster selection
+			VkDescriptorSetAllocateInfo alloc_info{
+				.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+				.descriptorPool = descriptor_pool,
+				.descriptorSetCount = 1,
+				.pSetLayouts = &cluster_selection_pipeline.set0_Resources,
+			};
+
+			VK(vkAllocateDescriptorSets(rtg.device, &alloc_info, &workspace.CS_descriptors));
+		}
+
+		{ //buffers for cluster selection
+			workspace.CS_world_src = rtg.helpers.create_buffer(
+				sizeof(ClusterSelectionPipeline::World),
+				VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+				VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+				Helpers::Mapped
+			);
+			workspace.CS_world = rtg.helpers.create_buffer(
+				sizeof(ClusterSelectionPipeline::World),
+				VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+				VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+				Helpers::Unmapped
+			);
+
+			workspace.CS_stack_src = rtg.helpers.create_buffer(
+				sizeof(ClusterSelectionPipeline::StackElement) * cluster_selection_pipeline.buffer_size,
+				VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+				VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+				Helpers::Mapped
+			);
+			workspace.CS_stack = rtg.helpers.create_buffer(
+				sizeof(ClusterSelectionPipeline::StackElement) * cluster_selection_pipeline.buffer_size,
+				VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+				VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+				Helpers::Unmapped
+			);
+
+			workspace.CS_result_dst = rtg.helpers.create_buffer(
+				sizeof(ClusterSelectionPipeline::ResultCluster) * cluster_selection_pipeline.buffer_size,
+				VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+				VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+				Helpers::Mapped
+			);
+			workspace.CS_result = rtg.helpers.create_buffer(
+				sizeof(ClusterSelectionPipeline::ResultCluster) * cluster_selection_pipeline.buffer_size,
+				VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+				VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+				Helpers::Unmapped
+			);
+
+			// CS_transform and src allocated dynamically
 		}
 
 		{// set light infos
@@ -892,7 +991,43 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_), s
 				.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
 			};
 
-			std::array< VkWriteDescriptorSet, 8 > writes{
+			VkDescriptorBufferInfo CS_Clusters_info{
+				.buffer = CS_clusters.handle,
+				.offset = 0,
+				.range = CS_clusters.size,
+			};
+
+			VkDescriptorBufferInfo CS_Groups_info{
+				.buffer = CS_groups.handle,
+				.offset = 0,
+				.range = CS_groups.size,
+			};
+
+			VkDescriptorBufferInfo CS_Object_offsets_info{
+				.buffer = CS_object_offsets.handle,
+				.offset = 0,
+				.range = CS_object_offsets.size,
+			};
+
+			VkDescriptorBufferInfo CS_World_info{
+				.buffer = workspace.CS_world.handle,
+				.offset = 0,
+				.range = workspace.CS_world.size,
+			};
+
+			VkDescriptorBufferInfo CS_Stack_info{
+				.buffer = workspace.CS_stack.handle,
+				.offset = 0,
+				.range = workspace.CS_stack.size,
+			};
+
+			VkDescriptorBufferInfo CS_Result_info{
+				.buffer = workspace.CS_result.handle,
+				.offset = 0,
+				.range = workspace.CS_result.size,
+			};
+
+			std::array< VkWriteDescriptorSet, 14 > writes{
 				VkWriteDescriptorSet{
 					.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
 					.dstSet = workspace.Camera_descriptors,
@@ -971,6 +1106,65 @@ RTGRenderer::RTGRenderer(RTG &rtg_, Scene &scene_) : rtg(rtg_), scene(scene_), s
 					.descriptorCount = 1,
 					.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
 					.pImageInfo = &ShadowAtlas_info,
+				},
+				// Cluster selections
+				VkWriteDescriptorSet{
+					.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+					.dstSet = workspace.CS_descriptors,
+					.dstBinding = 0,
+					.dstArrayElement = 0,
+					.descriptorCount = 1,
+					.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+					.pBufferInfo = &CS_Clusters_info,
+				},
+
+				VkWriteDescriptorSet{
+					.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+					.dstSet = workspace.CS_descriptors,
+					.dstBinding = 1,
+					.dstArrayElement = 0,
+					.descriptorCount = 1,
+					.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+					.pBufferInfo = &CS_Groups_info,
+				},
+
+				VkWriteDescriptorSet{
+					.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+					.dstSet = workspace.CS_descriptors,
+					.dstBinding = 2,
+					.dstArrayElement = 0,
+					.descriptorCount = 1,
+					.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+					.pBufferInfo = &CS_Object_offsets_info,
+				},
+				VkWriteDescriptorSet{
+					.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+					.dstSet = workspace.CS_descriptors,
+					.dstBinding = 4,
+					.dstArrayElement = 0,
+					.descriptorCount = 1,
+					.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+					.pBufferInfo = &CS_Result_info,
+				},
+
+				VkWriteDescriptorSet{
+					.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+					.dstSet = workspace.CS_descriptors,
+					.dstBinding = 5,
+					.dstArrayElement = 0,
+					.descriptorCount = 1,
+					.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+					.pBufferInfo = &CS_World_info,
+				},
+
+				VkWriteDescriptorSet{
+					.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+					.dstSet = workspace.CS_descriptors,
+					.dstBinding = 6,
+					.dstArrayElement = 0,
+					.descriptorCount = 1,
+					.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+					.pBufferInfo = &CS_Stack_info,
 				},
 			};
 
@@ -1541,8 +1735,12 @@ RTGRenderer::~RTGRenderer() {
 	shadow_pipeline.destroy(rtg);
 	cloud_pipeline.destroy(rtg);
 	cloud_lightgrid_pipeline.destroy(rtg);
+	cluster_selection_pipeline.destroy(rtg);
 	
 	rtg.helpers.destroy_buffer(std::move(object_vertices));
+	rtg.helpers.destroy_buffer(std::move(CS_clusters));
+	rtg.helpers.destroy_buffer(std::move(CS_groups));
+	rtg.helpers.destroy_buffer(std::move(CS_object_offsets));
 
 	if (shadow_sampler) {
 		vkDestroySampler(rtg.device, shadow_sampler, nullptr);
@@ -1634,6 +1832,34 @@ RTGRenderer::~RTGRenderer() {
 			vkDestroyImageView(rtg.device, workspace.Cloud_target_view, nullptr);
 			workspace.Cloud_target_view = VK_NULL_HANDLE;
 		}
+
+		// CS and cloud descriptor freed when pool is destroyed
+
+		if (workspace.CS_stack_src.handle){
+			rtg.helpers.destroy_buffer(std::move(workspace.CS_stack_src));
+		}
+		if (workspace.CS_stack.handle){
+			rtg.helpers.destroy_buffer(std::move(workspace.CS_stack));
+		}
+		if (workspace.CS_transforms_src.handle){
+			rtg.helpers.destroy_buffer(std::move(workspace.CS_transforms_src));
+		}
+		if (workspace.CS_transforms.handle){
+			rtg.helpers.destroy_buffer(std::move(workspace.CS_transforms));
+		}
+		if (workspace.CS_result.handle){
+			rtg.helpers.destroy_buffer(std::move(workspace.CS_result));
+		}
+		if (workspace.CS_result_dst.handle){
+			rtg.helpers.destroy_buffer(std::move(workspace.CS_result_dst));
+		}
+		if (workspace.CS_world.handle){
+			rtg.helpers.destroy_buffer(std::move(workspace.CS_world));
+		}
+		if (workspace.CS_world_src.handle){
+			rtg.helpers.destroy_buffer(std::move(workspace.CS_world_src));
+		}
+
 	}
 	workspaces.clear();
 
@@ -1740,6 +1966,11 @@ void RTGRenderer::on_swapchain(RTG &rtg_, RTG::SwapchainEvent const &swapchain) 
 
 		VK(vkCreateImageView(rtg.device, &create_info, nullptr, &workspace.Cloud_target_view));
 	}
+
+	if (rtg.configuration.gpu_cluster_culling) {
+		CS_world.width = swapchain.extent.width;
+		CS_world.height = swapchain.extent.height;
+	}
 }
 
 void RTGRenderer::destroy_framebuffers() {
@@ -1791,6 +2022,139 @@ void RTGRenderer::render(RTG &rtg_, RTG::RenderParams const &render_params) {
 		};
 		VK(vkBeginCommandBuffer(workspace.command_buffer, &begine_info));
 	}
+
+	if (rtg.configuration.gpu_cluster_culling) {//cluster selection through compute shader
+		size_t needed_bytes = CS_transforms.size() * sizeof(Transform);
+		if (workspace.CS_transforms_src.handle == VK_NULL_HANDLE || workspace.CS_transforms_src.size < needed_bytes) {
+			//round to next multiple of 4k to avoid re-allocating continuously if vertex count grows slowly:
+			size_t new_bytes = ((needed_bytes + 4096) / 4096) * 4096;
+			if (workspace.CS_transforms_src.handle) {
+				rtg.helpers.destroy_buffer(std::move(workspace.CS_transforms_src));
+			}
+			if (workspace.CS_transforms.handle) {
+				rtg.helpers.destroy_buffer(std::move(workspace.CS_transforms));
+			}
+			workspace.CS_transforms_src = rtg.helpers.create_buffer(
+				new_bytes,
+				VK_BUFFER_USAGE_TRANSFER_SRC_BIT, //going to have GPU copy from this memory
+				VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, //host-visible memory, coherent (no special sync needed)
+				Helpers::Mapped //get a pointer to the memory
+			);
+			workspace.CS_transforms = rtg.helpers.create_buffer(
+				new_bytes,
+				VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, //going to use as storage buffer, also going to have GPU into this memory
+				VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, //GPU-local memory
+				Helpers::Unmapped //don't get a pointer to the memory
+			);
+
+			//update the descriptor set:
+			VkDescriptorBufferInfo Transforms_info{
+				.buffer = workspace.CS_transforms.handle,
+				.offset = 0,
+				.range = workspace.CS_transforms.size,
+			};
+
+			std::array< VkWriteDescriptorSet, 1 > writes{
+				VkWriteDescriptorSet{
+					.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+					.dstSet = workspace.CS_descriptors,
+					.dstBinding = 3,
+					.dstArrayElement = 0,
+					.descriptorCount = 1,
+					.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+					.pBufferInfo = &Transforms_info,
+				},
+			};
+
+			vkUpdateDescriptorSets(
+				rtg.device,
+				uint32_t(writes.size()), writes.data(), //descriptorWrites count, data
+				0, nullptr //descriptorCopies count, data
+			);
+
+			std::cout << "Re-allocated cluster selection transforms buffers to " << new_bytes << " bytes." << std::endl;
+		}
+
+		assert(workspace.CS_transforms_src.size == workspace.CS_transforms.size);
+		assert(workspace.CS_transforms_src.size >= needed_bytes);
+
+		{ //copy CS_transforms into CS_transforms_src:
+			assert(workspace.CS_transforms_src.allocation.mapped);
+			memcpy(workspace.CS_transforms_src.allocation.data(), CS_transforms.data(), needed_bytes);
+
+			//device-side copy from Transforms_src -> Transforms:
+			VkBufferCopy copy_region{
+				.srcOffset = 0,
+				.dstOffset = 0,
+				.size = needed_bytes,
+			};
+			vkCmdCopyBuffer(workspace.command_buffer, workspace.CS_transforms_src.handle, workspace.CS_transforms.handle, 1, &copy_region);
+		}
+
+		{ //copy stack to CS_stack_src
+			assert(workspace.CS_stack_src.allocation.mapped);
+			size_t stack_bytes = CS_stack.size()*sizeof(ClusterSelectionPipeline::StackElement);
+			memcpy(workspace.CS_stack_src.allocation.data(), CS_stack.data(), stack_bytes);
+
+			//device-side copy from CS_stack_src -> CS_stack:
+			VkBufferCopy copy_region{
+				.srcOffset = 0,
+				.dstOffset = 0,
+				.size = stack_bytes,
+			};
+			vkCmdCopyBuffer(workspace.command_buffer, workspace.CS_stack_src.handle, workspace.CS_stack.handle, 1, &copy_region);
+		}
+
+		{ //copy world
+			assert(workspace.CS_world_src.allocation.mapped);
+			memcpy(workspace.CS_world_src.allocation.data(), &CS_world, sizeof(ClusterSelectionPipeline::World));
+			VkBufferCopy copy_region{
+				.srcOffset = 0,
+				.dstOffset = 0,
+				.size = sizeof(ClusterSelectionPipeline::World),
+			};
+			vkCmdCopyBuffer(workspace.command_buffer, workspace.CS_world_src.handle, workspace.CS_world.handle, 1, &copy_region);
+		}
+
+		std::array<VkBufferMemoryBarrier, 3> buffer_memory_barriers = {
+			VkBufferMemoryBarrier{
+				.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
+				.srcAccessMask = VK_ACCESS_MEMORY_WRITE_BIT,
+				.dstAccessMask = VK_ACCESS_MEMORY_READ_BIT,
+				.buffer = workspace.CS_transforms.handle,
+				.size = VK_WHOLE_SIZE, 
+			},
+
+			VkBufferMemoryBarrier{
+				.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
+				.srcAccessMask = VK_ACCESS_MEMORY_WRITE_BIT,
+				.dstAccessMask = VK_ACCESS_MEMORY_READ_BIT,
+				.buffer = workspace.CS_stack.handle,
+				.size = VK_WHOLE_SIZE, 
+			},
+
+			VkBufferMemoryBarrier{
+				.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
+				.srcAccessMask = VK_ACCESS_MEMORY_WRITE_BIT,
+				.dstAccessMask = VK_ACCESS_MEMORY_READ_BIT,
+				.buffer = workspace.CS_world.handle,
+				.size = VK_WHOLE_SIZE, 
+			},
+		};
+
+
+		vkCmdPipelineBarrier( 
+			workspace.command_buffer,
+			VK_PIPELINE_STAGE_TRANSFER_BIT, //srcStageMask
+			VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, //dstStageMask
+			0, //dependencyFlags
+			0, nullptr, //memoryBarriers (count, data)
+			uint32_t(buffer_memory_barriers.size()), buffer_memory_barriers.data(), //bufferMemoryBarriers (count, data)
+			0, nullptr //imageMemoryBarriers (count, data)
+		);
+	}
+
+	
 
 	//copy transforms, needed for both shadow atlas pass and render pass
 	if (!lambertian_instances.empty() || !environment_instances.empty() || !mirror_instances.empty() || !pbr_instances.empty() || !clustered_mesh_instances.empty()) { //upload object transforms:
@@ -2370,48 +2734,6 @@ void RTGRenderer::render(RTG &rtg_, RTG::RenderParams const &render_params) {
 					
 				}
 			}
-
-
-			// for (uint32_t lod_level = 0; lod_level < uint32_t(dag.clusters.size()); ++ lod_level) {
-			// 	for (uint32_t cluster_i = 0; cluster_i < uint32_t(dag.clusters[lod_level].size()); ++ cluster_i) {
-			// 		if (cluster_renderable(dag, dag.clusters[lod_level][cluster_i], lod_level, user_camera.eye,frustum_clip_from_view, frustum_view_from_world, rtg.swapchain_extent.width,  rtg.swapchain_extent.height)) {
-			// 			// std::cout<<glm::to_string(dag.clusters[lod_level][cluster_i].bounding_sphere)<<std::endl;
-
-			// 			//bind texture descriptor set:
-			// 			vkCmdBindDescriptorSets(
-			// 				workspace.command_buffer, //command buffer
-			// 				VK_PIPELINE_BIND_POINT_GRAPHICS, //pipeline bind point
-			// 				lambertian_pipeline.layout, //pipeline layout
-			// 				2, //second set
-			// 				1, &material_descriptors[lod_level% 5 + 1], //descriptor sets count, ptr //dag.color_index[lod_level][cluster_i]
-			// 				0, nullptr //dynamic offsets count, ptr
-			// 			);
-						
-			// 			vkCmdDraw(workspace.command_buffer, dag.clusters[lod_level][cluster_i].vertices_count, 1, dag.clusters[lod_level][cluster_i].vertices_begin, 0);
-			// 		}
-
-			// 	}
-			// }
-
-			// glm::mat4x4& frustum_view_from_world = culling_camera == SceneCamera ? view_from_world[0] : view_from_world[1];
-			// glm::mat4x4& frustum_clip_from_view = culling_camera == SceneCamera ? clip_from_view[0] : clip_from_view[1];
-			// std::vector<std::pair<uint32_t, uint32_t>> renderable_clusters = get_nodes_renderable(scene.clustered_meshes[0], clustered_mesh_instances[0].transform.WORLD_FROM_LOCAL,user_camera.eye,
-			// 	frustum_clip_from_view, frustum_view_from_world, rtg.swapchain_extent.width,  rtg.swapchain_extent.height);
-			// for (auto& renderable_cluster : renderable_clusters) {
-
-			// 	//bind texture descriptor set:
-			// 	vkCmdBindDescriptorSets(
-			// 		workspace.command_buffer, //command buffer
-			// 		VK_PIPELINE_BIND_POINT_GRAPHICS, //pipeline bind point
-			// 		lambertian_pipeline.layout, //pipeline layout
-			// 		2, //second set
-			// 		1, &material_descriptors[renderable_cluster.second % 5 + 1], //descriptor sets count, ptr //dag.color_index[lod_level][cluster_i]
-			// 		0, nullptr //dynamic offsets count, ptr
-			// 	);
-			// 	vkCmdDraw(workspace.command_buffer, scene.clustered_meshes[0].vertices[renderable_cluster.first].vertices_count, 1, scene.clustered_meshes[0].vertices[renderable_cluster.first].vertices_begin + clustered_mesh_instances[0].offset, 0);
-					
-				
-			// }
 
 		}
 	
@@ -3503,12 +3825,13 @@ void RTGRenderer::update(float dt) {
 					clustered_mesh_instances.emplace_back(ClusterObjectInstance{
 						.index = uint32_t(cur_clustered_index),
 						.offset = cluster_mesh_vertices[cur_clustered_index],
+						.material_index = cur_material_index,
+						.object_index = uint32_t(cur_clustered_index),
 						.transform{
 							.CLIP_FROM_LOCAL = CLIP_FROM_WORLD * WORLD_FROM_LOCAL,
 							.WORLD_FROM_LOCAL = WORLD_FROM_LOCAL,
 							.WORLD_FROM_LOCAL_NORMAL = WORLD_FROM_LOCAL_NORMAL,
 						},
-						.material_index = cur_material_index,
 					});
 
 				}
@@ -3517,12 +3840,13 @@ void RTGRenderer::update(float dt) {
 					clustered_mesh_instances.emplace_back(ClusterObjectInstance{
 						.index = uint32_t(cur_clustered_index),
 						.offset = cluster_mesh_vertices[cur_clustered_index],
+						.material_index = 0,//default material
+						.object_index = uint32_t(cur_clustered_index),
 						.transform{
 							.CLIP_FROM_LOCAL = CLIP_FROM_WORLD * WORLD_FROM_LOCAL,
 							.WORLD_FROM_LOCAL = WORLD_FROM_LOCAL,
 							.WORLD_FROM_LOCAL_NORMAL = WORLD_FROM_LOCAL_NORMAL,
 						},
-						.material_index = 0,//default material
 					});
 				}
 			}
@@ -3566,49 +3890,81 @@ void RTGRenderer::update(float dt) {
 
 	
 	{ // cull clusters on the CPU and assign to the correct instance vectors
+		if (rtg.configuration.gpu_cluster_culling) {
+			// reset all the vectors
+			std::fill(CS_stack.begin(),CS_stack.end(), ClusterSelectionPipeline::StackElement());
+			std::fill(CS_result.begin(),CS_result.end(), ClusterSelectionPipeline::ResultCluster());
+			CS_transforms.clear();
 
-		glm::mat4x4& frustum_view_from_world = culling_camera == SceneCamera ? view_from_world[0] : view_from_world[1];
-		glm::mat4x4& frustum_clip_from_view = culling_camera == SceneCamera ? clip_from_view[0] : clip_from_view[1];
-		for (size_t i = 0; i< clustered_mesh_instances.size(); ++i) {
-			ClusterObjectInstance& cluster_instance = clustered_mesh_instances[i];
-			Scene::Material& cur_material = scene.materials[cluster_instance.material_index];
-			uint32_t offset = cluster_instance.offset;
-			ClusterBVH& cluster_bvh = scene.clustered_meshes[cluster_instance.index];
-			Transform& transform = cluster_instance.transform;
-			// vector of node index and lod level (used for rendering same lod as same levels)
-			std::vector<std::pair<uint32_t, uint32_t>> renderable_clusters = get_nodes_renderable(cluster_bvh, transform.WORLD_FROM_LOCAL, user_camera.eye,
-				frustum_clip_from_view, frustum_view_from_world, rtg.swapchain_extent.width,  rtg.swapchain_extent.height);
+			// fill in CS World
+			CS_world.clip_from_view = SceneCamera ? clip_from_view[0] : clip_from_view[1];
+			CS_world.view_from_world = SceneCamera ? view_from_world[0] : view_from_world[1];
+			CS_world.camera_position = user_camera.eye;
+			CS_world.current_stack_top = 0;
 
-			// add to the appropriate instances depending on material
-			if (nanite_debug_state == NaniteDebugState::Off) {
-				for (std::pair<uint32_t, uint32_t> renderable_cluster : renderable_clusters) {
-					uint32_t node_index = renderable_cluster.first;
-					cluster_instances[static_cast<uint32_t>(cur_material.material_type)].emplace_back(
-						ClusterInstance {
-							.vertices = ObjectVertices{
-								.first = offset + cluster_bvh.vertices[node_index].vertices_begin, 
-								.count = cluster_bvh.vertices[node_index].vertices_count
-							},
-							.cluster_object_index = uint32_t(i),
-						}
-					);
+			// loop through all instances and create the root nodes
+			for (size_t i = 0; i< clustered_mesh_instances.size(); ++i) {
+				ClusterObjectInstance& cluster_instance = clustered_mesh_instances[i];
+				ClusterBVH& bvh = scene.clustered_meshes[cluster_instance.index];
+				Transform& transform = cluster_instance.transform;
+				CS_transforms.push_back(transform);
+				for (uint32_t& root_node : bvh.root_nodes) {
+					CS_stack[CS_world.current_stack_top] = ClusterSelectionPipeline::StackElement{
+						.state = 1,
+						.lod = 0,
+						.object_index = uint16_t(cluster_instance.object_index),
+						.node_index = root_node,
+						.transform_index = uint32_t(CS_transforms.size()-1),
+					};
+					CS_world.current_stack_top += 1;
 				}
-
 			}
-			else {
-				for (std::pair<uint32_t, uint32_t> renderable_cluster : renderable_clusters) {
-					uint32_t node_index = renderable_cluster.first;
-					cluster_instances[static_cast<uint32_t>(Scene::Material::Lambertian)].emplace_back(
-						ClusterInstance {
-							.vertices = ObjectVertices{
-								.first = offset + cluster_bvh.vertices[node_index].vertices_begin, 
-								.count = cluster_bvh.vertices[node_index].vertices_count
-							},
-							.cluster_object_index = uint32_t(i),
-							.index = node_index,
-							.lod = renderable_cluster.second,
-						}
-					);
+
+		}
+		else {
+			glm::mat4x4& frustum_view_from_world = culling_camera == SceneCamera ? view_from_world[0] : view_from_world[1];
+			glm::mat4x4& frustum_clip_from_view = culling_camera == SceneCamera ? clip_from_view[0] : clip_from_view[1];
+			for (size_t i = 0; i< clustered_mesh_instances.size(); ++i) {
+				ClusterObjectInstance& cluster_instance = clustered_mesh_instances[i];
+				Scene::Material& cur_material = scene.materials[cluster_instance.material_index];
+				uint32_t offset = cluster_instance.offset;
+				ClusterBVH& cluster_bvh = scene.clustered_meshes[cluster_instance.index];
+				Transform& transform = cluster_instance.transform;
+				// vector of node index and lod level (used for rendering same lod as same levels)
+				std::vector<std::pair<uint32_t, uint32_t>> renderable_clusters = get_nodes_renderable(cluster_bvh, transform.WORLD_FROM_LOCAL, user_camera.eye,
+					frustum_clip_from_view, frustum_view_from_world, rtg.swapchain_extent.width,  rtg.swapchain_extent.height);
+	
+				// add to the appropriate instances depending on material
+				if (nanite_debug_state == NaniteDebugState::Off) {
+					for (std::pair<uint32_t, uint32_t> renderable_cluster : renderable_clusters) {
+						uint32_t node_index = renderable_cluster.first;
+						cluster_instances[static_cast<uint32_t>(cur_material.material_type)].emplace_back(
+							ClusterInstance {
+								.vertices = ObjectVertices{
+									.first = offset + cluster_bvh.vertices[node_index].vertices_begin, 
+									.count = cluster_bvh.vertices[node_index].vertices_count
+								},
+								.cluster_object_index = uint32_t(i),
+							}
+						);
+					}
+	
+				}
+				else {
+					for (std::pair<uint32_t, uint32_t> renderable_cluster : renderable_clusters) {
+						uint32_t node_index = renderable_cluster.first;
+						cluster_instances[static_cast<uint32_t>(Scene::Material::Lambertian)].emplace_back(
+							ClusterInstance {
+								.vertices = ObjectVertices{
+									.first = offset + cluster_bvh.vertices[node_index].vertices_begin, 
+									.count = cluster_bvh.vertices[node_index].vertices_count
+								},
+								.cluster_object_index = uint32_t(i),
+								.index = node_index,
+								.lod = renderable_cluster.second,
+							}
+						);
+					}
 				}
 			}
 		}

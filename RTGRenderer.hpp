@@ -268,6 +268,43 @@ struct RTGRenderer : RTG::Application {
 		void destroy(RTG &);
 	} cloud_lightgrid_pipeline;
 
+	struct ClusterSelectionPipeline {
+		//descriptor set layouts
+		VkDescriptorSetLayout set0_Resources = VK_NULL_HANDLE;
+
+		struct World {
+			uint32_t width; // screen width and height
+			uint32_t height;
+			glm::mat4x4 clip_from_view;
+			glm::mat4x4 view_from_world;
+			glm::vec3 camera_position;
+			uint32_t current_stack_top = 0;
+		};
+
+		struct StackElement {
+			uint32_t state = 0; // 0 is empty, 1 is filled
+			uint16_t lod = 0;
+			uint16_t object_index = 0; // for offsets in node and group
+			uint32_t node_index = 0;
+			uint32_t transform_index = 0; // for transforms
+		};
+
+		struct ResultCluster {
+			uint32_t node_index = static_cast<uint32_t>(-1);
+			uint16_t object_index;
+			uint16_t lod;
+		};
+		
+		VkPipelineLayout layout = VK_NULL_HANDLE;
+		
+		VkPipeline handle = VK_NULL_HANDLE;
+
+		const uint32_t buffer_size = 10000000; // just setting buffer to some constant for now
+
+		void create(RTG &);
+		void destroy(RTG &);
+	} cluster_selection_pipeline;
+
 	//pools from which per-workspace things are allocated:
 	VkCommandPool command_pool = VK_NULL_HANDLE;
 	
@@ -310,14 +347,28 @@ struct RTGRenderer : RTG::Application {
 		VkDescriptorSet Cloud_World_descriptors; //references the target image for the compute shader
 		VkDescriptorSet Cloud_LightGrid_World_descriptors; // used as world descriptor in light grid compute
 
-		// location 
+		// locations for cluster selection
+		Helpers::AllocatedBuffer CS_stack_src; //host coherent; mapped, also holds the root clusters at the start of each render
+		Helpers::AllocatedBuffer CS_stack; //device-local
+		Helpers::AllocatedBuffer CS_transforms_src; //host coherent; mapped, filled in at start of each render
+		Helpers::AllocatedBuffer CS_transforms; //device-local
+		Helpers::AllocatedBuffer CS_result; //device-local
+		Helpers::AllocatedBuffer CS_result_dst; //host coherent; mapped
+		Helpers::AllocatedBuffer CS_world_src; //host coherent; mapped
+		Helpers::AllocatedBuffer CS_world; //device-local
+		VkDescriptorSet CS_descriptors; // used as resource descriptor in cluster selection compute
 	};
 	std::vector< Workspace > workspaces;
-
+	
 	//-------------------------------------------------------------------
 	//static scene resources:
-
+	
     Helpers::AllocatedBuffer object_vertices;
+	// cluster selection resources that is shared between all workspaces
+	Helpers::AllocatedBuffer CS_clusters; //device-local
+	Helpers::AllocatedBuffer CS_groups; //device-local
+	Helpers::AllocatedBuffer CS_object_offsets; //device-local
+
     struct ObjectVertices {
 		uint32_t first = 0;
 		uint32_t count = 0;
@@ -390,6 +441,11 @@ struct RTGRenderer : RTG::Application {
 	CloudPipeline::CloudWorld cloud_world;
 
 	using Transform = LambertianPipeline::Transform;
+
+	ClusterSelectionPipeline::World CS_world;
+	std::vector<ClusterSelectionPipeline::StackElement> CS_stack;
+	std::vector<ClusterSelectionPipeline::ResultCluster> CS_result;
+	std::vector<Transform> CS_transforms;
     
     struct ObjectInstance {
 		ObjectVertices vertices;
@@ -402,8 +458,9 @@ struct RTGRenderer : RTG::Application {
 	struct ClusterObjectInstance {
 		uint32_t index; // index of the cluster
 		uint32_t offset; // vertex offset of the entire clustered mesh
-		Transform transform;
 		uint32_t material_index;
+		uint32_t object_index;// in scene's vector (used by gpu culling)
+		Transform transform;
 	};
 	std::vector< ClusterObjectInstance > clustered_mesh_instances;
 
