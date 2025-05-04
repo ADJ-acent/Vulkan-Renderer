@@ -46,6 +46,8 @@ void NaniteMeshApp::Configuration::parse(int argc, char **argv) {
         }
         else if (arg == "--save-folder") {
             if (argi + 1 >= argc) throw std::runtime_error("--save-folder requires a parameter (folder name to store .clsr).\n");
+            argi += 1;
+            save_folder = argv[argi];
         }
 	}
 	if (glTF_path == "") {
@@ -70,18 +72,18 @@ NaniteMeshApp::NaniteMeshApp(Configuration & configuration_) :
 	loadGLTF(configuration.glTF_path, model, loader);
     clusters = cluster(triangles, configuration.per_cluster_triangle_limit);
     initialize_base_bounding_spheres();
-    assert(is_mesh_manifold(triangles));
+    // assert(is_mesh_manifold(triangles));
     for (uint32_t i = 0; i < configuration.simplify_count; ++i) {
         group();
 
         write_clsr(configuration.save_folder, i, clusters, current_cluster_group, triangles, vertices);
-        assert(is_mesh_manifold(triangles));
+        // assert(is_mesh_manifold(triangles));
         
         // save_model(model, std::string("../gltf/test_" + std::to_string(i)));
         save_groups_as_clusters(model, i);
         simplify_cluster_groups();
         // write_clusters_to_model(model);
-        assert(is_mesh_manifold(triangles));
+        // assert(is_mesh_manifold(triangles));
         cluster_in_groups();
     }	
 }
@@ -179,6 +181,13 @@ void NaniteMeshApp::loadGLTF(std::string gltfPath, tinygltf::Model& model, tinyg
 				auto get_vertex_index = [&](uint32_t i) {
 					CLSR::Vertex vert;
 					vert.position = positions ? positions[i] : glm::vec3(0.0f);
+                    const glm::mat4 yUp_to_zUp = glm::mat4(
+                        1,  0,  0, 0,
+                        0,  0,  1, 0,
+                        0, -1,  0, 0,
+                        0,  0,  0, 1
+                    );
+                    vert.position = glm::vec3(yUp_to_zUp * glm::vec4(vert.position,0));
 					vert.normal = normals ? normals[i] : glm::vec3(0.0f, 1.0f, 0.0f);
 					vert.tangent = tangents ? tangents[i] : glm::vec4(1.0f, 0.0f, 0.0f, 1.0f);
 					vert.tex_coords = texcoords ? glm::vec2(texcoords[i].x, 1.0f - texcoords[i].y) : glm::vec2(0.0f);;

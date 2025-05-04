@@ -481,7 +481,7 @@ struct RTGRenderer : RTG::Application {
 		Off = 0,
 		Cluster = 1,
 		LOD = 2,
-	} nanite_debug_state = NaniteDebugState::Cluster;
+	} nanite_debug_state = NaniteDebugState::Off;
 
 	// perspective and view matrices for scene, user, and debug cameras
 	std::array<glm::mat4x4, 3> clip_from_view;
